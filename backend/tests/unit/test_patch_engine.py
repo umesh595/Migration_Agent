@@ -93,12 +93,46 @@ def test_remove_component_cascades_dependency_removal():
     assert new_model.dependencies == []
 
 
-def test_update_component_rejects_unknown_field():
+def test_update_component_rejects_a_no_op_patch_that_sets_no_fields():
     model = _model_with_two_components()
-    patch_set = PatchSet(patches=[UpdateComponentPatch(id="postgres", fields={"id": "hacked"})], narration="")
+    patch_set = PatchSet(patches=[UpdateComponentPatch(id="postgres")], narration="")
     _, results = apply_patch_set(model, patch_set)
 
     assert results[0].outcome == PatchOutcome.REJECTED
+    assert "nothing to change" in results[0].reason
+
+
+def test_update_component_applies_only_the_fields_actually_set():
+    model = _model_with_two_components()
+    patch_set = PatchSet(
+        patches=[UpdateComponentPatch(id="postgres", technology="PostgreSQL 16", criticality="tier-1")],
+        narration="",
+    )
+    new_model, results = apply_patch_set(model, patch_set)
+
+    assert results[0].outcome == PatchOutcome.APPLIED
+    updated = new_model.get_component("postgres")
+    assert updated.technology == "PostgreSQL 16"
+    assert updated.criticality == "tier-1"
+    assert updated.name == "Postgres"  # untouched — wasn't set on the patch
+
+
+def test_invalid_component_environment_is_rejected_without_crashing():
+    model = ArchitectureModel()
+    bad_patch = AddComponentPatch.model_construct(
+        op="add_component",
+        id="static_assets",
+        name="Static Assets",
+        workload_type="storage",
+        environment="S3/CloudFront",
+    )
+    patch_set = PatchSet.model_construct(patches=[bad_patch], narration="")
+
+    new_model, results = apply_patch_set(model, patch_set)
+
+    assert new_model.components == []
+    assert results[0].outcome == PatchOutcome.REJECTED
+    assert "invalid environment" in results[0].reason
 
 
 def test_partial_batch_first_patch_valid_second_invalid_first_still_applied():

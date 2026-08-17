@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.schemas.architecture import Component, Dependency, DependencyKind, WorkloadType
+from app.schemas.architecture import Component, Dependency, DependencyKind, Environment, WorkloadType
 
 
 class PatchOp(StrEnum):
@@ -30,13 +30,40 @@ class AddComponentPatch(BaseModel):
     workload_type: WorkloadType
     description: str = ""
     technology: str | None = None
-    environment: str | None = None
+    environment: Environment | None = None
 
 
 class UpdateComponentPatch(BaseModel):
+    """Every updatable field is listed explicitly rather than a free-form
+    `fields: dict[str, str]` — discovered against the live OpenAI API (not a
+    design preference): Structured Outputs strict mode cannot represent an
+    open-ended key→value map, since every property must be enumerable ahead of
+    time. See DECISIONS.md. `id` is deliberately not one of these fields — there
+    is no mechanism through which this patch could rewrite a component's identity,
+    not just a validation rule against it (enforced by test)."""
+
     op: Literal[PatchOp.UPDATE_COMPONENT] = PatchOp.UPDATE_COMPONENT
     id: str
-    fields: dict[str, str] = Field(description="Subset of Component fields to overwrite.")
+    name: str | None = None
+    description: str | None = None
+    technology: str | None = None
+    owner_team: str | None = None
+    criticality: str | None = None
+    environment: Environment | None = None
+
+    def updated_fields(self) -> dict[str, str | Environment]:
+        """Only the fields actually set — None means 'leave unchanged', not
+        'clear this field' (there's no way to blank a field via this patch)."""
+
+        candidates = {
+            "name": self.name,
+            "description": self.description,
+            "technology": self.technology,
+            "owner_team": self.owner_team,
+            "criticality": self.criticality,
+            "environment": self.environment,
+        }
+        return {field: value for field, value in candidates.items() if value is not None}
 
 
 class RemoveComponentPatch(BaseModel):

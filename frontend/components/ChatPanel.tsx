@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ApiError, streamMessage } from "@/lib/api";
 import type { NodeCompleteEvent, TurnCompleteEvent } from "@/lib/types";
@@ -14,6 +14,8 @@ interface ChatMessage {
 // in sync manually since the two run in separate deploys; the server is the real
 // enforcement point, this is just an honest client-side heads-up.
 const MAX_MESSAGE_LENGTH = 50_000;
+const COLLAPSE_MESSAGE_LENGTH = 1_200;
+const MESSAGE_PREVIEW_LENGTH = 700;
 
 // Discovery reads pasted text conversationally, same ingest_patches prompt as any
 // typed message — this is NOT an automated parser for these formats. The PRD's
@@ -42,6 +44,39 @@ function narrateNode(event: NodeCompleteEvent): string {
   return NODE_LABELS[event.node] ?? `Working (${event.node})…`;
 }
 
+function ChatBubble({ message }: { message: ChatMessage }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLongUserMessage = message.role === "user" && message.text.length > COLLAPSE_MESSAGE_LENGTH;
+  const visibleText =
+    isLongUserMessage && !expanded
+      ? `${message.text.slice(0, MESSAGE_PREVIEW_LENGTH).trimEnd()}\n\n...`
+      : message.text;
+
+  return (
+    <div
+      className={
+        message.role === "user"
+          ? "ml-8 rounded-lg bg-brand-50 p-2 text-sm text-slate-800"
+          : message.role === "error"
+            ? "rounded-lg bg-red-50 p-2 text-sm text-red-700"
+            : "mr-8 whitespace-pre-line rounded-lg bg-slate-100 p-2 text-sm text-slate-800"
+      }
+      role={message.role === "error" ? "alert" : undefined}
+    >
+      <div className="whitespace-pre-line">{visibleText}</div>
+      {isLongUserMessage && (
+        <button
+          type="button"
+          className="mt-2 text-xs font-medium text-brand-700 hover:text-brand-800"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? "Show less" : `Show full input (${message.text.length.toLocaleString()} characters)`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function ChatPanel({
   sessionId,
   placeholder,
@@ -61,6 +96,11 @@ export function ChatPanel({
   const [liveStatus, setLiveStatus] = useState("");
   const [attachError, setAttachError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, liveStatus]);
 
   async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -144,24 +184,12 @@ export function ChatPanel({
     <div className="card flex h-[560px] flex-col">
       <h3 className="mb-2 text-sm font-semibold text-slate-700">Conversation</h3>
 
-      <div className="flex-1 space-y-3 overflow-y-auto pr-1" aria-live="polite">
+      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto pr-1" aria-live="polite">
         {messages.length === 0 && (
           <p className="text-sm text-slate-400">{placeholder}</p>
         )}
         {messages.map((m, i) => (
-          <div
-            key={i}
-            className={
-              m.role === "user"
-                ? "ml-8 rounded-lg bg-brand-50 p-2 text-sm text-slate-800"
-                : m.role === "error"
-                  ? "rounded-lg bg-red-50 p-2 text-sm text-red-700"
-                  : "mr-8 whitespace-pre-line rounded-lg bg-slate-100 p-2 text-sm text-slate-800"
-            }
-            role={m.role === "error" ? "alert" : undefined}
-          >
-            {m.text}
-          </div>
+          <ChatBubble key={i} message={m} />
         ))}
         {streaming && <p className="text-xs text-slate-400">{liveStatus}</p>}
       </div>

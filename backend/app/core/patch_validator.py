@@ -5,7 +5,7 @@ reaches the model, regardless of how confidently the LLM phrased it."""
 
 from __future__ import annotations
 
-from app.schemas.architecture import ArchitectureModel
+from app.schemas.architecture import ArchitectureModel, Environment
 from app.schemas.patches import (
     AddAssumptionPatch,
     AddComponentPatch,
@@ -17,8 +17,6 @@ from app.schemas.patches import (
     UpdateComponentPatch,
 )
 
-_UPDATABLE_COMPONENT_FIELDS = {"name", "description", "technology", "owner_team", "criticality", "environment"}
-
 
 def validate_patch(model: ArchitectureModel, patch: Patch) -> str | None:
     """Returns None if the patch is valid against `model`, otherwise a human-readable
@@ -28,14 +26,23 @@ def validate_patch(model: ArchitectureModel, patch: Patch) -> str | None:
         case AddComponentPatch():
             if patch.id in model.component_ids():
                 return f"a component with id '{patch.id}' already exists"
+            if patch.environment is not None and patch.environment not in set(Environment):
+                return (
+                    f"invalid environment '{patch.environment}'. "
+                    f"Allowed values are: {', '.join(e.value for e in Environment)}"
+                )
             return None
 
         case UpdateComponentPatch():
             if patch.id not in model.component_ids():
                 return f"no component with id '{patch.id}' exists"
-            unknown_fields = set(patch.fields) - _UPDATABLE_COMPONENT_FIELDS
-            if unknown_fields:
-                return f"cannot update field(s) {sorted(unknown_fields)} — not part of the component schema"
+            if not patch.updated_fields():
+                return "update_component patch sets no fields — nothing to change"
+            if patch.environment is not None and patch.environment not in set(Environment):
+                return (
+                    f"invalid environment '{patch.environment}'. "
+                    f"Allowed values are: {', '.join(e.value for e in Environment)}"
+                )
             return None
 
         case RemoveComponentPatch():

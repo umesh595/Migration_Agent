@@ -1,13 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  Background,
-  Controls,
-  ReactFlow,
-  type Edge,
-  type Node,
-} from "@xyflow/react";
+import { Background, Controls, ReactFlow, type Edge, type Node } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
 import type { ArchitectureModel, Wave } from "@/lib/types";
@@ -15,12 +9,8 @@ import type { ArchitectureModel, Wave } from "@/lib/types";
 const COLUMN_WIDTH = 240;
 const ROW_HEIGHT = 90;
 
-/** Presentation-only layout — never a decision authority. When a plan exists, this
- * mirrors the backend-computed wave order (waves[] came from GraphEngine's
- * topological sort) so the canvas visually reinforces the real sequencing. Before
- * a plan exists, it falls back to a simple client-side layering purely so the graph
- * reads left-to-right instead of overlapping at the origin — it does not decide or
- * influence any migration order (see Doc 3 §3.3 / DECISIONS.md). */
+/** Presentation-only layout. When a plan exists, this mirrors backend-computed
+ * waves; before that it falls back to readable client-side layering. */
 function layoutPositions(model: ArchitectureModel, waves: Wave[] | null): Map<string, { x: number; y: number }> {
   const positions = new Map<string, { x: number; y: number }>();
 
@@ -33,7 +23,6 @@ function layoutPositions(model: ArchitectureModel, waves: Wave[] | null): Map<st
     return positions;
   }
 
-  // Fallback: Kahn's-algorithm-style layering for readability only.
   const ids = model.components.map((c) => c.id);
   const incoming = new Map<string, Set<string>>(ids.map((id) => [id, new Set()]));
   for (const dep of model.dependencies) {
@@ -47,7 +36,7 @@ function layoutPositions(model: ArchitectureModel, waves: Wave[] | null): Map<st
   let layer = 0;
   while (remaining.size > 0 && layer < ids.length + 1) {
     const ready = [...remaining].filter((id) => [...incoming.get(id)!].every((dep) => !remaining.has(dep)));
-    const resolved = ready.length > 0 ? ready : [...remaining]; // break any cycle rather than looping forever
+    const resolved = ready.length > 0 ? ready : [...remaining];
     for (const id of resolved) {
       layerOf.set(id, layer);
       remaining.delete(id);
@@ -66,7 +55,7 @@ function layoutPositions(model: ArchitectureModel, waves: Wave[] | null): Map<st
 }
 
 export function ArchitectureCanvas({ model, waves }: { model: ArchitectureModel; waves?: Wave[] }) {
-  const [showText, setShowText] = useState(false);
+  const [showText, setShowText] = useState(true);
   const positions = useMemo(() => layoutPositions(model, waves ?? null), [model, waves]);
 
   const nodes: Node[] = useMemo(
@@ -104,11 +93,11 @@ export function ArchitectureCanvas({ model, waves }: { model: ArchitectureModel;
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-700">Architecture canvas</h3>
+        <h3 className="text-sm font-semibold text-slate-700">Architecture output</h3>
         <button
           type="button"
           className="btn-secondary text-xs"
-          aria-pressed={showText}
+          aria-pressed={!showText}
           onClick={() => setShowText((v) => !v)}
         >
           {showText ? "Show diagram" : "View as text"}
@@ -116,21 +105,34 @@ export function ArchitectureCanvas({ model, waves }: { model: ArchitectureModel;
       </div>
 
       {showText ? (
-        <div className="card text-sm">
-          <h4 className="font-medium text-slate-700">Components ({model.components.length})</h4>
-          <ul className="mt-1 list-disc space-y-1 pl-5">
+        <div className="card max-h-[520px] overflow-y-auto text-sm">
+          <h4 className="font-medium text-slate-700">Architecture summary</h4>
+          <p className="mt-1 text-xs text-slate-500">
+            {model.components.length} components and {model.dependencies.length} dependencies were extracted.
+          </p>
+
+          <h5 className="mt-4 font-medium text-slate-700">Components</h5>
+          <ul className="mt-1 space-y-3">
             {model.components.map((c) => (
               <li key={c.id}>
-                <span className="font-medium">{c.name}</span> ({c.workload_type}, {c.environment})
-                {c.technology ? ` — ${c.technology}` : ""}
+                <div className="font-medium text-slate-800">{c.name}</div>
+                <div className="text-xs text-slate-500">
+                  {c.workload_type.replace(/_/g, " ")} | {c.environment}
+                  {c.technology ? ` | ${c.technology}` : ""}
+                </div>
+                {c.description && <p className="mt-1 text-slate-600">{c.description}</p>}
               </li>
             ))}
           </ul>
-          <h4 className="mt-3 font-medium text-slate-700">Dependencies ({model.dependencies.length})</h4>
-          <ul className="mt-1 list-disc space-y-1 pl-5">
+
+          <h5 className="mt-4 font-medium text-slate-700">Dependencies</h5>
+          <ul className="mt-1 space-y-2">
             {model.dependencies.map((d) => (
               <li key={d.id}>
-                {d.source_id} → {d.target_id} ({d.kind})
+                <div className="text-slate-800">
+                  {d.source_id} -&gt; {d.target_id} ({d.kind.replace(/_/g, " ")})
+                </div>
+                {d.description && <div className="text-xs text-slate-500">{d.description}</div>}
               </li>
             ))}
           </ul>

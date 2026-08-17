@@ -43,7 +43,7 @@ def _apply_single(model: ArchitectureModel, patch: Patch) -> ArchitectureModel:
         case UpdateComponentPatch():
             component = data.get_component(patch.id)
             assert component is not None
-            for field, value in patch.fields.items():
+            for field, value in patch.updated_fields().items():
                 setattr(component, field, value)
 
         case RemoveComponentPatch():

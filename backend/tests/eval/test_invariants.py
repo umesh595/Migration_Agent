@@ -70,13 +70,27 @@ class TestHallucinationContainment:
         assert new_model.component_ids() == model.component_ids()
         assert len(new_model.dependencies) == len(model.dependencies)
 
-    def test_llm_cannot_rewrite_a_component_id_to_hijack_identity(self):
+    def test_update_component_patch_schema_has_no_mechanism_to_rewrite_id(self):
+        """Identity hijacking isn't just rejected by validation — the schema has no
+        field through which the LLM could even attempt it. `fields` used to be a
+        free-form dict (validated against an allow-list at runtime); it's now
+        explicit named fields with no `id` among them, so the attack is
+        structurally impossible rather than merely caught (see DECISIONS.md —
+        this shape was also forced by OpenAI's Structured Outputs strict mode,
+        which can't represent an open-ended dict at all)."""
+
+        updatable_fields = set(UpdateComponentPatch.model_fields) - {"op", "id"}
+        assert "id" not in updatable_fields
+        assert updatable_fields == {"name", "description", "technology", "owner_team", "criticality", "environment"}
+
+    def test_update_component_patch_cannot_alter_the_targeted_components_id_at_apply_time(self):
         model = _model()
-        hostile = PatchSet(patches=[UpdateComponentPatch(id="db", fields={"id": "web"})], narration="")
+        hostile = PatchSet(patches=[UpdateComponentPatch(id="db", name="Definitely Not DB")], narration="")
         new_model, results = apply_patch_set(model, hostile)
 
-        assert results[0].outcome == PatchOutcome.REJECTED
+        assert results[0].outcome == PatchOutcome.APPLIED
         assert {c.id for c in new_model.components} == {"web", "api", "db"}
+        assert new_model.get_component("db").name == "Definitely Not DB"
 
     def test_every_patch_produces_an_audit_record_regardless_of_outcome(self):
         model = _model()
