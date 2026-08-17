@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      # Integration tests exercise the real HTTP app against real Postgres/Redis
+      # (with a mocked LLM boundary). Without these they skip rather than fail,
+      # so CI provides them to keep the lifecycle path actually covered.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: migration
+          POSTGRES_PASSWORD: migration
+          POSTGRES_DB: migration_agent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U migration -d migration_agent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+psycopg://migration:migration@localhost:5432/migration_agent
+      REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET: ci-secret-not-used-anywhere-real-32b
+      OPENAI_API_KEY: sk-ci-placeholder
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check app tests
+
+      - name: Apply migrations
+        run: alembic upgrade head
+
+      - name: Test
+        # live_smoke is excluded by default (see pyproject.toml addopts) — those hit
+        # the real OpenAI API and would make this gate flaky. Everything that runs
+        # here uses a mocked LLM boundary and is deterministic, so red means our
+        # logic broke, never that a model phrased something differently.
+        run: pytest -q --cov=app --cov-report=term-missing

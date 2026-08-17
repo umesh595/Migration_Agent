@@ -1,0 +1,25 @@
+# Secrets — never commit. Use the .env*.example templates instead.
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+next-env.d.ts
+
+# Exports / scratch
+*.docx
+!docs/**/*.docx

@@ -1,0 +1,29 @@
+# Pinned to the versions this codebase was actually built and verified against.
+# Bumping any of these should be accompanied by a green `pytest` run.
+
+fastapi==0.141.1
+uvicorn[standard]==0.52.2
+pydantic[email]==2.13.4
+pydantic-settings==2.15.0
+
+sqlalchemy==2.0.52
+alembic==1.19.1
+psycopg[binary,pool]==3.3.4
+
+langgraph==1.2.11
+langgraph-checkpoint-postgres==3.1.2
+
+openai==3.0.0
+networkx==3.6.1
+python-docx==1.2.0
+
+bcrypt==5.0.0
+pyjwt==2.13.0
+redis==8.1.0
+
+langfuse==4.14.4
+httpx==0.28.1
+sse-starlette==3.4.8
+tenacity==9.1.4
+python-dotenv==1.2.2
+python-multipart==0.0.20

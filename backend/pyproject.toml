@@ -1,0 +1,14 @@
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "live_smoke: hits real OpenAI API, excluded from default CI run",
+]
+addopts = "-m 'not live_smoke'"
+
+[tool.ruff]
+line-length = 130
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
