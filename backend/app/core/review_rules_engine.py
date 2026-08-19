@@ -8,8 +8,9 @@ from collections.abc import Callable
 
 from app.core.coverage_checker import check_coverage
 from app.core.graph_engine import compute_cross_wave_dependencies
-from app.schemas.architecture import ArchitectureModel
+from app.schemas.architecture import ArchitectureModel, Environment
 from app.schemas.findings import Finding, FindingSeverity, FindingSource
+from app.schemas.migration_context import MigrationContext
 from app.schemas.migration_plan import MigrationPlan, SevenR
 
 
@@ -200,6 +201,41 @@ def _rule_007_cross_wave_coexistence_covered(model: ArchitectureModel, plan: Mig
     return findings
 
 
+def _rule_008_source_environment_consistency(model: ArchitectureModel, context: MigrationContext) -> list[Finding]:
+    """A discovered component tagged environment=cloud (or hybrid) while the elicited
+    migration context claims a pure on-prem source (or vice versa) usually means the
+    current-state description and the migration context were captured inconsistently
+    — e.g. someone described an already-cloud-native piece while the overall source
+    was declared on_prem. Left undetected, this silently corrupts every downstream
+    disposition and coexistence decision, so it's flagged for the user to reconcile
+    rather than guessed at."""
+
+    if context.source_environment not in (Environment.ON_PREM, Environment.CLOUD):
+        return []
+
+    contradicting = {Environment.ON_PREM: Environment.CLOUD, Environment.CLOUD: Environment.ON_PREM}[
+        context.source_environment
+    ]
+    findings = []
+    for component in model.components:
+        if component.environment == contradicting:
+            findings.append(
+                Finding(
+                    id=f"RULE-008-{component.id}",
+                    source=FindingSource.RULE,
+                    rule_id="RULE-008",
+                    severity=FindingSeverity.INFO,
+                    message=(
+                        f"'{component.id}' is tagged environment='{component.environment}' but the migration "
+                        f"context declares the source environment as '{context.source_environment}' — verify "
+                        "whether this component was mislabeled during discovery or the source is actually hybrid"
+                    ),
+                    related_component_ids=[component.id],
+                )
+            )
+    return findings
+
+
 _RULES: list[Callable[[ArchitectureModel, MigrationPlan], list[Finding]]] = [
     _rule_001_sequencing_validity,
     _rule_002_coverage_completeness,
@@ -211,8 +247,10 @@ _RULES: list[Callable[[ArchitectureModel, MigrationPlan], list[Finding]]] = [
 ]
 
 
-def run_rules(model: ArchitectureModel, plan: MigrationPlan) -> list[Finding]:
+def run_rules(model: ArchitectureModel, plan: MigrationPlan, context: MigrationContext | None = None) -> list[Finding]:
     findings: list[Finding] = []
     for rule in _RULES:
         findings.extend(rule(model, plan))
+    if context is not None:
+        findings.extend(_rule_008_source_environment_consistency(model, context))
     return findings

@@ -63,6 +63,31 @@ def test_full_pipeline_produces_a_plan_with_no_rule_violations():
     assert errors == [], errors
 
 
+def test_cross_wave_coexistence_is_attached_to_waves_and_satisfies_rule_007():
+    """assemble_plan must write compute_cross_wave_dependencies()'s output into
+    Wave.coexistence_groups — that's the only place RULE-007 looks. Without this,
+    RULE-007 fires on every cross-wave dependency forever, regardless of what the
+    LLM plans, since nothing else ever populates that field."""
+
+    model = _sample_model()  # web -> api -> db, each in its own wave
+    waves = compute_sequence(model)
+    plan = assemble_plan(
+        model,
+        waves,
+        _component_outputs(model),
+        target_architecture_description="Cloud-native target",
+        cutover=CutoverReviewOutput(approach="phased", steps=["go"], go_no_go_criteria=["green"], communication_plan="email"),
+        rollback=RollbackPlanOutput(approach="revert", triggers=["errors"], steps=["revert"]),
+    )
+
+    documented_pairs = {frozenset(g.component_ids) for w in plan.waves for g in w.coexistence_groups}
+    assert frozenset({"web", "api"}) in documented_pairs
+    assert frozenset({"api", "db"}) in documented_pairs
+
+    findings = run_rules(model, plan)
+    assert not any(f.rule_id == "RULE-007" for f in findings), findings
+
+
 def test_markdown_export_contains_all_ten_deliverable_sections():
     model = _sample_model()
     waves = compute_sequence(model)

@@ -127,7 +127,17 @@ def render_plan_for_review(model: ArchitectureModel, plan: MigrationPlan, contex
     payload = {
         "migration_context": json.loads(render_context_for_prompt(context)),
         "target_architecture": plan.target_architecture_description,
-        "waves": [{"index": w.index, "components": w.component_ids} for w in plan.waves],
+        "waves": [
+            {
+                "index": w.index,
+                "components": w.component_ids,
+                "documented_coexistence_strategies": [
+                    {"component_ids": g.component_ids, "reason": g.reason, "strategy": g.coexistence_strategy}
+                    for g in w.coexistence_groups
+                ],
+            }
+            for w in plan.waves
+        ],
         "component_plans": [
             {
                 "component_id": p.component_id,

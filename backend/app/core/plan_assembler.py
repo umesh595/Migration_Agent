@@ -9,6 +9,7 @@ from app.llm.schemas import ComponentPlanLLMOutput, CutoverReviewOutput, Rollbac
 from app.schemas.architecture import ArchitectureModel
 from app.schemas.findings import Finding, FindingSeverity, ResolutionStatus
 from app.schemas.migration_plan import (
+    CoexistenceGroup,
     ComponentMapping,
     ComponentPlan,
     CutoverStrategy,
@@ -78,6 +79,30 @@ def _build_roadmap_items(waves: list[Wave], component_plans: list[ComponentPlan]
     return items
 
 
+def _attach_cross_wave_coexistence(waves: list[Wave], groups: list[CoexistenceGroup]) -> list[Wave]:
+    """compute_cross_wave_dependencies() finds these groups but scopes each to a
+    dependency pair, not a single wave — nothing wrote them into Wave.coexistence_groups,
+    which is the only place RULE-007 looks. Without this, RULE-007 fires on every
+    cross-wave dependency unconditionally, forever, since the LLM has no field through
+    which to ever satisfy it. Attach each group to both endpoints' waves so it's visible
+    from either wave and RULE-007 sees it as documented."""
+
+    groups_by_wave_index: dict[int, list[CoexistenceGroup]] = {}
+    wave_of = {cid: w.index for w in waves for cid in w.component_ids}
+    for group in groups:
+        for cid in group.component_ids:
+            wave_index = wave_of.get(cid)
+            if wave_index is not None:
+                groups_by_wave_index.setdefault(wave_index, []).append(group)
+
+    return [
+        wave.model_copy(
+            update={"coexistence_groups": [*wave.coexistence_groups, *groups_by_wave_index.get(wave.index, [])]}
+        )
+        for wave in waves
+    ]
+
+
 def assemble_plan(
     model: ArchitectureModel,
     waves: list[Wave],
@@ -86,6 +111,9 @@ def assemble_plan(
     cutover: CutoverReviewOutput,
     rollback: RollbackPlanOutput,
 ) -> MigrationPlan:
+    cross_wave_groups = compute_cross_wave_dependencies(model, waves)
+    waves = _attach_cross_wave_coexistence(waves, cross_wave_groups)
+
     component_mappings = [
         ComponentMapping(
             component_id=o.component_id,
@@ -132,7 +160,7 @@ def assemble_plan(
             related_component_ids=group.component_ids,
             source="graph_engine:cross_wave_dependency",
         )
-        for i, group in enumerate(compute_cross_wave_dependencies(model, waves), start=1)
+        for i, group in enumerate(cross_wave_groups, start=1)
     ]
 
     assumption_risks = [

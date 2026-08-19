@@ -116,6 +116,8 @@ def render_markdown(model: ArchitectureModel, plan: MigrationPlan, context: Migr
     parts.append("```mermaid\n" + generate_sequence_mermaid(plan) + "\n```\n")
     for w in plan.waves:
         parts.append(f"- **Wave {w.index}**: {', '.join(s(c) for c in w.component_ids)} — {s(w.rationale)}")
+        for g in w.coexistence_groups:
+            parts.append(f"  - _Coexistence ({', '.join(s(c) for c in g.component_ids)})_: {s(g.coexistence_strategy)}")
 
     parts.append("\n## 6. Risks & Assumptions\n")
     for r in plan.risks:
@@ -201,6 +203,11 @@ def render_docx(model: ArchitectureModel, plan: MigrationPlan, context: Migratio
     for w in plan.waves:
         doc.add_paragraph(f"Wave {w.index}: {', '.join(s(c) for c in w.component_ids)} — {s(w.rationale)}",
                            style="List Bullet")
+        for g in w.coexistence_groups:
+            doc.add_paragraph(
+                f"Coexistence ({', '.join(s(c) for c in g.component_ids)}): {s(g.coexistence_strategy)}",
+                style="List Bullet 2",
+            )
 
     doc.add_heading("6. Risks & Assumptions", level=1)
     for r in plan.risks:

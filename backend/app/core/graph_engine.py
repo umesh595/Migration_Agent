@@ -106,15 +106,19 @@ def compute_cross_wave_dependencies(model: ArchitectureModel, waves: list[Wave])
         target_wave = wave_of.get(dep.target_id)
         if source_wave is None or target_wave is None or source_wave == target_wave:
             continue
-        span = abs(source_wave - target_wave)
-        if span == 0:
-            continue
+        low, high = sorted((source_wave, target_wave))
+        intervening = high - low - 1
+        gap_phrase = (
+            "across an adjacent-wave boundary (no intervening waves)"
+            if intervening == 0
+            else f"across {intervening} intervening wave(s)"
+        )
         groups.append(
             CoexistenceGroup(
                 component_ids=[dep.source_id, dep.target_id],
                 reason=(
                     f"'{dep.source_id}' (wave {source_wave}) depends on '{dep.target_id}' (wave {target_wave}) "
-                    f"via a {dep.kind} link that must keep working across {span} intervening wave(s)"
+                    f"via a {dep.kind} link that must keep working {gap_phrase}"
                 ),
                 coexistence_strategy=(
                     "maintain network/data connectivity between source and target environments for the "

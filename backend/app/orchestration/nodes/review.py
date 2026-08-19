@@ -37,7 +37,7 @@ def rules_review_node(state: GraphState) -> dict:
     if plan is None:
         return {"findings": []}
 
-    rule_findings = run_rules(state["model"], plan)
+    rule_findings = run_rules(state["model"], plan, state.get("migration_context"))
     # Preserve any LLM findings already recorded this cycle; rules are recomputed fresh.
     existing_llm = [f for f in state.get("findings", []) if f.source == FindingSource.LLM]
     return {"findings": rule_findings + existing_llm}

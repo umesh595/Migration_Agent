@@ -1,5 +1,6 @@
 from app.core.review_rules_engine import run_rules
 from app.schemas.architecture import ArchitectureModel, Component, Dependency
+from app.schemas.migration_context import DowntimeTolerance, MigrationContext
 from app.schemas.migration_plan import (
     ComponentMapping,
     ComponentPlan,
@@ -11,8 +12,8 @@ from app.schemas.migration_plan import (
 )
 
 
-def _component(cid: str) -> Component:
-    return Component(id=cid, name=cid, workload_type="other")
+def _component(cid: str, environment: str = "unknown") -> Component:
+    return Component(id=cid, name=cid, workload_type="other", environment=environment)
 
 
 def _complete_plan(model: ArchitectureModel, waves: list[Wave]) -> MigrationPlan:
@@ -106,3 +107,28 @@ def test_rule_006_flags_mapping_plan_disposition_mismatch():
 
     findings = run_rules(model, plan)
     assert any(f.rule_id == "RULE-006" for f in findings)
+
+
+def test_rule_008_flags_component_environment_contradicting_declared_source():
+    model = ArchitectureModel(components=[_component("a", environment="cloud"), _component("b", environment="on_prem")])
+    waves = [Wave(index=0, component_ids=["a", "b"], rationale="r")]
+    plan = _complete_plan(model, waves)
+    context = MigrationContext(
+        source_environment="on_prem",
+        target_environment="cloud",
+        target_platform_description="AWS",
+        downtime_tolerance=DowntimeTolerance.MAINTENANCE_WINDOW,
+    )
+
+    findings = run_rules(model, plan, context)
+    rule_008 = [f for f in findings if f.rule_id == "RULE-008"]
+    assert {f.related_component_ids[0] for f in rule_008} == {"a"}
+
+
+def test_rule_008_silent_without_context():
+    model = ArchitectureModel(components=[_component("a", environment="cloud")])
+    waves = [Wave(index=0, component_ids=["a"], rationale="r")]
+    plan = _complete_plan(model, waves)
+
+    findings = run_rules(model, plan)
+    assert not any(f.rule_id == "RULE-008" for f in findings)
