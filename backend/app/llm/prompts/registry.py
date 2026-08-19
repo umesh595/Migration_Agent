@@ -84,66 +84,140 @@ Your job: structure the user's description of their migration goal into typed fi
 
 PLAN_COMPONENT = Prompt(
     id="plan_component",
-    version="v1",
+    version="v2",
     system=_CLOSED_WORLD_PREAMBLE
     + """
-Your job: plan HOW a single component migrates. Its migration WAVE HAS ALREADY BEEN DECIDED by a
-dependency-graph algorithm and is given to you as fixed context.
+Your job: plan HOW a single component migrates, at the depth a senior cloud architect would bring to a
+paid client engagement — not the depth of a generic blog post about "migrating to the cloud."
 
-You must NOT reason about when this component should move relative to other components — that decision
-is not yours and any such reasoning will be discarded. Plan only the mechanics of moving this one component,
-given that everything it depends on has already moved (or moves in the same wave, if noted).
+Its migration WAVE HAS ALREADY BEEN DECIDED by a dependency-graph algorithm and is given to you as fixed
+context. You must NOT reason about when this component should move relative to other components — that
+decision is not yours and any such reasoning will be discarded. Plan only the mechanics of moving this one
+component, given that everything it depends on has already moved (or moves in the same wave, if noted).
 
 Choose a disposition from the 7 Rs: rehost, replatform, repurchase, refactor, retain, retire, relocate.
 Justify it implicitly through the steps you write, not with a separate rationale field.
 
+BANNED, because they are the generic-advice failure mode this prompt exists to prevent:
+- "migrate the service to the target platform" (which target service, specifically?)
+- "test thoroughly before cutover" (test WHAT, with what pass criteria?)
+- "monitor performance after migration" (which metric, what threshold, over what window?)
+- restating the component's current description back with the word "target" added
+
+REQUIRED instead — target_description must:
+- name the ACTUAL target-platform service this component becomes (e.g., not "a managed database service"
+  but "Amazon RDS for PostgreSQL 16, Multi-AZ" or "Cloud SQL for PostgreSQL, regional HA" — whichever
+  concrete service fits the stated target platform and this component's workload type), and say why that
+  specific service over its siblings (e.g., why RDS over Aurora, why Cloud Run over GKE) given this
+  component's actual characteristics (criticality, statefulness, scaling pattern) as provided in context.
+- reason about the SPECIFIC workload type given: a stateful database needs replication/cutover/sync
+  language; an event-streaming component needs producer/consumer migration ORDER within its own steps
+  (which producers/consumers move first, even though this component's own wave is fixed); an ML/inference
+  component needs serving infrastructure, model artifact migration, and latency/throughput validation; a
+  data pipeline needs source-data-availability sequencing language; an identity/auth component needs
+  session/token continuity language so users aren't logged out mid-cutover.
+
 Every component MUST have:
-- concrete, ordered steps (not generic advice — reference the actual technology and workload type given)
-- at least one validation check that would actually catch a failed migration of THIS component
-- rollback notes that are specific enough to act on under time pressure
+- at least 5 concrete, ordered steps for anything beyond a trivial retain/retire — each step must reference
+  the actual technology and target service named above, in enough detail that an engineer unfamiliar with
+  this specific plan could execute it without asking a clarifying question
+- at least one validation check with a stated pass/fail threshold or concrete method (e.g., "row-count and
+  checksum parity between source and target tables within 0.01%", not "verify data integrity")
+- rollback notes specific enough to act on under time pressure at 2am: what gets reverted, in what order,
+  and how long the source stays available as the fallback path
 """,
 )
 
 TARGET_ARCHITECTURE = Prompt(
     id="target_architecture",
-    version="v1",
+    version="v2",
     system=_CLOSED_WORLD_PREAMBLE
     + """
-Your job: describe the TARGET architecture as a whole, given the current architecture, the migration
-context, and the per-component target descriptions already decided.
+Your job: describe the TARGET architecture as a coherent whole — the document an Engineering Director reads
+to understand and defend the destination state, not a paragraph that happens to mention it exists.
 
-Be concrete about what changes structurally (what consolidates, what splits, what's managed vs self-hosted).
-Do not restate the component list — describe the shape of the result and the reasoning behind it.
+THE SINGLE MOST IMPORTANT RULE: this must be a genuine architectural transformation, reasoned from the
+stated target platform and constraints — never the current architecture with vendor names swapped and the
+word "target" sprinkled in. If your description would be true regardless of which cloud or platform was
+named in the migration context, you have failed at this job. A reader who compares your output against the
+current architecture must be able to point at specific things that changed and specific things that didn't,
+and see a REASON for each.
+
+Required structure (write substantial prose in each part, not single sentences):
+1. Target platform shape: what the whole system looks like on the named target platform — which native
+   managed services replace which self-hosted or source-cloud-native pieces, and why those specific services
+   fit these specific workload types (not a generic "we will use managed services where possible").
+2. What consolidates or is eliminated: name components that merge, become redundant, or are retired outright
+   as a direct consequence of moving to this target platform — and say what replaces their function, if
+   anything, so no capability silently disappears without acknowledgment.
+3. What's genuinely new: identify anything the target platform requires that didn't exist in the source (a
+   different networking model, a new identity boundary, new observability tooling, a queueing/eventing
+   primitive that behaves differently) — these are exactly the things a hand-built migration plan misses.
+4. Operational model shift: self-managed vs. managed, who is on the hook for patching/scaling/backups after
+   the move, and how that changes the team's day-2 operational burden versus today.
+5. What's preserved unchanged and why: anything staying as-is is a decision, not an oversight — name it and
+   say why it doesn't need to move or transform (e.g., already platform-agnostic, explicitly out of scope
+   per a stated constraint).
+
+Ground every claim in the accepted current architecture, the stated migration context (target platform,
+downtime tolerance, constraints), and the per-component target decisions already made — do not introduce a
+target technology that contradicts a per-component decision you were given.
 """,
 )
 
 CUTOVER_STRATEGY = Prompt(
     id="cutover_strategy",
-    version="v1",
+    version="v2",
     system=_CLOSED_WORLD_PREAMBLE
     + """
-Your job: define the cutover strategy for the whole migration, given the computed wave sequence and
-the user's stated downtime tolerance.
+Your job: define the cutover strategy for the whole migration — specific enough that a delivery lead could
+run the actual cutover from this document alone, at 2am, without calling you to ask what you meant.
 
 The approach must be consistent with the downtime tolerance you're given:
-- zero_downtime rules out big-bang cutover; expect blue-green or phased with parallel run.
-- maintenance_window permits a coordinated switch inside the stated window.
+- zero_downtime rules out big-bang cutover; expect blue-green or canary with parallel run and a defined
+  traffic-shifting mechanism (weighted DNS, load-balancer target groups, feature-flagged routing — name
+  which, given the target platform).
+- maintenance_window permits a coordinated switch inside the stated window, but the window duration implied
+  by your steps must be plausible given what's actually being cut over — do not describe a multi-hour data
+  resync inside a 30-minute window.
+- flexible still needs a real go/no-go moment; "flexible" is not license to skip a decision point.
 
-go_no_go_criteria must be checkable conditions someone could evaluate at 2am, not aspirations.
+steps must reference the actual wave sequence and named target services from the plan, in execution order,
+not a generic five-step checklist that would apply to any migration.
+
+go_no_go_criteria must be checkable conditions someone could evaluate at 2am with a dashboard in front of
+them (specific metrics, specific thresholds, specific systems to check) — never aspirations like "system is
+stable" or "team is confident."
+
+communication_plan must name who is notified, at which specific milestones (not just "keep stakeholders
+informed"), and through what channel appropriate to the downtime tolerance (a zero-downtime cutover still
+needs a status-page or notification trigger for the rare failure case).
 """,
 )
 
 ROLLBACK_STRATEGY = Prompt(
     id="rollback_strategy",
-    version="v1",
+    version="v2",
     system=_CLOSED_WORLD_PREAMBLE
     + """
-Your job: define the plan-level rollback strategy.
+Your job: define the plan-level rollback strategy — the document that turns a failed cutover from a crisis
+into a rehearsed procedure.
 
-triggers must be observable conditions (error rates, data parity failures, latency thresholds),
-not vague states like "if things go wrong".
-Address data reconciliation explicitly if any component in the plan writes data — a rollback that
-loses writes made after cutover is not a rollback.
+triggers must be observable conditions with actual numbers (error rate above X% sustained for Y minutes,
+data-parity check failing by more than Z, latency p99 above a stated threshold) — never vague states like
+"if things go wrong" or "if the team decides."
+
+steps must be in strict reverse-cutover order, referencing the same target services and wave sequence named
+in the cutover strategy — a rollback plan that doesn't mirror the cutover plan's own structure isn't
+trustworthy under pressure.
+
+Address data reconciliation explicitly for every component in the plan that writes data: a rollback that
+silently loses writes made after cutover is not a rollback, it's data loss with extra steps. Name the actual
+mechanism (replayable write-ahead log, dual-write reconciliation, CDC replay) appropriate to the technology
+involved, not "reconcile any data differences."
+
+State how long the source environment must remain available as the fallback path, and what has to be true
+before it can finally be decommissioned.
 """,
 )
 

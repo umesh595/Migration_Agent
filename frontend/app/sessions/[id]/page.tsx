@@ -25,6 +25,7 @@ export default function SessionWorkspacePage() {
   const [reviewQuality, setReviewQuality] = useState<ReviewQualityScore[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [gateBusy, setGateBusy] = useState(false);
+  const needsMigrationContext = state?.session.status === "planning" && !state.migration_context && !state.plan;
 
   const refresh = useCallback(async () => {
     try {
@@ -106,6 +107,30 @@ export default function SessionWorkspacePage() {
         ) : (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <div className="space-y-4">
+              {needsMigrationContext && (
+                <div className="card border-blue-200 bg-blue-50">
+                  <h3 className="mb-1 text-sm font-semibold text-blue-900">Gate 1 passed - migration context needed</h3>
+                  <p className="mb-3 text-xs text-blue-800">
+                    The architecture model is frozen. Send the migration goal so the Planning Agent can build the
+                    target architecture, sequence, cutover, rollback, and review package.
+                  </p>
+                  <div className="rounded-md border border-blue-200 bg-white p-3 text-xs text-slate-700">
+                    <div className="font-medium text-slate-800">Include these details:</div>
+                    <ul className="mt-1 list-disc space-y-1 pl-5">
+                      <li>source environment and target environment</li>
+                      <li>target platform or cloud services you prefer</li>
+                      <li>downtime tolerance or maintenance window</li>
+                      <li>constraints such as compliance, timeline, budget, or services that must remain unchanged</li>
+                    </ul>
+                    <div className="mt-2 text-slate-500">
+                      Example: Move this AWS-hosted platform to GCP Cloud Run and Cloud Storage. A 4-hour
+                      maintenance window is acceptable. Keep user authentication behavior unchanged and preserve
+                      private document access.
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <ChatPanel
                 sessionId={sessionId}
                 onTurnComplete={refresh}
@@ -216,7 +241,7 @@ export default function SessionWorkspacePage() {
         {state?.plan && (
           <div className="mt-6">
             <h2 className="mb-3 text-lg font-semibold text-slate-900">Migration plan</h2>
-            <PlanViewer plan={state.plan} />
+            <PlanViewer plan={state.plan} model={state.model} />
           </div>
         )}
       </main>

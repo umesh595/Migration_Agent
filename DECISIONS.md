@@ -206,3 +206,107 @@ which is worse than leaving the documented cap alone. The deterministic core
 comfortably clears its target at the current cap; that's what got verified. Whether
 a higher cap is safe is a separate question that needs real infrastructure
 benchmarking, not a number bump.
+
+## Real bug found once a funded API key was available: `UpdateComponentPatch.fields`
+
+Every prior test used a mocked LLM boundary (deliberately, for CI determinism —
+see above). The first real discovery turn against a working OpenAI key failed with:
+
+```
+Invalid schema for response_format 'PatchSet': 'required' is required to be
+supplied and to be an array including every key in properties. Extra required
+key 'fields' supplied.
+```
+
+Root cause: `UpdateComponentPatch.fields: dict[str, str]` was a free-form,
+arbitrary-key dictionary. OpenAI's Structured Outputs strict mode cannot represent
+an open-ended key→value map at all — every property must be enumerable ahead of
+time. This is a real API constraint, discovered by actually calling the API, not
+something any amount of mocked testing could have caught.
+
+Fixed by replacing the dict with six explicit optional fields (`name`,
+`description`, `technology`, `owner_team`, `criticality`, `environment`) and an
+`updated_fields()` helper that collects whichever ones were actually set. This has
+a pleasant side effect: `id` is not one of the six fields, so a component's
+identity cannot be rewritten by this patch at all — not merely rejected by a
+validation rule, but structurally absent from the schema. The two tests that used
+to assert "id-rename is rejected" now assert "id-rename has no field to attempt
+it through" (`tests/eval/test_invariants.py`), which is the stronger guarantee.
+
+**Lesson for this codebase specifically**: `dict[str, X]` (or any schema shape
+with unconstrained keys) must never appear in a Pydantic model passed as
+`response_model` to the LLM gateway. Grep for `dict[str` across `app/llm/schemas.py`
+and `app/schemas/*.py` before adding any new LLM-facing schema.
+
+## Model upgrade: gpt-4o / gpt-4o-mini → gpt-5.4 / gpt-5.4-mini
+
+Verified directly against the live API (not assumed from a model name or release
+notes) that this account has access to `gpt-5.4` and `gpt-5.4-mini`, and that both
+support the exact call shape this app depends on — `chat.completions` with
+`response_format: {type: "json_schema", strict: true}` — via a raw curl before
+touching any code. `LLM_STRONG_MODEL`/`LLM_CHEAP_MODEL` defaults updated in
+`.env`/`.env.example` accordingly.
+
+This is not a cosmetic bump. Every generation step in this system — discovery
+ingestion, per-component planning, target architecture narrative, cutover/rollback
+strategy, semantic review, and the review-quality judge — inherits the reasoning
+ceiling of whichever model is configured here. If your account's available models
+differ, re-verify with the same curl check before changing these values; do not
+assume structured-output compatibility from a model's name alone (a "-mini" or
+"-nano" suffix does not guarantee schema-strict support).
+
+## Planning-prompt quality pass: from "structurally correct" to "consulting-grade"
+
+Feedback: the generated target architecture, component plans, cutover, and
+rollback strategies needed to read like deliverables from a senior architect, not
+generic migration-blog prose — and specifically must never just restate the
+source architecture with a target label attached. `target_architecture`,
+`plan_component`, `cutover_strategy`, and `rollback_strategy` were rewritten
+(bumped to `v2` in `app/llm/prompts/registry.py`) with:
+
+- explicit **banned-phrase examples** naming the generic-advice failure mode
+  directly ("migrate to the target platform," "test thoroughly," "monitor
+  performance" — each is now called out as insufficient, with what's required
+  instead)
+- a requirement to **name concrete target-platform services**, not generic
+  categories ("Amazon RDS for PostgreSQL 16, Multi-AZ," not "a managed database
+  service"), reasoned against the specific migration context given
+- for `target_architecture` specifically, a mandatory 5-part structure (target
+  platform shape, what consolidates/is eliminated, what's genuinely new, the
+  operational-model shift, what's deliberately preserved unchanged) so the
+  narrative cannot collapse into two generic sentences
+- quantitative specificity requirements for validation checks and rollback
+  triggers (stated thresholds, not "verify data integrity")
+
+This is a prompt-quality change, not a schema change — no test assertions
+depended on prompt prose, so the existing suite was unaffected; verified via a
+live run (see README) rather than a new automated eval, since judging prose
+quality mechanically is exactly the gap Q7's judge (partially) exists to cover,
+not something a `pytest` assertion can validate directly.
+
+## Frontend: current vs. target architecture were visually indistinguishable
+
+The only architecture visualization in the UI (`ArchitectureCanvas`) always
+rendered the canonical `ArchitectureModel` — correct for Discovery, but the same
+panel kept showing during Planning with no visual distinction from an actual
+generated target architecture, because none existed yet in that specific session
+(no migration-context message had been sent). Reasonably read as "the tool only
+ever regenerates the same architecture," which is a real product-trust problem
+even though the underlying pipeline was working as designed.
+
+Fixed two things, not one:
+1. `ArchitectureCanvas` is now explicitly labeled "Current architecture (source)"
+   with a one-line explanation that it's frozen at Gate 1 and is never the target.
+2. A new `TargetArchitectureCanvas` renders the *migrated* architecture as an
+   actual diagram once a plan exists — same component graph, positioned by the
+   code-computed wave order, but every node is colored and labeled by its 7-R
+   disposition (retire renders dashed red, refactor renders purple, etc.) and
+   shows the LLM's actual target_description, not the source description. This
+   makes "what changed" visually inspectable in seconds instead of requiring a
+   side-by-side read of two paragraphs. Shared layout logic extracted to
+   `lib/graphLayout.ts` so both canvases stay in sync on how wave-based
+   positioning works.
+
+Neither canvas decides anything — both are pure renders of what the deterministic
+core and LLM already produced (technique #12 extended to the frontend layer, as
+already noted for `ArchitectureCanvas` in the earlier frontend-build entry above).

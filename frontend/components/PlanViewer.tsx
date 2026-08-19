@@ -1,4 +1,5 @@
-import type { MigrationPlan } from "@/lib/types";
+import type { ArchitectureModel, MigrationPlan } from "@/lib/types";
+import { TargetArchitectureCanvas } from "@/components/TargetArchitectureCanvas";
 
 const RISK_STYLES: Record<string, string> = {
   low: "bg-slate-100 text-slate-700",
@@ -16,11 +17,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-export function PlanViewer({ plan }: { plan: MigrationPlan }) {
+export function PlanViewer({ plan, model }: { plan: MigrationPlan; model: ArchitectureModel }) {
   return (
     <div className="space-y-4">
       <Section title="1. Target architecture">
-        <p className="text-sm text-slate-700">{plan.target_architecture_description}</p>
+        <div className="mb-4">
+          <TargetArchitectureCanvas model={model} plan={plan} />
+        </div>
+        <p className="whitespace-pre-line text-sm text-slate-700">{plan.target_architecture_description}</p>
       </Section>
 
       <Section title="2. Component mapping">

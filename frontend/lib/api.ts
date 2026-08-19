@@ -216,15 +216,40 @@ export async function* streamMessage(sessionId: string, message: string): AsyncG
   const decoder = new TextDecoder();
   let buffer = "";
 
+  function parseRawEvent(rawEvent: string): SseEvent | null {
+    let eventName = "message";
+    let id: string | undefined;
+    const dataLines: string[] = [];
+    for (const line of rawEvent.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n")) {
+      if (line.startsWith("event:")) eventName = line.slice(6).trim();
+      else if (line.startsWith("id:")) id = line.slice(3).trim();
+      else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+    }
+    if (dataLines.length === 0) return null;
+
+    let parsed: unknown = dataLines.join("\n");
+    try {
+      parsed = JSON.parse(dataLines.join("\n"));
+    } catch {
+      // Leave as raw string; the caller decides what to do with unparseable data.
+    }
+    return { event: eventName, id, data: parsed };
+  }
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
 
-    let boundary = buffer.indexOf("\n\n");
-    while (boundary !== -1) {
-      const rawEvent = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
+    let match = /\r?\n\r?\n/.exec(buffer);
+    while (match?.index !== undefined) {
+      const rawEvent = buffer.slice(0, match.index);
+      buffer = buffer.slice(match.index + match[0].length);
+
+      const parsedEvent = parseRawEvent(rawEvent);
+      if (parsedEvent) yield parsedEvent;
+      match = /\r?\n\r?\n/.exec(buffer);
+      continue;
 
       let eventName = "message";
       let id: string | undefined;
@@ -243,8 +268,14 @@ export async function* streamMessage(sessionId: string, message: string): AsyncG
         }
         yield { event: eventName, id, data: parsed };
       }
-      boundary = buffer.indexOf("\n\n");
+      match = /\r?\n\r?\n/.exec(buffer);
     }
+  }
+
+  buffer += decoder.decode();
+  if (buffer.trim()) {
+    const parsedEvent = parseRawEvent(buffer);
+    if (parsedEvent) yield parsedEvent;
   }
 }
 

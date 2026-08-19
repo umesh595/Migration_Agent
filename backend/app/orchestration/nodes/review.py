@@ -226,7 +226,13 @@ def finalize_review_node(state: GraphState) -> dict:
             finalized.risks.append(risk)
 
     finalized.status = PlanStatus.REVIEWED
-    return {"plan": finalized, "stage": Stage.AWAITING_PLAN_APPROVAL}
+    return {
+        "plan": finalized,
+        "stage": Stage.AWAITING_PLAN_APPROVAL,
+        "narration": "Draft migration plan generated and reviewed. Review the plan and findings, then approve it when ready.",
+        "pending_questions": [],
+        "context_clarifying_questions": [],
+    }
 
 
 def should_continue_refining(state: GraphState) -> str:

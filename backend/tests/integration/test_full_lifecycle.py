@@ -203,8 +203,20 @@ async def test_full_lifecycle_discovery_to_export(app_client, auth_headers):
 
     # --- planning + review in one run ---
     _register_planning(provider)
-    await _read_sse(client, f"/sessions/{session_id}/messages", auth_headers,
+    planning_events = await _read_sse(client, f"/sessions/{session_id}/messages", auth_headers,
                     {"message": "Move everything to AWS, we can take a maintenance window."})
+
+    # The turn_complete narration must describe the plan that was just generated,
+    # never stale discovery-stage text left over in the shared checkpointed thread
+    # from before Gate 1 (a real bug: discovery and planning share one LangGraph
+    # thread_id, so `narration`/`pending_questions` persist across the gate unless
+    # explicitly reset and re-synthesized for the planning turn).
+    turn_complete = next(e for e in planning_events if e.get("event") == "turn_complete")
+    planning_narration = turn_complete["data"]["narration"]
+    assert planning_narration is not None
+    assert "Migration plan generated" in planning_narration
+    assert "storefront" not in planning_narration.lower()  # not the discovery-turn narration bleeding through
+    assert turn_complete["data"]["questions"] == []
 
     state = (await client.get(f"/sessions/{session_id}/state", headers=auth_headers)).json()
     plan = state["plan"]

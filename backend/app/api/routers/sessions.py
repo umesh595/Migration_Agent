@@ -129,8 +129,12 @@ async def post_message(
 
     async def event_stream():
         checkpointer = get_checkpointer()
+        # _persist_turn (below) may advance session.status (PLANNING -> REVIEW) once
+        # a plan lands, so the branch this turn actually ran must be captured now —
+        # checking session.status again afterward would silently pick the wrong shape.
+        original_status = session.status
 
-        if session.status == SessionStatus.DISCOVERY:
+        if original_status == SessionStatus.DISCOVERY:
             graph = build_discovery_graph(gateway, meter).compile(checkpointer=checkpointer)
             initial = {
                 "session_id": str(session.id),
@@ -147,6 +151,10 @@ async def post_message(
                 "model": accepted,
                 "user_message": payload.message,
                 "migration_context": await session_service.get_migration_context(db, session.id),
+                "narration": "",
+                "pending_questions": [],
+                "context_clarifying_questions": [],
+                "error": None,
             }
 
         final_state = None
@@ -170,12 +178,42 @@ async def post_message(
 
         state_snapshot = await graph.aget_state(_thread_config(session.langgraph_thread_id))
         values = state_snapshot.values if state_snapshot else (final_state or {})
+
+        if original_status == SessionStatus.DISCOVERY:
+            # Discovery narration/questions are genuinely per-turn LLM output.
+            narration = values.get("narration")
+            questions = values.get("pending_questions", [])
+        else:
+            # Planning shares this thread's checkpointed state with any earlier
+            # discovery turns, but no planning node ever sets `narration` or
+            # `pending_questions` — those keys would otherwise still hold stale
+            # discovery-stage text/questions from before Gate 1, which read as
+            # nonsensical once a plan has actually been generated. Synthesize a
+            # real status message from typed fields instead (never fresh LLM
+            # prose — technique #12): the rich result itself is the Target
+            # Architecture / Migration Plan sections the client re-fetches next.
+            plan = values.get("plan")
+            clarifying = values.get("context_clarifying_questions") or []
+            if values.get("error"):
+                narration = None
+            elif clarifying:
+                narration = None
+            elif plan is not None:
+                narration = (
+                    f"Migration plan generated: {len(plan.waves)} wave(s) covering "
+                    f"{len(plan.component_plans)} component(s), {len(plan.risks)} risk(s) flagged. "
+                    "Review the target architecture and full migration plan below."
+                )
+            else:
+                narration = "Migration context captured."
+            questions = []
+
         yield {
             "event": "turn_complete",
             "data": json.dumps(
                 {
-                    "narration": values.get("narration"),
-                    "questions": values.get("pending_questions", []),
+                    "narration": narration,
+                    "questions": questions,
                     "clarifying_questions": values.get("context_clarifying_questions", []),
                     "error": values.get("error"),
                     "model_version": getattr(values.get("model"), "version", None),
