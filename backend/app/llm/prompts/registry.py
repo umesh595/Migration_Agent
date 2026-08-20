@@ -43,6 +43,9 @@ Rules:
 - To add a component, choose a stable snake_case id derived from its name (e.g. "ML Inference Service" -> "ml_inference").
 - Component `environment` must be one of: on_prem, cloud, hybrid, unknown. Put provider/product names such as AWS,
   S3, CloudFront, Kubernetes, or PostgreSQL in `technology` or `description`, not in `environment`.
+- If the user names a team, squad, or individual responsible for a component (e.g. "the payments team owns
+  checkout"), set that component's `owner_team` via update_component — this becomes the roadmap owner, not
+  a "TBD" placeholder.
 - Only emit patches for information actually present in the user's message.
 - If the user corrects an earlier fact, emit the removal AND the addition (e.g. remove_dependency then add_dependency).
 - If the user states something you are inferring rather than reading directly, emit it as an add_assumption patch instead.

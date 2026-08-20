@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     # --- Rate limiting ---
     rate_limit_requests_per_minute: int = Field(default=30, alias="RATE_LIMIT_RPM")
     rate_limit_messages_per_minute: int = Field(default=10, alias="RATE_LIMIT_MESSAGES_RPM")
+    # Fails CLOSED by default: if Redis is unreachable, requests are rejected rather
+    # than silently unlimited. Flip to true only if availability during a Redis
+    # outage matters more than enforcement for a given deployment.
+    rate_limit_fail_open: bool = Field(default=False, alias="RATE_LIMIT_FAIL_OPEN")
 
     # --- Scale envelope (see DECISIONS.md) ---
     max_components_per_model: int = Field(default=50, alias="MAX_COMPONENTS")

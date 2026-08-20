@@ -49,7 +49,9 @@ def _build_validation_summary(component_plans: list[ComponentPlan], cutover: Cut
     )
 
 
-def _build_roadmap_items(waves: list[Wave], component_plans: list[ComponentPlan]) -> list[RoadmapItem]:
+def _build_roadmap_items(
+    model: ArchitectureModel, waves: list[Wave], component_plans: list[ComponentPlan]
+) -> list[RoadmapItem]:
     plans_by_id = {p.component_id: p for p in component_plans}
     wave_of = {cid: w.index for w in waves for cid in w.component_ids}
     items: list[RoadmapItem] = []
@@ -66,12 +68,19 @@ def _build_roadmap_items(waves: list[Wave], component_plans: list[ComponentPlan]
                     if dep_id in wave_of and wave_of[dep_id] != wave.index
                 }
             )
+            component = model.get_component(component_id)
             items.append(
                 RoadmapItem(
                     wave_index=wave.index,
                     component_id=component_id,
                     disposition=plan.disposition,
                     summary=plan.steps[0] if plan.steps else f"Migrate {component_id}",
+                    # The discovered owner_team, when known, replaces the "TBD"
+                    # placeholder — a roadmap that already names who owns each
+                    # component is immediately actionable, not something the
+                    # migration team lead has to go re-derive (Migration Team
+                    # Lead — Story 1: "execute without re-deriving analysis").
+                    owner_placeholder=component.owner_team if component and component.owner_team else "TBD",
                     estimated_effort=plan.estimated_effort,
                     depends_on_waves=depends_on_waves,
                 )
@@ -185,7 +194,7 @@ def assemble_plan(
         cutover_strategy=cutover_strategy,
         rollback_strategy=rollback_strategy,
         validation_summary=_build_validation_summary(component_plans, cutover_strategy),
-        roadmap_items=_build_roadmap_items(waves, component_plans),
+        roadmap_items=_build_roadmap_items(model, waves, component_plans),
     )
 
 

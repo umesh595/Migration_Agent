@@ -135,6 +135,55 @@ def test_invalid_component_environment_is_rejected_without_crashing():
     assert "invalid environment" in results[0].reason
 
 
+def test_add_dependency_self_loop_is_rejected_not_applied():
+    """RemoveDependencyPatch validation must reject this before it ever reaches
+    Dependency's own model_validator — otherwise the applier would raise an
+    unhandled ValueError mid-patch-set instead of a clean rejection."""
+
+    model = _model_with_two_components()
+    patch_set = PatchSet(
+        patches=[AddDependencyPatch(source_id="postgres", target_id="postgres", kind="data_read")],
+        narration="",
+    )
+    new_model, results = apply_patch_set(model, patch_set)
+
+    assert results[0].outcome == PatchOutcome.REJECTED
+    assert "itself" in results[0].reason
+    assert new_model.version == model.version
+
+
+def test_remove_dependency_with_kind_removes_only_that_kind():
+    model = _model_with_two_components()
+    model.dependencies.append(
+        Dependency(id="d2", source_id="ml_inference", target_id="postgres", kind="sync_call")
+    )
+    patch_set = PatchSet(
+        patches=[RemoveDependencyPatch(source_id="ml_inference", target_id="postgres", kind="data_read")],
+        narration="",
+    )
+    new_model, results = apply_patch_set(model, patch_set)
+
+    assert results[0].outcome == PatchOutcome.APPLIED
+    remaining = [d.kind for d in new_model.dependencies if d.source_id == "ml_inference"]
+    assert remaining == ["sync_call"]
+
+
+def test_remove_dependency_without_kind_ambiguous_between_two_kinds_is_rejected():
+    model = _model_with_two_components()
+    model.dependencies.append(
+        Dependency(id="d2", source_id="ml_inference", target_id="postgres", kind="sync_call")
+    )
+    patch_set = PatchSet(
+        patches=[RemoveDependencyPatch(source_id="ml_inference", target_id="postgres")],
+        narration="",
+    )
+    new_model, results = apply_patch_set(model, patch_set)
+
+    assert results[0].outcome == PatchOutcome.REJECTED
+    assert "multiple dependency kinds" in results[0].reason
+    assert len(new_model.dependencies) == 2  # unchanged
+
+
 def test_partial_batch_first_patch_valid_second_invalid_first_still_applied():
     model = _model_with_two_components()
     patch_set = PatchSet(

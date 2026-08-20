@@ -59,26 +59,34 @@ async def login(payload: LoginRequest, db: Annotated[AsyncSession, Depends(get_d
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
 
     return TokenPair(
-        access_token=create_token(user.id, "access"),
-        refresh_token=create_token(user.id, "refresh"),
+        access_token=create_token(user.id, "access", user.token_version),
+        refresh_token=create_token(user.id, "refresh", user.token_version),
     )
 
 
 @router.post("/refresh", response_model=TokenPair)
 async def refresh(payload: RefreshRequest, db: Annotated[AsyncSession, Depends(get_db)]) -> TokenPair:
+    """Refresh tokens are NOT single-use here (no stored jti/reuse-detection store),
+    but every issued token — access or refresh — carries the token_version that was
+    live at issuance. change_password (below) bumps that version, which immediately
+    invalidates every refresh token issued before the change, closing the window a
+    previously stolen refresh token would otherwise have for its full TTL."""
+
     try:
-        user_id = decode_token(payload.refresh_token, "refresh")
+        decoded = decode_token(payload.refresh_token, "refresh")
     except TokenError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == decoded.user_id))
     user = result.scalar_one_or_none()
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="user not found or disabled")
+    if decoded.token_version != user.token_version:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token has been revoked")
 
     return TokenPair(
-        access_token=create_token(user_id, "access"),
-        refresh_token=create_token(user_id, "refresh"),
+        access_token=create_token(user.id, "access", user.token_version),
+        refresh_token=create_token(user.id, "refresh", user.token_version),
     )
 
 
@@ -102,4 +110,17 @@ async def change_password(payload: ChangePasswordRequest, user: CurrentUser, db:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="current password is incorrect")
 
     user.hashed_password = hash_password(payload.new_password)
+    # Invalidates every access/refresh token issued before this change — including
+    # any refresh token an attacker may have already captured.
+    user.token_version += 1
+    await db.commit()
+
+
+@router.post("/logout-everywhere", status_code=status.HTTP_204_NO_CONTENT)
+async def logout_everywhere(user: CurrentUser, db: Db) -> None:
+    """Revokes every outstanding access and refresh token for this user immediately,
+    without requiring a password change — the response to 'I think my session/refresh
+    token leaked' that doesn't force picking a new password."""
+
+    user.token_version += 1
     await db.commit()

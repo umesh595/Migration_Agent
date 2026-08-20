@@ -159,7 +159,12 @@ def render_markdown(model: ArchitectureModel, plan: MigrationPlan, context: Migr
     if context:
         parts.append("\n## Migration Context\n")
         parts.append(f"- Source: {context.source_environment} → Target: {context.target_environment}")
+        parts.append(f"- Target platform: {s(context.target_platform_description)}")
         parts.append(f"- Downtime tolerance: {context.downtime_tolerance}")
+        if context.maintenance_window_description:
+            parts.append(f"- Maintenance window: {s(context.maintenance_window_description)}")
+        if context.target_completion_description:
+            parts.append(f"- Target completion: {s(context.target_completion_description)}")
         for constraint in context.constraints:
             parts.append(f"- Constraint: {s(constraint)}")
 
@@ -249,7 +254,14 @@ def render_docx(model: ArchitectureModel, plan: MigrationPlan, context: Migratio
     if context:
         doc.add_heading("Migration Context", level=1)
         doc.add_paragraph(f"Source: {context.source_environment} -> Target: {context.target_environment}")
+        doc.add_paragraph(f"Target platform: {s(context.target_platform_description)}")
         doc.add_paragraph(f"Downtime tolerance: {context.downtime_tolerance}")
+        if context.maintenance_window_description:
+            doc.add_paragraph(f"Maintenance window: {s(context.maintenance_window_description)}")
+        if context.target_completion_description:
+            doc.add_paragraph(f"Target completion: {s(context.target_completion_description)}")
+        for constraint in context.constraints:
+            doc.add_paragraph(s(constraint), style="List Bullet")
 
     buffer = io.BytesIO()
     doc.save(buffer)

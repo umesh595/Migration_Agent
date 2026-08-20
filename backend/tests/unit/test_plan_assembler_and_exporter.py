@@ -107,6 +107,28 @@ def test_markdown_export_contains_all_ten_deliverable_sections():
         assert heading in md, f"missing section: {heading}"
 
 
+def test_roadmap_uses_discovered_owner_team_instead_of_tbd_placeholder():
+    """A component with a known owner_team should show that team on the roadmap,
+    not the generic 'TBD' placeholder — the roadmap should be immediately
+    actionable when discovery already captured who owns each component."""
+
+    model = _sample_model()
+    model.get_component("api").owner_team = "payments-team"
+    waves = compute_sequence(model)
+    plan = assemble_plan(
+        model, waves, _component_outputs(model),
+        target_architecture_description="Cloud-native target",
+        cutover=CutoverReviewOutput(approach="phased", steps=["go"], go_no_go_criteria=["green"], communication_plan="email"),
+        rollback=RollbackPlanOutput(approach="revert", triggers=["errors"], steps=["revert"]),
+    )
+
+    api_item = next(item for item in plan.roadmap_items if item.component_id == "api")
+    assert api_item.owner_placeholder == "payments-team"
+
+    web_item = next(item for item in plan.roadmap_items if item.component_id == "web")
+    assert web_item.owner_placeholder == "TBD"
+
+
 def test_markdown_roadmap_includes_owner_placeholder():
     """The PRD's data model names 'owner placeholder' as part of RoadmapItem
     (Section: Data Model Overview); the export must actually surface it, not just

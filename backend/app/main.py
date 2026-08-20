@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
 
     app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
-    app.state.rate_limiter = RateLimiter(app.state.redis)
+    app.state.rate_limiter = RateLimiter(app.state.redis, fail_open=settings.rate_limit_fail_open)
 
     provider = OpenAIProvider(
         api_key=settings.openai_api_key.get_secret_value(),

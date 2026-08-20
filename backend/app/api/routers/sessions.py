@@ -20,6 +20,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.api.deps import CurrentUser, Db, enforce_message_rate_limit, enforce_rate_limit, get_gateway
 from app.config import get_settings
 from app.core.exporter import render_docx, render_markdown
+from app.core.graph_engine import compute_impact
 from app.db.models import SessionStatus
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.orchestration.checkpointer import get_checkpointer
@@ -52,6 +53,12 @@ class MessageRequest(BaseModel):
     # Non-Goals. The cap exists so one message can't blow past a sane prompt size
     # for the cheap-tier ingestion model.
     message: str = Field(min_length=1, max_length=50_000)
+    message_id: str = Field(
+        min_length=1,
+        max_length=128,
+        description="Client-generated idempotency key (e.g. a uuid) for this turn. "
+        "A retried/double-submitted request with the same id is not re-processed (FR-E6).",
+    )
 
 
 def _thread_config(thread_id: str) -> dict:
@@ -121,6 +128,13 @@ async def post_message(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"session is in '{session.status}' — no further messages accepted",
+        )
+
+    is_new_message = await session_service.claim_message(db, session.id, payload.message_id)
+    if not is_new_message:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="this message_id was already processed for this session — not re-running the turn",
         )
 
     settings = get_settings()
@@ -290,6 +304,27 @@ async def approve_plan(session_id: uuid.UUID, user: CurrentUser, db: Db) -> dict
     return {"status": "final", "plan_version": plan.version, "session_status": session.status}
 
 
+@router.get("/{session_id}/impact/{component_id}", dependencies=[Depends(enforce_rate_limit)])
+async def get_component_impact(session_id: uuid.UUID, component_id: str, user: CurrentUser, db: Db) -> dict:
+    """Reachability-based impact analysis over the current (latest) model: what
+    depends on this component (upstream — affected if it changes or moves) and
+    what it depends on (downstream). Backs 'what breaks if I touch this' — the
+    same question the Engineering Director and Migration Architect personas ask
+    before committing to a disposition, computed by GraphEngine rather than
+    guessed at."""
+
+    try:
+        session = await session_service.get_session_for_user(db, session_id, user.id)
+    except LookupError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found") from None
+
+    model = await session_service.latest_model(db, session.id)
+    if component_id not in model.component_ids():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"no component with id '{component_id}'")
+
+    return compute_impact(model, component_id)
+
+
 @router.get("/{session_id}/findings", dependencies=[Depends(enforce_rate_limit)])
 async def get_findings(session_id: uuid.UUID, user: CurrentUser, db: Db) -> dict:
     from sqlalchemy import select
@@ -307,6 +342,7 @@ async def get_findings(session_id: uuid.UUID, user: CurrentUser, db: Db) -> dict
     return {
         "findings": [
             {
+                "id": str(f.id),
                 "source": f.source,
                 "rule_id": f.rule_id,
                 "severity": f.severity,
@@ -316,6 +352,41 @@ async def get_findings(session_id: uuid.UUID, user: CurrentUser, db: Db) -> dict
             }
             for f in result.scalars().all()
         ]
+    }
+
+
+class ResolveFindingRequest(BaseModel):
+    resolution_status: str = Field(description="One of: 'resolved', 'accepted_as_risk', 'open'.")
+
+
+@router.patch("/{session_id}/findings/{finding_id}", dependencies=[Depends(enforce_rate_limit)])
+async def resolve_finding(
+    session_id: uuid.UUID, finding_id: uuid.UUID, payload: ResolveFindingRequest, user: CurrentUser, db: Db
+) -> dict:
+    """Lets the Migration Architect mark a review finding resolved or explicitly
+    accepted as a risk instead of leaving it open forever — the counterpart to
+    RULE-00x/LLM findings shipping as documented Risks when the refine-loop budget
+    runs out (Doc 3 §3.1). Purely a record-keeping annotation: it does not re-run
+    rules, mutate the plan, or gate approval — Gate 2 remains reachable regardless
+    of open findings, same as today."""
+
+    try:
+        await session_service.get_session_for_user(db, session_id, user.id)
+    except LookupError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found") from None
+
+    try:
+        record = await session_service.set_finding_resolution(
+            db, session_id, finding_id, payload.resolution_status
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except LookupError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="finding not found") from None
+
+    return {
+        "id": str(record.id),
+        "resolution_status": record.resolution_status,
     }
 
 

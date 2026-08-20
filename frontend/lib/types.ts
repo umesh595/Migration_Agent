@@ -198,6 +198,7 @@ export type FindingSource = "rule" | "llm";
 export type ResolutionStatus = "open" | "resolved" | "accepted_as_risk";
 
 export interface Finding {
+  id: string;
   source: FindingSource;
   rule_id: string | null;
   severity: FindingSeverity;

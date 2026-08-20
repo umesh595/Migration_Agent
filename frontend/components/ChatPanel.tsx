@@ -137,8 +137,13 @@ export function ChatPanel({
     setStreaming(true);
     setLiveStatus("Sending…");
 
+    // FR-E6: a stable id for this turn so a client-side retry of a dropped
+    // connection doesn't re-run the graph and double-apply patches server-side —
+    // the backend rejects a second submission with the same id as a duplicate.
+    const messageId = crypto.randomUUID();
+
     try {
-      for await (const evt of streamMessage(sessionId, text)) {
+      for await (const evt of streamMessage(sessionId, text, messageId)) {
         if (evt.event === "node_complete") {
           const data = evt.data as NodeCompleteEvent;
           setLiveStatus(narrateNode(data));

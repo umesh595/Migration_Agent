@@ -5,7 +5,7 @@ applied or rejected — produces a PatchResult for the audit log (Doc 3 §3.2 st
 from __future__ import annotations
 
 from app.core.patch_validator import validate_patch
-from app.schemas.architecture import ArchitectureModel, Assumption, Component, Dependency
+from app.schemas.architecture import ArchitectureModel, Assumption, Component, Dependency, Environment
 from app.schemas.patches import (
     AddAssumptionPatch,
     AddComponentPatch,
@@ -36,7 +36,7 @@ def _apply_single(model: ArchitectureModel, patch: Patch) -> ArchitectureModel:
                     workload_type=patch.workload_type,
                     description=patch.description,
                     technology=patch.technology,
-                    environment=patch.environment or "unknown",
+                    environment=patch.environment or Environment.UNKNOWN,
                 )
             )
 
@@ -71,7 +71,11 @@ def _apply_single(model: ArchitectureModel, patch: Patch) -> ArchitectureModel:
             data.dependencies = [
                 d
                 for d in data.dependencies
-                if not (d.source_id == patch.source_id and d.target_id == patch.target_id)
+                if not (
+                    d.source_id == patch.source_id
+                    and d.target_id == patch.target_id
+                    and (patch.kind is None or d.kind == patch.kind)
+                )
             ]
 
         case AddAssumptionPatch():
@@ -86,7 +90,8 @@ def _apply_single(model: ArchitectureModel, patch: Patch) -> ArchitectureModel:
             )
 
         case ResolveOpenQuestionPatch():
-            question = next(q for q in data.open_questions if q.id == patch.question_id)
+            question = next((q for q in data.open_questions if q.id == patch.question_id), None)
+            assert question is not None
             question.resolved = True
             data.assumptions.append(
                 Assumption(

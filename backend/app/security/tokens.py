@@ -15,7 +15,11 @@ class TokenError(Exception):
     pass
 
 
-def create_token(user_id: uuid.UUID, token_type: TokenType) -> str:
+def create_token(user_id: uuid.UUID, token_type: TokenType, token_version: int) -> str:
+    """`token_version` is embedded so a bump on the user row (password change,
+    explicit revoke) invalidates every token issued before the bump — decode_token
+    checks it against the live DB value, not just the signature/expiry."""
+
     settings = get_settings()
     now = datetime.now(UTC)
     ttl = (
@@ -26,6 +30,7 @@ def create_token(user_id: uuid.UUID, token_type: TokenType) -> str:
     payload = {
         "sub": str(user_id),
         "type": token_type,
+        "ver": token_version,
         "iat": int(now.timestamp()),
         "exp": int((now + ttl).timestamp()),
         "jti": str(uuid.uuid4()),
@@ -33,7 +38,13 @@ def create_token(user_id: uuid.UUID, token_type: TokenType) -> str:
     return jwt.encode(payload, settings.jwt_secret.get_secret_value(), algorithm=settings.jwt_algorithm)
 
 
-def decode_token(token: str, expected_type: TokenType) -> uuid.UUID:
+class DecodedToken:
+    def __init__(self, user_id: uuid.UUID, token_version: int) -> None:
+        self.user_id = user_id
+        self.token_version = token_version
+
+
+def decode_token(token: str, expected_type: TokenType) -> DecodedToken:
     settings = get_settings()
     try:
         payload = jwt.decode(
@@ -50,6 +61,9 @@ def decode_token(token: str, expected_type: TokenType) -> uuid.UUID:
         raise TokenError(f"expected a {expected_type} token")
 
     try:
-        return uuid.UUID(payload["sub"])
-    except (KeyError, ValueError) as exc:
+        user_id = uuid.UUID(payload["sub"])
+        token_version = int(payload["ver"])
+    except (KeyError, ValueError, TypeError) as exc:
         raise TokenError("malformed token subject") from exc
+
+    return DecodedToken(user_id, token_version)

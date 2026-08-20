@@ -24,14 +24,19 @@ async def current_user(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     try:
-        user_id = decode_token(credentials.credentials, "access")
+        decoded = decode_token(credentials.credentials, "access")
     except TokenError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == decoded.user_id))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="user not found")
+    if decoded.token_version != user.token_version:
+        # The user's token_version has moved on (password change, revoke-all) since
+        # this access token was issued — it's structurally still valid but must no
+        # longer be honored.
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="token has been revoked")
     if not user.is_active:
         # Checked on every request, not just at login: an admin disabling a user must
         # take effect immediately rather than waiting out that user's still-valid

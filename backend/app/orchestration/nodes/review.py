@@ -22,6 +22,7 @@ from app.llm.state_injection import (
     render_plan_for_review,
     render_review_for_judge,
 )
+from app.observability.tracing import trace_node
 from app.orchestration.state import GraphState, Stage
 from app.schemas.findings import Finding, FindingSeverity, FindingSource, ResolutionStatus
 from app.schemas.migration_plan import PlanStatus
@@ -40,6 +41,14 @@ def rules_review_node(state: GraphState) -> dict:
     rule_findings = run_rules(state["model"], plan, state.get("migration_context"))
     # Preserve any LLM findings already recorded this cycle; rules are recomputed fresh.
     existing_llm = [f for f in state.get("findings", []) if f.source == FindingSource.LLM]
+    trace_node(
+        node_name="review.rules_review",
+        session_id=state.get("session_id", ""),
+        metadata={
+            "rule_finding_count": len(rule_findings),
+            "error_count": sum(1 for f in rule_findings if f.severity == FindingSeverity.ERROR),
+        },
+    )
     return {"findings": rule_findings + existing_llm}
 
 
@@ -226,6 +235,11 @@ def finalize_review_node(state: GraphState) -> dict:
             finalized.risks.append(risk)
 
     finalized.status = PlanStatus.REVIEWED
+    trace_node(
+        node_name="review.finalize_review",
+        session_id=state.get("session_id", ""),
+        metadata={"unresolved_findings_shipped_as_risks": len(open_findings)},
+    )
     return {
         "plan": finalized,
         "stage": Stage.AWAITING_PLAN_APPROVAL,

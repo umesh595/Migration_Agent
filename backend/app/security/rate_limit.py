@@ -28,7 +28,13 @@ return current
 
 
 class RateLimiter:
-    def __init__(self, redis: Redis, *, fail_open: bool = True) -> None:
+    def __init__(self, redis: Redis, *, fail_open: bool = False) -> None:
+        """Defaults closed: if Redis is unreachable, requests are REJECTED rather
+        than let through. Rate limiting exists specifically to survive a dependency
+        outage without one client exhausting capacity/budget for everyone — failing
+        open during exactly that outage defeats the purpose. Availability during a
+        Redis outage is a deliberate choice to make per-deployment, not a default."""
+
         self._redis = redis
         self._script = redis.register_script(_INCR_WITH_TTL)
         self._fail_open = fail_open

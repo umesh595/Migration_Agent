@@ -24,6 +24,10 @@ class ResolutionStatus(StrEnum):
     RESOLVED = "resolved"
     ACCEPTED_AS_RISK = "accepted_as_risk"
 
+    @classmethod
+    def values(cls) -> set[str]:
+        return {v.value for v in cls}
+
 
 class Finding(BaseModel):
     id: str
@@ -33,11 +37,3 @@ class Finding(BaseModel):
     message: str
     related_component_ids: list[str] = Field(default_factory=list)
     resolution_status: ResolutionStatus = ResolutionStatus.OPEN
-
-
-class ReviewResult(BaseModel):
-    findings: list[Finding] = Field(default_factory=list)
-    iteration: int = 0
-
-    def has_blocking_errors(self) -> bool:
-        return any(f.severity == FindingSeverity.ERROR and f.resolution_status == ResolutionStatus.OPEN for f in self.findings)

@@ -25,6 +25,7 @@ from app.llm.state_injection import (
     render_context_for_prompt,
     render_model_for_prompt,
 )
+from app.observability.tracing import trace_node
 from app.orchestration.state import GraphState, Stage
 from app.schemas.architecture import Environment
 from app.schemas.migration_context import DowntimeTolerance, MigrationContext
@@ -106,6 +107,11 @@ def compute_sequence_node(state: GraphState) -> dict:
         return {"error": str(exc)}
 
     waves = compute_sequence(model)
+    trace_node(
+        node_name="planning.compute_sequence",
+        session_id=state.get("session_id", ""),
+        metadata={"wave_count": len(waves), "component_count": len(model.components)},
+    )
     return {"_waves": waves, "error": None}
 
 
@@ -209,6 +215,15 @@ def assemble_plan_node(state: GraphState) -> dict:
         target_architecture_description=state["_target_architecture"],
         cutover=state["_cutover"],
         rollback=state["_rollback"],
+    )
+    trace_node(
+        node_name="planning.assemble_plan",
+        session_id=state.get("session_id", ""),
+        metadata={
+            "component_plan_count": len(plan.component_plans),
+            "risk_count": len(plan.risks),
+            "wave_count": len(plan.waves),
+        },
     )
     return {
         "plan": plan,

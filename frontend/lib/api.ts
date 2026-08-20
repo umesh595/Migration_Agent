@@ -22,7 +22,7 @@ export class ApiError extends Error {
   }
 }
 
-export function getAccessToken(): string | null {
+function getAccessToken(): string | null {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem(ACCESS_TOKEN_KEY);
 }
@@ -32,7 +32,7 @@ function getRefreshToken(): string | null {
   return window.localStorage.getItem(REFRESH_TOKEN_KEY);
 }
 
-export function setTokens(accessToken: string, refreshToken: string): void {
+function setTokens(accessToken: string, refreshToken: string): void {
   window.localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
   window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
 }
@@ -129,6 +129,15 @@ export async function changePassword(currentPassword: string, newPassword: strin
   });
 }
 
+/** Revokes every outstanding access/refresh token for the current user (server-side
+ * token_version bump) — the response to "I think a session token leaked" that
+ * doesn't require picking a new password. Clears local tokens too since this
+ * device's own tokens are revoked by the same call. */
+export async function logoutEverywhere(): Promise<void> {
+  await request<void>("/auth/logout-everywhere", { method: "POST" });
+  clearTokens();
+}
+
 // --- Sessions ---
 
 export function listSessions(): Promise<SessionSummary[]> {
@@ -155,12 +164,30 @@ export function getFindings(sessionId: string): Promise<{ findings: Finding[] }>
   return request(`/sessions/${sessionId}/findings`);
 }
 
+export function resolveFinding(
+  sessionId: string,
+  findingId: string,
+  resolutionStatus: "resolved" | "accepted_as_risk" | "open"
+): Promise<{ id: string; resolution_status: string }> {
+  return request(`/sessions/${sessionId}/findings/${findingId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ resolution_status: resolutionStatus }),
+  });
+}
+
 export function getAudit(sessionId: string): Promise<{ records: PatchAuditEntry[] }> {
   return request(`/sessions/${sessionId}/audit`);
 }
 
 export function getReviewQuality(sessionId: string): Promise<{ scores: ReviewQualityScore[] }> {
   return request(`/sessions/${sessionId}/review-quality`);
+}
+
+export function getComponentImpact(
+  sessionId: string,
+  componentId: string
+): Promise<{ upstream: string[]; downstream: string[] }> {
+  return request(`/sessions/${sessionId}/impact/${encodeURIComponent(componentId)}`);
 }
 
 export async function downloadExport(sessionId: string, format: "markdown" | "docx"): Promise<void> {
@@ -197,7 +224,11 @@ export interface SseEvent {
   data: unknown;
 }
 
-export async function* streamMessage(sessionId: string, message: string): AsyncGenerator<SseEvent> {
+export async function* streamMessage(
+  sessionId: string,
+  message: string,
+  messageId: string
+): AsyncGenerator<SseEvent> {
   const token = getAccessToken();
   const response = await fetch(`${API_BASE}/sessions/${sessionId}/messages`, {
     method: "POST",
@@ -205,7 +236,7 @@ export async function* streamMessage(sessionId: string, message: string): AsyncG
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, message_id: messageId }),
   });
 
   if (!response.ok || !response.body) {
@@ -248,26 +279,6 @@ export async function* streamMessage(sessionId: string, message: string): AsyncG
 
       const parsedEvent = parseRawEvent(rawEvent);
       if (parsedEvent) yield parsedEvent;
-      match = /\r?\n\r?\n/.exec(buffer);
-      continue;
-
-      let eventName = "message";
-      let id: string | undefined;
-      const dataLines: string[] = [];
-      for (const line of rawEvent.split("\n")) {
-        if (line.startsWith("event:")) eventName = line.slice(6).trim();
-        else if (line.startsWith("id:")) id = line.slice(3).trim();
-        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
-      }
-      if (dataLines.length > 0) {
-        let parsed: unknown = dataLines.join("\n");
-        try {
-          parsed = JSON.parse(dataLines.join("\n"));
-        } catch {
-          // leave as raw string — the caller decides what to do with unparseable data
-        }
-        yield { event: eventName, id, data: parsed };
-      }
       match = /\r?\n\r?\n/.exec(buffer);
     }
   }

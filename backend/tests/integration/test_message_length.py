@@ -36,7 +36,8 @@ async def test_message_up_to_50k_characters_is_accepted(app_client, auth_headers
     assert 10_000 < len(long_message) <= 50_000
 
     response = await client.post(
-        f"/sessions/{session_id}/messages", headers=auth_headers, json={"message": long_message}
+        f"/sessions/{session_id}/messages", headers=auth_headers,
+        json={"message": long_message, "message_id": "paste-1"}
     )
     assert response.status_code == 200, response.text
 
@@ -48,6 +49,7 @@ async def test_message_over_50k_characters_is_rejected(app_client, auth_headers)
 
     too_long = "x" * 50_001
     response = await client.post(
-        f"/sessions/{session_id}/messages", headers=auth_headers, json={"message": too_long}
+        f"/sessions/{session_id}/messages", headers=auth_headers,
+        json={"message": too_long, "message_id": "paste-2"}
     )
     assert response.status_code == 422

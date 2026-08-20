@@ -23,6 +23,7 @@ def render_model_for_prompt(model: ArchitectureModel) -> str:
                 "environment": str(c.environment),
                 "technology": c.technology,
                 "description": c.description,
+                "owner_team": c.owner_team,
             }
             for c in model.components
         ],
@@ -51,6 +52,7 @@ def render_context_for_prompt(context: MigrationContext) -> str:
             "downtime_tolerance": str(context.downtime_tolerance),
             "maintenance_window": context.maintenance_window_description,
             "constraints": context.constraints,
+            "target_completion": context.target_completion_description,
         },
         indent=2,
     )
@@ -92,6 +94,7 @@ def render_component_planning_context(
             "technology": component.technology,
             "description": component.description,
             "criticality": component.criticality,
+            "owner_team": component.owner_team,
         },
         "ASSIGNED_WAVE_INDEX_FIXED": wave.index,
         "wave_rationale": wave.rationale,

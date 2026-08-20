@@ -38,13 +38,20 @@ class TestPasswords:
 class TestTokens:
     def test_roundtrip_access_token(self):
         user_id = uuid.uuid4()
-        assert decode_token(create_token(user_id, "access"), "access") == user_id
+        decoded = decode_token(create_token(user_id, "access", token_version=0), "access")
+        assert decoded.user_id == user_id
+        assert decoded.token_version == 0
+
+    def test_token_version_is_carried_through(self):
+        user_id = uuid.uuid4()
+        decoded = decode_token(create_token(user_id, "access", token_version=3), "access")
+        assert decoded.token_version == 3
 
     def test_refresh_token_rejected_where_access_expected(self):
         """Token-type confusion: a long-lived refresh token must not authenticate
         API requests."""
 
-        token = create_token(uuid.uuid4(), "refresh")
+        token = create_token(uuid.uuid4(), "refresh", token_version=0)
         with pytest.raises(TokenError, match="expected a access token"):
             decode_token(token, "access")
 

@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
-import { acceptModel, ApiError, approvePlan, getFindings, getReviewQuality, getSessionState } from "@/lib/api";
+import { acceptModel, ApiError, approvePlan, getAudit, getFindings, getReviewQuality, getSessionState } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
-import type { Finding, ReviewQualityScore, SessionState } from "@/lib/types";
+import type { Finding, PatchAuditEntry, ReviewQualityScore, SessionState } from "@/lib/types";
 import { ArchitectureCanvas } from "@/components/ArchitectureCanvas";
+import { AuditTrailPanel } from "@/components/AuditTrailPanel";
 import { ChatPanel } from "@/components/ChatPanel";
 import { ExportButtons } from "@/components/ExportButtons";
 import { FindingsPanel } from "@/components/FindingsPanel";
@@ -23,6 +24,7 @@ export default function SessionWorkspacePage() {
   const [state, setState] = useState<SessionState | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [reviewQuality, setReviewQuality] = useState<ReviewQualityScore[]>([]);
+  const [auditRecords, setAuditRecords] = useState<PatchAuditEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [gateBusy, setGateBusy] = useState(false);
   const needsMigrationContext = state?.session.status === "planning" && !state.migration_context && !state.plan;
@@ -31,6 +33,8 @@ export default function SessionWorkspacePage() {
     try {
       const nextState = await getSessionState(sessionId);
       setState(nextState);
+      const { records } = await getAudit(sessionId);
+      setAuditRecords(records);
       if (nextState.plan) {
         const [{ findings: f }, { scores }] = await Promise.all([
           getFindings(sessionId),
@@ -190,7 +194,7 @@ export default function SessionWorkspacePage() {
             </div>
 
             <div className="space-y-4">
-              <ArchitectureCanvas model={state.model} waves={state.plan?.waves} />
+              <ArchitectureCanvas model={state.model} waves={state.plan?.waves} sessionId={sessionId} />
 
               {state.model.open_questions.some((q) => !q.resolved) && (
                 <div className="card">
@@ -229,11 +233,16 @@ export default function SessionWorkspacePage() {
               {findings.length > 0 && (
                 <div>
                   <h3 className="mb-2 text-sm font-semibold text-slate-700">Review findings</h3>
-                  <FindingsPanel findings={findings} />
+                  <FindingsPanel findings={findings} sessionId={sessionId} onChanged={refresh} />
                 </div>
               )}
 
               <ReviewQualityPanel scores={reviewQuality} />
+
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-slate-700">Patch audit trail</h3>
+                <AuditTrailPanel records={auditRecords} />
+              </div>
             </div>
           </div>
         )}

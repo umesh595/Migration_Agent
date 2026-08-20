@@ -53,7 +53,6 @@ class Component(BaseModel):
     technology: str | None = Field(default=None, description="e.g. 'PostgreSQL 14', 'Django 4.2'.")
     owner_team: str | None = None
     criticality: str | None = Field(default=None, description="Free-text business criticality, e.g. 'tier-1'.")
-    metadata: dict[str, str] = Field(default_factory=dict)
 
 
 class Dependency(BaseModel):

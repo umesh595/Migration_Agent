@@ -6,7 +6,6 @@ from app.core.graph_engine import (
     compute_cross_wave_dependencies,
     compute_impact,
     compute_sequence,
-    detect_cycles,
 )
 from app.schemas.architecture import ArchitectureModel, Component, Dependency
 
@@ -54,18 +53,6 @@ def test_mutual_dependency_cycle_grouped_into_same_wave():
     assert len(waves) == 1
     assert set(waves[0].component_ids) == {"x", "y"}
     assert len(waves[0].coexistence_groups) == 1
-
-
-def test_detect_cycles_matches_scc_membership():
-    model = ArchitectureModel(
-        components=[_component("x"), _component("y"), _component("z")],
-        dependencies=[
-            Dependency(id="d1", source_id="x", target_id="y", kind="sync_call"),
-            Dependency(id="d2", source_id="y", target_id="x", kind="sync_call"),
-        ],
-    )
-    cycles = detect_cycles(model)
-    assert cycles == [["x", "y"]]
 
 
 def test_cross_wave_dependencies_detected_for_multi_wave_span():

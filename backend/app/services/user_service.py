@@ -10,6 +10,7 @@ import secrets
 import uuid
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import User
@@ -32,14 +33,19 @@ def generate_temp_password() -> str:
 async def create_user(
     db: AsyncSession, *, email: str, password: str, is_admin: bool = False
 ) -> User:
-    normalized = email.lower()
-    existing = await db.execute(select(User).where(User.email == normalized))
-    if existing.scalar_one_or_none() is not None:
-        raise UserServiceError(f"a user with email '{normalized}' already exists")
+    """Relies on the DB-level unique constraint on `users.email` rather than a
+    check-then-insert (which races: two concurrent requests can both pass the
+    SELECT before either INSERTs). The constraint is the actual source of truth;
+    this just turns its violation into the same business error either way."""
 
+    normalized = email.lower()
     user = User(email=normalized, hashed_password=hash_password(password), is_admin=is_admin)
     db.add(user)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise UserServiceError(f"a user with email '{normalized}' already exists") from None
     await db.refresh(user)
     return user
 
@@ -73,6 +79,9 @@ async def reset_password(db: AsyncSession, user_id: uuid.UUID) -> tuple[User, st
     user = await get_user(db, user_id)
     temp_password = generate_temp_password()
     user.hashed_password = hash_password(temp_password)
+    # An admin resetting a password is often a response to a compromised account —
+    # invalidate any tokens already issued to whoever was using it.
+    user.token_version += 1
     await db.commit()
     await db.refresh(user)
     return user, temp_password

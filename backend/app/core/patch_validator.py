@@ -56,6 +56,8 @@ def validate_patch(model: ArchitectureModel, patch: Patch) -> str | None:
                 return f"no component with id '{patch.source_id}' exists"
             if patch.target_id not in ids:
                 return f"no component with id '{patch.target_id}' exists"
+            if patch.source_id == patch.target_id:
+                return f"a dependency cannot connect '{patch.source_id}' to itself"
             duplicate = any(
                 d.source_id == patch.source_id and d.target_id == patch.target_id and d.kind == patch.kind
                 for d in model.dependencies
@@ -65,9 +67,20 @@ def validate_patch(model: ArchitectureModel, patch: Patch) -> str | None:
             return None
 
         case RemoveDependencyPatch():
-            exists = any(d.source_id == patch.source_id and d.target_id == patch.target_id for d in model.dependencies)
-            if not exists:
+            matches = [
+                d
+                for d in model.dependencies
+                if d.source_id == patch.source_id and d.target_id == patch.target_id
+                and (patch.kind is None or d.kind == patch.kind)
+            ]
+            if not matches:
                 return f"no dependency from '{patch.source_id}' to '{patch.target_id}' exists"
+            if patch.kind is None and len({d.kind for d in matches}) > 1:
+                kinds = ", ".join(sorted(d.kind for d in matches))
+                return (
+                    f"multiple dependency kinds exist from '{patch.source_id}' to '{patch.target_id}' "
+                    f"({kinds}) — specify which kind to remove"
+                )
             return None
 
         case AddAssumptionPatch():

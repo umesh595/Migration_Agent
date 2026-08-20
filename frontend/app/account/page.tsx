@@ -1,18 +1,35 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
-import { ApiError, changePassword } from "@/lib/api";
+import { ApiError, changePassword, logoutEverywhere } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
 import { NavBar } from "@/components/NavBar";
 
 export default function AccountPage() {
   const { user, loading } = useRequireAuth();
+  const router = useRouter();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [revoking, setRevoking] = useState(false);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
+
+  async function handleLogoutEverywhere() {
+    setRevoking(true);
+    setRevokeError(null);
+    try {
+      await logoutEverywhere();
+      router.replace("/login");
+    } catch (err) {
+      setRevokeError(err instanceof ApiError ? err.detail : "Could not revoke sessions.");
+    } finally {
+      setRevoking(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -87,6 +104,27 @@ export default function AccountPage() {
             {submitting ? "Changing…" : "Change password"}
           </button>
         </form>
+
+        <div className="card mt-6 space-y-3">
+          <h2 className="text-sm font-semibold text-slate-700">Sessions</h2>
+          <p className="text-xs text-slate-500">
+            If you suspect a device or a copied access/refresh token is no longer under your control, revoke
+            every outstanding session immediately — this signs you out everywhere, including this device.
+          </p>
+          {revokeError && (
+            <p role="alert" className="text-sm text-red-600">
+              {revokeError}
+            </p>
+          )}
+          <button
+            type="button"
+            className="btn-secondary w-full border-red-200 text-red-700 hover:bg-red-50"
+            disabled={revoking}
+            onClick={handleLogoutEverywhere}
+          >
+            {revoking ? "Revoking…" : "Sign out of all sessions"}
+          </button>
+        </div>
       </main>
     </div>
   );

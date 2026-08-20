@@ -172,7 +172,8 @@ async def test_full_lifecycle_discovery_to_export(app_client, auth_headers):
     # --- discovery turn 1 ---
     _register_discovery(provider)
     events = await _read_sse(client, f"/sessions/{session_id}/messages", auth_headers,
-                             {"message": "We have a storefront, an orders API, and Postgres."})
+                             {"message": "We have a storefront, an orders API, and Postgres.",
+                              "message_id": "turn-1"})
     assert any(e.get("event") == "turn_complete" for e in events)
 
     state = (await client.get(f"/sessions/{session_id}/state", headers=auth_headers)).json()
@@ -181,7 +182,8 @@ async def test_full_lifecycle_discovery_to_export(app_client, auth_headers):
     # --- discovery turn 2: a correction must actually remove the wrong edge ---
     _register_correction(provider)
     await _read_sse(client, f"/sessions/{session_id}/messages", auth_headers,
-                    {"message": "The storefront goes through the orders API, not Postgres directly."})
+                    {"message": "The storefront goes through the orders API, not Postgres directly.",
+                     "message_id": "turn-2"})
 
     state = (await client.get(f"/sessions/{session_id}/state", headers=auth_headers)).json()
     edges = {(d["source_id"], d["target_id"]) for d in state["model"]["dependencies"]}
@@ -204,7 +206,8 @@ async def test_full_lifecycle_discovery_to_export(app_client, auth_headers):
     # --- planning + review in one run ---
     _register_planning(provider)
     planning_events = await _read_sse(client, f"/sessions/{session_id}/messages", auth_headers,
-                    {"message": "Move everything to AWS, we can take a maintenance window."})
+                    {"message": "Move everything to AWS, we can take a maintenance window.",
+                     "message_id": "turn-3"})
 
     # The turn_complete narration must describe the plan that was just generated,
     # never stale discovery-stage text left over in the shared checkpointed thread
@@ -289,7 +292,8 @@ async def test_rejected_patch_is_audited_and_narrated_not_silently_dropped(app_c
     )
 
     await _read_sse(client, f"/sessions/{session_id}/messages", auth_headers,
-                    {"message": "There's a real service that reads from a database."})
+                    {"message": "There's a real service that reads from a database.",
+                     "message_id": "turn-1"})
 
     state = (await client.get(f"/sessions/{session_id}/state", headers=auth_headers)).json()
     assert {c["id"] for c in state["model"]["components"]} == {"real_service"}

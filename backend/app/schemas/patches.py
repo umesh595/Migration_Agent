@@ -83,6 +83,11 @@ class RemoveDependencyPatch(BaseModel):
     op: Literal[PatchOp.REMOVE_DEPENDENCY] = PatchOp.REMOVE_DEPENDENCY
     source_id: str
     target_id: str
+    kind: DependencyKind | None = Field(
+        default=None,
+        description="Set when known. If omitted and multiple dependency kinds exist "
+        "between the same source/target pair, the patch is rejected asking for disambiguation.",
+    )
 
 
 class AddAssumptionPatch(BaseModel):

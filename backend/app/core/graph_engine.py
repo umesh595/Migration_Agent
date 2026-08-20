@@ -144,8 +144,3 @@ def compute_impact(model: ArchitectureModel, component_id: str) -> dict[str, lis
         "upstream": sorted(nx.ancestors(graph, component_id)),
         "downstream": sorted(nx.descendants(graph, component_id)),
     }
-
-
-def detect_cycles(model: ArchitectureModel) -> list[list[str]]:
-    graph = _build_graph(model)
-    return [sorted(scc) for scc in nx.strongly_connected_components(graph) if len(scc) > 1]

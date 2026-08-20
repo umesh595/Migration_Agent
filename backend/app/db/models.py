@@ -38,6 +38,10 @@ class User(Base):
     # for that user's work stays intact — deletion cascades are for project
     # deletion, not account deactivation.
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    # Bumped on password change and on explicit logout/revoke; every issued JWT embeds
+    # the value current at issuance time, so bumping this instantly invalidates every
+    # outstanding access and refresh token for this user (see security/tokens.py).
+    token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     sessions: Mapped[list["MigrationSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
@@ -137,6 +141,21 @@ class FindingRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     session: Mapped[MigrationSession] = relationship(back_populates="findings")
+
+
+class ProcessedMessage(Base):
+    """Backs FR-E6 (idempotent turn processing): a client-supplied message_id is
+    recorded here before the graph runs. A retried/double-submitted request with
+    the same (session_id, message_id) hits the unique constraint and is rejected
+    as a duplicate rather than re-running the graph and double-applying patches."""
+
+    __tablename__ = "processed_messages"
+    __table_args__ = (UniqueConstraint("session_id", "message_id", name="uq_processed_message_per_session"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    message_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ReviewQualityRecord(Base):

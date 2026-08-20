@@ -8,6 +8,7 @@ import logging
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
@@ -17,11 +18,12 @@ from app.db.models import (
     ModelVersion,
     PatchAuditRecord,
     PlanVersion,
+    ProcessedMessage,
     ReviewQualityRecord,
     SessionStatus,
 )
 from app.schemas.architecture import ArchitectureModel, ModelStatus
-from app.schemas.findings import Finding
+from app.schemas.findings import Finding, ResolutionStatus
 from app.schemas.migration_context import MigrationContext
 from app.schemas.migration_plan import MigrationPlan, PlanStatus
 from app.schemas.patches import PatchResult
@@ -62,6 +64,23 @@ async def list_sessions_for_user(db: AsyncSession, user_id: uuid.UUID) -> list[M
         .order_by(MigrationSession.updated_at.desc())
     )
     return list(result.scalars().all())
+
+
+async def claim_message(db: AsyncSession, session_id: uuid.UUID, message_id: str) -> bool:
+    """FR-E6: atomically claims (session_id, message_id) via the DB unique
+    constraint. Returns True if this is the first time this message_id has been
+    seen for this session (caller should process the turn), False if it's a
+    replay/double-submit (caller should skip re-running the graph). Commits
+    immediately so the claim is visible to a concurrent request racing on the
+    same message_id before either finishes the full turn."""
+
+    db.add(ProcessedMessage(session_id=session_id, message_id=message_id))
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        return False
+    return True
 
 
 async def get_session_for_user(db: AsyncSession, session_id: uuid.UUID, user_id: uuid.UUID) -> MigrationSession:
@@ -211,6 +230,31 @@ async def save_findings(
         )
 
 
+async def set_finding_resolution(
+    db: AsyncSession, session_id: uuid.UUID, finding_id: uuid.UUID, resolution_status: str
+) -> FindingRecord:
+    """Lets a user mark a persisted finding resolved or accepted-as-risk instead of
+    leaving every finding permanently 'open' — ResolutionStatus.RESOLVED and
+    .ACCEPTED_AS_RISK previously had no code path that ever assigned them."""
+
+    if resolution_status not in ResolutionStatus.values():
+        raise ValueError(
+            f"invalid resolution_status '{resolution_status}' — must be one of {sorted(ResolutionStatus.values())}"
+        )
+
+    result = await db.execute(
+        select(FindingRecord).where(FindingRecord.id == finding_id, FindingRecord.session_id == session_id)
+    )
+    record = result.scalar_one_or_none()
+    if record is None:
+        raise LookupError("finding not found")
+
+    record.resolution_status = resolution_status
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+
 async def approve_plan(db: AsyncSession, session: MigrationSession) -> MigrationPlan:
     """Gate 2. Marks the reviewed plan final; export becomes available."""
 
@@ -230,10 +274,6 @@ async def approve_plan(db: AsyncSession, session: MigrationSession) -> Migration
     session.status = SessionStatus.EXPORTED
     await db.commit()
     return plan
-
-
-async def record_token_usage(db: AsyncSession, session: MigrationSession, tokens: int) -> None:
-    session.token_usage = (session.token_usage or 0) + tokens
 
 
 async def save_review_quality(db: AsyncSession, session_id: uuid.UUID, scores: list[ReviewQualityScore]) -> None:

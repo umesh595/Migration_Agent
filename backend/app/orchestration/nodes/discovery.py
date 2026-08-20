@@ -15,6 +15,7 @@ from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.prompts.registry import get_prompt
 from app.llm.schemas import QuestionGenerationOutput
 from app.llm.state_injection import render_gaps_for_prompt, render_model_for_prompt
+from app.observability.tracing import trace_node
 from app.orchestration.state import GraphState, Stage
 from app.schemas.patches import PatchSet
 
@@ -59,6 +60,15 @@ def apply_patches_node(state: GraphState) -> dict:
         return {"last_patch_results": []}
 
     new_model, results = apply_patch_set(state["model"], patch_set)
+    trace_node(
+        node_name="discovery.apply_patches",
+        session_id=state.get("session_id", ""),
+        metadata={
+            "patches_applied": sum(1 for r in results if r.outcome == "applied"),
+            "patches_rejected": sum(1 for r in results if r.outcome == "rejected"),
+            "model_version": new_model.version,
+        },
+    )
     return {
         "model": new_model,
         "last_patch_results": results,
@@ -70,7 +80,13 @@ def apply_patches_node(state: GraphState) -> dict:
 def gap_analysis_node(state: GraphState) -> dict:
     """Deterministic: recompute unknowns from the UPDATED model."""
 
-    return {"_gaps": top_gaps(state["model"], n=3)}
+    gaps = top_gaps(state["model"], n=3)
+    trace_node(
+        node_name="discovery.gap_analysis",
+        session_id=state.get("session_id", ""),
+        metadata={"gap_count": len(gaps)},
+    )
+    return {"_gaps": gaps}
 
 
 async def generate_questions_node(state: GraphState, gateway: LLMGateway, meter: SessionTokenMeter) -> dict:
