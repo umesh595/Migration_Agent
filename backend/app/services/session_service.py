@@ -72,7 +72,12 @@ async def claim_message(db: AsyncSession, session_id: uuid.UUID, message_id: str
     seen for this session (caller should process the turn), False if it's a
     replay/double-submit (caller should skip re-running the graph). Commits
     immediately so the claim is visible to a concurrent request racing on the
-    same message_id before either finishes the full turn."""
+    same message_id before either finishes the full turn.
+
+    If the turn subsequently fails before anything is persisted (e.g. the graph
+    raises), the caller MUST call release_message_claim — otherwise a legitimate
+    retry with the same message_id is permanently rejected as a duplicate even
+    though nothing was ever actually applied for it."""
 
     db.add(ProcessedMessage(session_id=session_id, message_id=message_id))
     try:
@@ -81,6 +86,21 @@ async def claim_message(db: AsyncSession, session_id: uuid.UUID, message_id: str
         await db.rollback()
         return False
     return True
+
+
+async def release_message_claim(db: AsyncSession, session_id: uuid.UUID, message_id: str) -> None:
+    """Undoes claim_message after a turn fails before persisting anything, so a
+    legitimate client retry with the same message_id is processed rather than
+    permanently 409ing (see claim_message's docstring)."""
+
+    from sqlalchemy import delete
+
+    await db.execute(
+        delete(ProcessedMessage).where(
+            ProcessedMessage.session_id == session_id, ProcessedMessage.message_id == message_id
+        )
+    )
+    await db.commit()
 
 
 async def get_session_for_user(db: AsyncSession, session_id: uuid.UUID, user_id: uuid.UUID) -> MigrationSession:

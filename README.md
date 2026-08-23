@@ -90,7 +90,7 @@ create session
                              ─> assemble (code) ─> DRAFT
   └─> REVIEW  rules (code, 0 tokens) ─> LLM critic ─> refine loop (max 2)
   └─> GATE 2: POST /plan/approve ─> plan FINAL
-  └─> EXPORT: markdown / docx with Mermaid diagrams
+  └─> EXPORT: pdf / docx
 ```
 
 ### Why migration order can't be wrong
@@ -109,20 +109,23 @@ the assembled plan. Dependency-order errors are prevented twice over.
 |---|---|---|
 | POST | `/auth/login` · `/auth/refresh` | JWT auth (no self-service signup — FR-A5) |
 | GET | `/auth/me` | Current user id/email/admin status |
-| POST | `/auth/change-password` | Self-service password change (requires current password) |
+| POST | `/auth/change-password` | Self-service password change (requires current password); also revokes every outstanding token |
+| POST | `/auth/logout-everywhere` | Revokes every outstanding access/refresh token for the caller immediately |
 | POST | `/admin/users` | **Admin** — provision a new account |
 | GET | `/admin/users` | **Admin** — list accounts |
 | PATCH | `/admin/users/{id}/active` | **Admin** — disable / re-enable an account |
-| POST | `/admin/users/{id}/reset-password` | **Admin** — issue a new temporary password |
+| POST | `/admin/users/{id}/reset-password` | **Admin** — issue a new temporary password; also revokes existing tokens |
 | POST | `/sessions` | Create a planning session |
 | GET | `/sessions` | List the caller's own sessions (most recent first) |
 | GET | `/sessions/{id}/state` | Current model, plan, and context |
-| POST | `/sessions/{id}/messages` | A conversation turn (SSE stream) |
+| POST | `/sessions/{id}/messages` | A conversation turn (SSE stream); body carries a client-generated `message_id` (FR-E6 idempotency) |
 | POST | `/sessions/{id}/model/accept` | **Gate 1** — freeze the model |
 | POST | `/sessions/{id}/plan/approve` | **Gate 2** — finalize the plan |
 | GET | `/sessions/{id}/findings` | Review findings (rule + LLM) |
+| PATCH | `/sessions/{id}/findings/{finding_id}` | Mark a finding resolved / accepted-as-risk / reopened |
+| GET | `/sessions/{id}/impact/{component_id}` | Upstream/downstream reachability analysis over the current model |
 | GET | `/sessions/{id}/audit` | Every patch proposed, applied or rejected |
-| GET | `/sessions/{id}/export?format=markdown\|docx` | The 10-deliverable package |
+| GET | `/sessions/{id}/export?format=pdf\|docx` | The 10-deliverable package |
 | GET | `/sessions/{id}/review-quality` | LLM-as-judge scores over the semantic critic's own findings |
 | GET | `/health` · `/health/ready` | Liveness / readiness (+ tracing status) |
 
@@ -233,7 +236,11 @@ cd backend
 pytest -q
 ```
 
-97 tests, 90% coverage. The suite has four layers:
+118 tests. The deterministic core (patch validator/applier, graph engine, rules
+engine, plan assembler, coverage checker) is 90–100% branch-covered by unit+eval
+tests alone, per PRD's maintainability requirement; orchestration nodes and
+services are additionally exercised by the integration layer below. The suite
+has four layers:
 
 - **unit** — the deterministic core, security paths, config guards
 - **eval/golden** — a scripted discovery transcript must reproduce an exact model,
@@ -275,6 +282,7 @@ Key settings:
 | `MAX_COMPONENTS` / `MAX_DEPENDENCIES` | `50` / `200` | v1 scale envelope |
 | `MAX_REFINE_ITERATIONS` | `2` | Unresolved findings then ship as Risks |
 | `RATE_LIMIT_RPM` / `RATE_LIMIT_MESSAGES_RPM` | `30` / `10` | Per user, shared via Redis |
+| `RATE_LIMIT_FAIL_OPEN` | `false` | Fails closed by default — set true to allow requests through if Redis is unreachable |
 
 **Provider portability.** OpenAI is the only wired provider (per project decision),
 but the gateway is provider-agnostic: adding Groq or Anthropic means writing one class

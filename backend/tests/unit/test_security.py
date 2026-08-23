@@ -109,16 +109,18 @@ class _ExplodingRedis:
 
 class TestRateLimiter:
     @pytest.mark.asyncio
-    async def test_fails_open_by_default_when_redis_is_down(self):
-        """Availability over strict enforcement: a Redis outage shouldn't take the
-        whole API down with it."""
+    async def test_fails_closed_by_default_when_redis_is_down(self):
+        """Default is fail-CLOSED: a Redis outage must not silently disable rate
+        limiting for every user at once (see rate_limit.py's fail_open docstring —
+        this default was deliberately flipped from an earlier fail-open default)."""
+
+        limiter = RateLimiter(_ExplodingRedis())  # no fail_open override — exercises the real default
+        assert await limiter.check(key="user:1:requests", limit=10) is False
+
+    @pytest.mark.asyncio
+    async def test_can_be_configured_to_fail_open(self):
+        """For deployments where availability during a Redis outage matters more
+        than strict enforcement — opt-in via RATE_LIMIT_FAIL_OPEN, not the default."""
 
         limiter = RateLimiter(_ExplodingRedis(), fail_open=True)
         assert await limiter.check(key="user:1:requests", limit=10) is True
-
-    @pytest.mark.asyncio
-    async def test_can_be_configured_to_fail_closed(self):
-        """For deployments where exceeding the limit is worse than being down."""
-
-        limiter = RateLimiter(_ExplodingRedis(), fail_open=False)
-        assert await limiter.check(key="user:1:requests", limit=10) is False

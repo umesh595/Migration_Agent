@@ -1,22 +1,28 @@
 import type { ReviewQualityScore } from "@/lib/types";
 
 function scoreColor(score: number): string {
-  if (score >= 80) return "text-green-700";
-  if (score >= 50) return "text-amber-700";
-  return "text-red-700";
+  if (score >= 80) return "text-emerald-300";
+  if (score >= 50) return "text-amber-300";
+  return "text-rose-300";
+}
+
+function scoreBarColor(score: number): string {
+  if (score >= 80) return "bg-gradient-to-r from-emerald-500 to-emerald-400";
+  if (score >= 50) return "bg-gradient-to-r from-amber-500 to-amber-400";
+  return "bg-gradient-to-r from-rose-500 to-rose-400";
 }
 
 function ScoreBar({ label, value }: { label: string; value: number }) {
   return (
-    <div className="flex items-center gap-2 text-xs">
-      <span className="w-32 shrink-0 text-slate-500">{label}</span>
-      <div className="h-1.5 flex-1 rounded-full bg-slate-100">
+    <div className="flex items-center gap-3 text-xs">
+      <span className="w-32 shrink-0 text-slate-400">{label}</span>
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
         <div
-          className={`h-1.5 rounded-full ${value >= 80 ? "bg-green-500" : value >= 50 ? "bg-amber-500" : "bg-red-500"}`}
+          className={`h-1.5 rounded-full transition-all duration-700 ease-out ${scoreBarColor(value)}`}
           style={{ width: `${value}%` }}
         />
       </div>
-      <span className={`w-8 text-right font-medium ${scoreColor(value)}`}>{value}</span>
+      <span className={`w-8 text-right font-semibold ${scoreColor(value)}`}>{value}</span>
     </div>
   );
 }
@@ -29,34 +35,56 @@ export function ReviewQualityPanel({ scores }: { scores: ReviewQualityScore[] })
   const latest = scores.at(-1);
   if (!latest) return null;
 
+  const circumference = 2 * Math.PI * 26;
+  const offset = circumference * (1 - latest.overall_score / 100);
+
   return (
     <div className="card">
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-700">AI critique quality</h3>
-        <span className={`text-lg font-semibold ${scoreColor(latest.overall_score)}`}>
-          {latest.overall_score}/100
-        </span>
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+          <span className="text-base">🧪</span> AI critique quality
+        </h3>
+        <div className="relative flex h-14 w-14 items-center justify-center">
+          <svg viewBox="0 0 60 60" className="absolute h-14 w-14 -rotate-90">
+            <circle cx="30" cy="30" r="26" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="5" />
+            <circle
+              cx="30"
+              cy="30"
+              r="26"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="5"
+              strokeLinecap="round"
+              strokeDasharray={circumference}
+              strokeDashoffset={offset}
+              className={`${scoreColor(latest.overall_score)} transition-all duration-700 ease-out`}
+            />
+          </svg>
+          <span className={`text-sm font-bold ${scoreColor(latest.overall_score)}`}>{latest.overall_score}</span>
+        </div>
       </div>
       <p className="mb-3 text-xs text-slate-500">
         An independent judge model scores the semantic critic's own findings — never the deterministic
         rules, which are already provably correct. This is diagnostic, not a gate: it doesn't block approval.
       </p>
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <ScoreBar label="Relevance" value={latest.relevance_score} />
         <ScoreBar label="Specificity" value={latest.specificity_score} />
         <ScoreBar label="Actionability" value={latest.actionability_score} />
         <ScoreBar label="Context awareness" value={latest.context_awareness_score} />
       </div>
-      <p className="mt-3 text-xs text-slate-600">{latest.rationale}</p>
+      <p className="mt-3 border-t border-white/[0.06] pt-3 text-xs text-slate-400">{latest.rationale}</p>
       {latest.flagged_issues.length > 0 && (
-        <ul className="mt-2 list-disc pl-5 text-xs text-amber-700">
+        <ul className="mt-2 space-y-1 text-xs text-amber-300">
           {latest.flagged_issues.map((issue, i) => (
-            <li key={i}>{issue}</li>
+            <li key={i} className="flex gap-1.5">
+              <span>⚑</span> {issue}
+            </li>
           ))}
         </ul>
       )}
       {scores.length > 1 && (
-        <p className="mt-3 text-xs text-slate-400">
+        <p className="mt-3 text-xs text-slate-500">
           Scored across {scores.length} refine iterations — showing the latest (iteration {latest.iteration}).
         </p>
       )}

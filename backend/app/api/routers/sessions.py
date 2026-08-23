@@ -17,15 +17,16 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from app.api.deps import CurrentUser, Db, enforce_message_rate_limit, enforce_rate_limit, get_gateway
+from app.api.deps import CurrentUser, Db, SessionLock, enforce_message_rate_limit, enforce_rate_limit, get_gateway
 from app.config import get_settings
-from app.core.exporter import render_docx, render_markdown
+from app.core.exporter import render_docx, render_pdf
 from app.core.graph_engine import compute_impact
 from app.db.models import SessionStatus
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.orchestration.checkpointer import get_checkpointer
 from app.orchestration.graph import build_discovery_graph, build_planning_graph
 from app.orchestration.state import Stage
+from app.security.session_lock import SessionBusyError
 from app.services import session_service
 from app.services.session_service import GateError
 
@@ -110,6 +111,7 @@ async def post_message(
     user: CurrentUser,
     db: Db,
     gateway: Annotated[LLMGateway, Depends(get_gateway)],
+    session_lock: SessionLock,
 ) -> EventSourceResponse:
     """Streams a discovery (or context-elicitation) turn over SSE.
 
@@ -117,6 +119,13 @@ async def post_message(
     node. A client reconnecting with Last-Event-ID resumes from the last COMPLETED
     node's persisted output — stage granularity, not token granularity. We never
     re-run an in-flight LLM call to synthesize partial text the client already saw.
+
+    Concurrency (FR-E6): message_id claiming (below) only rejects a REPLAY of the
+    same message. Two genuinely different messages sent concurrently for the same
+    session (two tabs, a scripted client) would otherwise both read the same
+    latest model, both advance the same LangGraph checkpoint thread, and race on
+    the next ModelVersion insert. session_lock serializes the whole turn —
+    read model through persist — per session, across replicas (Redis-backed).
     """
 
     try:
@@ -124,14 +133,29 @@ async def post_message(
     except LookupError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found") from None
 
+    # Captured once, up front: claim_message's IntegrityError branch rolls back
+    # this db session, which expires every attribute on every ORM object loaded
+    # through it (including `session` itself) — a later `str(session.id)` would
+    # trigger a lazy-reload that MissingGreenlet's outside a proper async context.
+    session_id_str = str(session.id)
+
     if session.status not in (SessionStatus.DISCOVERY, SessionStatus.PLANNING):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"session is in '{session.status}' — no further messages accepted",
         )
 
+    try:
+        lock_token = await session_lock.acquire(session_id_str)
+    except SessionBusyError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="another turn is already in progress for this session — wait for it to complete",
+        ) from None
+
     is_new_message = await session_service.claim_message(db, session.id, payload.message_id)
     if not is_new_message:
+        await session_lock.release(session_id_str, lock_token)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="this message_id was already processed for this session — not re-running the turn",
@@ -173,68 +197,77 @@ async def post_message(
 
         final_state = None
         try:
-            async for chunk in graph.astream(
-                initial, config=_thread_config(session.langgraph_thread_id), stream_mode="updates"
-            ):
-                for node_name, node_output in chunk.items():
-                    final_state = node_output
-                    yield {
-                        "id": node_name,
-                        "event": "node_complete",
-                        "data": json.dumps({"node": node_name, "narration": (node_output or {}).get("narration")}),
-                    }
-        except Exception as exc:
-            logger.exception("graph run failed for session %s", session.id)
-            yield {"event": "error", "data": json.dumps({"detail": "planning run failed", "error": str(exc)})}
-            return
+            try:
+                async for chunk in graph.astream(
+                    initial, config=_thread_config(session.langgraph_thread_id), stream_mode="updates"
+                ):
+                    for node_name, node_output in chunk.items():
+                        final_state = node_output
+                        yield {
+                            "id": node_name,
+                            "event": "node_complete",
+                            "data": json.dumps(
+                                {"node": node_name, "narration": (node_output or {}).get("narration")}
+                            ),
+                        }
+            except Exception as exc:
+                logger.exception("graph run failed for session %s", session.id)
+                # Nothing was persisted for this turn — release the message_id
+                # claim so a legitimate client retry isn't permanently rejected
+                # as a duplicate (see claim_message's docstring).
+                await session_service.release_message_claim(db, session.id, payload.message_id)
+                yield {"event": "error", "data": json.dumps({"detail": "planning run failed", "error": str(exc)})}
+                return
 
-        await _persist_turn(db, session, meter, model_before)
+            await _persist_turn(db, session, meter, model_before)
 
-        state_snapshot = await graph.aget_state(_thread_config(session.langgraph_thread_id))
-        values = state_snapshot.values if state_snapshot else (final_state or {})
+            state_snapshot = await graph.aget_state(_thread_config(session.langgraph_thread_id))
+            values = state_snapshot.values if state_snapshot else (final_state or {})
 
-        if original_status == SessionStatus.DISCOVERY:
-            # Discovery narration/questions are genuinely per-turn LLM output.
-            narration = values.get("narration")
-            questions = values.get("pending_questions", [])
-        else:
-            # Planning shares this thread's checkpointed state with any earlier
-            # discovery turns, but no planning node ever sets `narration` or
-            # `pending_questions` — those keys would otherwise still hold stale
-            # discovery-stage text/questions from before Gate 1, which read as
-            # nonsensical once a plan has actually been generated. Synthesize a
-            # real status message from typed fields instead (never fresh LLM
-            # prose — technique #12): the rich result itself is the Target
-            # Architecture / Migration Plan sections the client re-fetches next.
-            plan = values.get("plan")
-            clarifying = values.get("context_clarifying_questions") or []
-            if values.get("error"):
-                narration = None
-            elif clarifying:
-                narration = None
-            elif plan is not None:
-                narration = (
-                    f"Migration plan generated: {len(plan.waves)} wave(s) covering "
-                    f"{len(plan.component_plans)} component(s), {len(plan.risks)} risk(s) flagged. "
-                    "Review the target architecture and full migration plan below."
-                )
+            if original_status == SessionStatus.DISCOVERY:
+                # Discovery narration/questions are genuinely per-turn LLM output.
+                narration = values.get("narration")
+                questions = values.get("pending_questions", [])
             else:
-                narration = "Migration context captured."
-            questions = []
+                # Planning shares this thread's checkpointed state with any earlier
+                # discovery turns, but no planning node ever sets `narration` or
+                # `pending_questions` — those keys would otherwise still hold stale
+                # discovery-stage text/questions from before Gate 1, which read as
+                # nonsensical once a plan has actually been generated. Synthesize a
+                # real status message from typed fields instead (never fresh LLM
+                # prose — technique #12): the rich result itself is the Target
+                # Architecture / Migration Plan sections the client re-fetches next.
+                plan = values.get("plan")
+                clarifying = values.get("context_clarifying_questions") or []
+                if values.get("error"):
+                    narration = None
+                elif clarifying:
+                    narration = None
+                elif plan is not None:
+                    narration = (
+                        f"Migration plan generated: {len(plan.waves)} wave(s) covering "
+                        f"{len(plan.component_plans)} component(s), {len(plan.risks)} risk(s) flagged. "
+                        "Review the target architecture and full migration plan below."
+                    )
+                else:
+                    narration = "Migration context captured."
+                questions = []
 
-        yield {
-            "event": "turn_complete",
-            "data": json.dumps(
-                {
-                    "narration": narration,
-                    "questions": questions,
-                    "clarifying_questions": values.get("context_clarifying_questions", []),
-                    "error": values.get("error"),
-                    "model_version": getattr(values.get("model"), "version", None),
-                    "tokens_used": meter.spent,
-                }
-            ),
-        }
+            yield {
+                "event": "turn_complete",
+                "data": json.dumps(
+                    {
+                        "narration": narration,
+                        "questions": questions,
+                        "clarifying_questions": values.get("context_clarifying_questions", []),
+                        "error": values.get("error"),
+                        "model_version": getattr(values.get("model"), "version", None),
+                        "tokens_used": meter.spent,
+                    }
+                ),
+            }
+        finally:
+            await session_lock.release(str(session.id), lock_token)
 
     return EventSourceResponse(event_stream())
 
@@ -458,7 +491,7 @@ async def export_plan(
     session_id: uuid.UUID,
     user: CurrentUser,
     db: Db,
-    format: str = "markdown",
+    format: str = "docx",
 ) -> Response:
     """Renders the 10-deliverable package. Requires gate 2 — an unapproved plan is
     not a deliverable."""
@@ -488,11 +521,11 @@ async def export_plan(
             headers={"Content-Disposition": f'attachment; filename="migration-plan-{session_id}.docx"'},
         )
 
-    if format == "markdown":
+    if format == "pdf":
         return Response(
-            content=render_markdown(model, plan, context),
-            media_type="text/markdown",
-            headers={"Content-Disposition": f'attachment; filename="migration-plan-{session_id}.md"'},
+            content=render_pdf(model, plan, context),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="migration-plan-{session_id}.pdf"'},
         )
 
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="format must be 'markdown' or 'docx'")
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="format must be 'pdf' or 'docx'")

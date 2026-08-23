@@ -1,24 +1,27 @@
 """Renders the 10-deliverable package from the typed MigrationPlan/ArchitectureModel
-— never re-generates content as fresh prose (technique #12, DECISIONS.md). Markdown,
-Mermaid, and DOCX outputs are all pure functions of the canonical schemas.
+— never re-generates content as fresh prose (technique #12, DECISIONS.md). PDF and
+DOCX outputs are both pure functions of the canonical schemas.
 
 Security note (flagged in the PRD review, addressed here): all user/LLM-derived text
-that ends up in a Mermaid diagram or a DOCX is sanitized first. Mermaid labels are
-attacker-influenced strings (component names, descriptions come from LLM-ingested
-free text) rendered client-side by mermaid.js — an unescaped `<script>` or stray
-quote/bracket can break the diagram grammar or, worse, get interpreted as HTML by a
-loosely-configured renderer. DOCX text runs via python-docx are inserted as literal
-text (not interpreted as markup), so injection risk there is inherently low, but
-control characters are still stripped for hygiene.
+that ends up in an export is sanitized first. DOCX text runs via python-docx and PDF
+paragraphs via reportlab are both inserted as literal text (not interpreted as
+markup), so injection risk is inherently low, but control characters are still
+stripped for hygiene.
 """
 
 from __future__ import annotations
 
 import io
 import re
+from xml.sax.saxutils import escape
 
 from docx import Document
 from docx.shared import Pt
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import LETTER
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import inch
+from reportlab.platypus import ListFlowable, ListItem, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.schemas.architecture import ArchitectureModel
 from app.schemas.migration_context import MigrationContext
@@ -34,141 +37,153 @@ def sanitize_text(value: str) -> str:
     return _CONTROL_CHARS_RE.sub("", value)
 
 
-def sanitize_mermaid_label(value: str) -> str:
-    """Mermaid node labels are wrapped in quotes inside `id["label"]` syntax.
-    Strip characters that either break that grammar or could be interpreted as
-    markup by a permissive mermaid/HTML renderer downstream."""
-
-    cleaned = sanitize_text(value)
-    cleaned = re.sub(r"[<>\"\[\]{}|`]", "", cleaned)
-    cleaned = cleaned.replace("\n", " ").strip()
-    return cleaned[:120] if len(cleaned) > 120 else cleaned
-
-
-def sanitize_mermaid_id(component_id: str) -> str:
-    """Mermaid node IDs must be alphanumeric/underscore-safe; component ids are
-    user-influenced slugs so don't trust them verbatim."""
-
-    return re.sub(r"[^A-Za-z0-9_]", "_", component_id) or "node"
-
-
-def generate_architecture_mermaid(model: ArchitectureModel) -> str:
-    lines = ["graph LR"]
-    for component in model.components:
-        node_id = sanitize_mermaid_id(component.id)
-        label = sanitize_mermaid_label(f"{component.name} ({component.workload_type})")
-        lines.append(f'    {node_id}["{label}"]')
-    for dep in model.dependencies:
-        source = sanitize_mermaid_id(dep.source_id)
-        target = sanitize_mermaid_id(dep.target_id)
-        label = sanitize_mermaid_label(dep.kind)
-        lines.append(f"    {source} -->|{label}| {target}")
-    return "\n".join(lines)
-
-
-def generate_sequence_mermaid(plan: MigrationPlan) -> str:
-    lines = ["graph TD"]
-    for wave in plan.waves:
-        wave_node = f"wave_{wave.index}"
-        wave_label = sanitize_mermaid_label(f"Wave {wave.index}")
-        lines.append(f'    {wave_node}(["{wave_label}"])')
-        for component_id in wave.component_ids:
-            node_id = f"{wave_node}_{sanitize_mermaid_id(component_id)}"
-            label = sanitize_mermaid_label(component_id)
-            lines.append(f'    {node_id}["{label}"]')
-            lines.append(f"    {wave_node} --> {node_id}")
-    for i in range(len(plan.waves) - 1):
-        lines.append(f"    wave_{plan.waves[i].index} --> wave_{plan.waves[i + 1].index}")
-    return "\n".join(lines)
-
-
-def render_markdown(model: ArchitectureModel, plan: MigrationPlan, context: MigrationContext | None) -> str:
+def render_pdf(model: ArchitectureModel, plan: MigrationPlan, context: MigrationContext | None) -> bytes:
     s = sanitize_text
-    parts: list[str] = ["# Enterprise Architecture Migration Plan\n"]
+    styles = getSampleStyleSheet()
+    story: list = [Paragraph("Enterprise Architecture Migration Plan", styles["Title"]), Spacer(1, 0.2 * inch)]
 
-    parts.append("## 1. Current Architecture\n")
-    parts.append("```mermaid\n" + generate_architecture_mermaid(model) + "\n```\n")
-    for c in model.components:
-        parts.append(f"- **{s(c.name)}** (`{c.id}`) — {s(c.workload_type)}, {s(c.environment)}"
-                      f"{f', {s(c.technology)}' if c.technology else ''}")
-    if model.assumptions:
-        parts.append("\n**Assumptions:**")
-        for a in model.assumptions:
-            parts.append(f"- {s(a.text)}")
+    def heading(text: str) -> None:
+        story.append(Paragraph(text, styles["Heading1"]))
 
-    parts.append("\n## 2. Target Architecture\n")
-    parts.append(s(plan.target_architecture_description))
+    def subheading(text: str) -> None:
+        story.append(Paragraph(text, styles["Heading2"]))
 
-    parts.append("\n## 3. Component Mapping\n")
-    parts.append("| Component | Disposition | Target |\n|---|---|---|")
-    for m in plan.component_mappings:
-        parts.append(f"| {s(m.component_id)} | {m.disposition} | {s(m.target_description)} |")
+    def body(text: str) -> None:
+        story.append(Paragraph(text, styles["BodyText"]))
 
-    parts.append("\n## 4. Component Migration Approach\n")
-    for p in plan.component_plans:
-        parts.append(f"### {s(p.component_id)} (wave {p.wave_index}, {p.disposition})")
-        for step in p.steps:
-            parts.append(f"1. {s(step)}")
-        if p.estimated_effort:
-            parts.append(f"- Estimated effort: {s(p.estimated_effort)}")
+    def bullets(items: list[str]) -> None:
+        if items:
+            story.append(
+                ListFlowable([ListItem(Paragraph(item, styles["BodyText"])) for item in items], bulletType="bullet")
+            )
 
-    parts.append("\n## 5. Migration Sequence\n")
-    parts.append("```mermaid\n" + generate_sequence_mermaid(plan) + "\n```\n")
-    for w in plan.waves:
-        parts.append(f"- **Wave {w.index}**: {', '.join(s(c) for c in w.component_ids)} — {s(w.rationale)}")
-        for g in w.coexistence_groups:
-            parts.append(f"  - _Coexistence ({', '.join(s(c) for c in g.component_ids)})_: {s(g.coexistence_strategy)}")
-
-    parts.append("\n## 6. Risks & Assumptions\n")
-    for r in plan.risks:
-        parts.append(f"- **[{r.severity}]** {s(r.description)} — _mitigation:_ {s(r.mitigation)}")
-
-    parts.append("\n## 7. Validation Approach\n")
-    if plan.validation_summary:
-        parts.append(s(plan.validation_summary.overall_strategy))
-        for check in plan.validation_summary.cross_component_checks:
-            parts.append(f"- {s(check.check_type)}: {s(check.description)}")
-
-    parts.append("\n## 8. Cutover Strategy\n")
-    if plan.cutover_strategy:
-        parts.append(s(plan.cutover_strategy.approach))
-        for step in plan.cutover_strategy.steps:
-            parts.append(f"1. {s(step)}")
-        parts.append("\n**Go/No-Go criteria:**")
-        for c in plan.cutover_strategy.go_no_go_criteria:
-            parts.append(f"- {s(c)}")
-
-    parts.append("\n## 9. Rollback Strategy\n")
-    if plan.rollback_strategy:
-        parts.append(s(plan.rollback_strategy.approach))
-        for step in plan.rollback_strategy.steps:
-            parts.append(f"1. {s(step)}")
-
-    parts.append("\n## 10. Migration Roadmap\n")
-    parts.append(
-        "| Wave | Component | Disposition | Summary | Owner | Effort | Depends on waves |\n"
-        "|---|---|---|---|---|---|---|"
+    table_body_style = ParagraphStyle(
+        "ExportTableBody",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=7,
+        leading=8,
+        wordWrap="CJK",
     )
-    for item in plan.roadmap_items:
-        parts.append(
-            f"| {item.wave_index} | {s(item.component_id)} | {item.disposition} | {s(item.summary)} | "
-            f"{s(item.owner_placeholder)} | {s(item.estimated_effort or '-')} | "
-            f"{', '.join(str(w) for w in item.depends_on_waves) or '-'} |"
+    table_header_style = ParagraphStyle(
+        "ExportTableHeader",
+        parent=table_body_style,
+        fontName="Helvetica-Bold",
+        textColor=colors.black,
+    )
+
+    def table(headers: list[str], rows: list[list[str]], col_widths: list[float] | None = None) -> None:
+        def cell(value: str, style: ParagraphStyle) -> Paragraph:
+            return Paragraph(escape(sanitize_text(value)).replace("\n", "<br/>"), style)
+
+        data = [[cell(header, table_header_style) for header in headers]]
+        data.extend([[cell(value, table_body_style) for value in row] for row in rows])
+        t = Table(data, colWidths=col_widths, hAlign="LEFT", repeatRows=1)
+        t.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ]
+            )
+        )
+        story.append(t)
+        story.append(Spacer(1, 0.15 * inch))
+
+    heading("1. Current Architecture")
+    bullets(
+        [
+            f"<b>{s(c.name)}</b> ({c.id}) — {s(c.workload_type)}, {s(c.environment)}"
+            f"{f', {s(c.technology)}' if c.technology else ''}"
+            for c in model.components
+        ]
+    )
+    if model.assumptions:
+        subheading("Assumptions")
+        bullets([s(a.text) for a in model.assumptions])
+
+    heading("2. Target Architecture")
+    body(s(plan.target_architecture_description))
+
+    heading("3. Component Mapping")
+    table(
+        ["Component", "Disposition", "Target"],
+        [[s(m.component_id), str(m.disposition), s(m.target_description)] for m in plan.component_mappings],
+        col_widths=[1.25 * inch, 0.85 * inch, 5.05 * inch],
+    )
+
+    heading("4. Component Migration Approach")
+    for p in plan.component_plans:
+        subheading(f"{s(p.component_id)} (wave {p.wave_index}, {p.disposition})")
+        bullets([s(step) for step in p.steps])
+        if p.estimated_effort:
+            body(f"Estimated effort: {s(p.estimated_effort)}")
+
+    heading("5. Migration Sequence")
+    for w in plan.waves:
+        body(f"<b>Wave {w.index}</b>: {', '.join(s(c) for c in w.component_ids)} — {s(w.rationale)}")
+        for g in w.coexistence_groups:
+            body(f"Coexistence ({', '.join(s(c) for c in g.component_ids)}): {s(g.coexistence_strategy)}")
+
+    heading("6. Risks & Assumptions")
+    bullets([f"[{r.severity}] {s(r.description)} — mitigation: {s(r.mitigation)}" for r in plan.risks])
+
+    heading("7. Validation Approach")
+    if plan.validation_summary:
+        body(s(plan.validation_summary.overall_strategy))
+        bullets(
+            [f"{s(check.check_type)}: {s(check.description)}" for check in plan.validation_summary.cross_component_checks]
         )
 
-    if context:
-        parts.append("\n## Migration Context\n")
-        parts.append(f"- Source: {context.source_environment} → Target: {context.target_environment}")
-        parts.append(f"- Target platform: {s(context.target_platform_description)}")
-        parts.append(f"- Downtime tolerance: {context.downtime_tolerance}")
-        if context.maintenance_window_description:
-            parts.append(f"- Maintenance window: {s(context.maintenance_window_description)}")
-        if context.target_completion_description:
-            parts.append(f"- Target completion: {s(context.target_completion_description)}")
-        for constraint in context.constraints:
-            parts.append(f"- Constraint: {s(constraint)}")
+    heading("8. Cutover Strategy")
+    if plan.cutover_strategy:
+        body(s(plan.cutover_strategy.approach))
+        bullets([s(step) for step in plan.cutover_strategy.steps])
+        subheading("Go/No-Go criteria")
+        bullets([s(c) for c in plan.cutover_strategy.go_no_go_criteria])
 
-    return "\n".join(parts)
+    heading("9. Rollback Strategy")
+    if plan.rollback_strategy:
+        body(s(plan.rollback_strategy.approach))
+        bullets([s(step) for step in plan.rollback_strategy.steps])
+
+    heading("10. Migration Roadmap")
+    table(
+        ["Wave", "Component", "Disposition", "Summary", "Owner", "Effort", "Depends on waves"],
+        [
+            [
+                str(item.wave_index),
+                s(item.component_id),
+                str(item.disposition),
+                s(item.summary),
+                s(item.owner_placeholder),
+                s(item.estimated_effort or "-"),
+                ", ".join(str(w) for w in item.depends_on_waves) or "-",
+            ]
+            for item in plan.roadmap_items
+        ],
+        col_widths=[0.4 * inch, 1.1 * inch, 0.75 * inch, 2.25 * inch, 0.75 * inch, 1.0 * inch, 0.9 * inch],
+    )
+
+    if context:
+        heading("Migration Context")
+        body(f"Source: {context.source_environment} &#8594; Target: {context.target_environment}")
+        body(f"Target platform: {s(context.target_platform_description)}")
+        body(f"Downtime tolerance: {context.downtime_tolerance}")
+        if context.maintenance_window_description:
+            body(f"Maintenance window: {s(context.maintenance_window_description)}")
+        if context.target_completion_description:
+            body(f"Target completion: {s(context.target_completion_description)}")
+        bullets([f"Constraint: {s(constraint)}" for constraint in context.constraints])
+
+    buffer = io.BytesIO()
+    SimpleDocTemplate(buffer, pagesize=LETTER, topMargin=0.75 * inch, bottomMargin=0.75 * inch).build(story)
+    return buffer.getvalue()
 
 
 def render_docx(model: ArchitectureModel, plan: MigrationPlan, context: MigrationContext | None) -> bytes:

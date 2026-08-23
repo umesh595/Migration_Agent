@@ -30,7 +30,7 @@ Critical operating rules:
 
 INGEST_PATCHES = Prompt(
     id="ingest_patches",
-    version="v1",
+    version="v3",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: convert the user's message into a set of PATCHES against the current architecture model.
@@ -46,10 +46,34 @@ Rules:
 - If the user names a team, squad, or individual responsible for a component (e.g. "the payments team owns
   checkout"), set that component's `owner_team` via update_component — this becomes the roadmap owner, not
   a "TBD" placeholder.
+- DEPENDENCIES ARE NOT OPTIONAL: whenever the message states or diagrams a connection between two
+  components — "calls", "depends on", "reads from", "writes to", "publishes to", "long-polls", "invokes",
+  "stores X in Y", an arrow/pipeline like "A -> B" or "A -> B -> C", or a "Component X depends on: ..." /
+  "X responsibilities" list naming another component — emit one add_dependency patch per edge in the SAME
+  patch set as the components it connects. A large multi-section document (architecture overview, a
+  component-by-component breakdown, an explicit dependency graph) is describing ONE model: read the entire
+  message, extract every component, THEN extract every edge between them — do not stop after components.
+  Prefer the most specific kind (data_read, data_write, sync_call, async_call, event_publish,
+  event_subscribe, network_route) over "other"; if the message gives an explicit dependency/call graph
+  section, that section is the authoritative edge list — reproduce it in full, not just the edges also
+  mentioned elsewhere in prose.
 - Only emit patches for information actually present in the user's message.
 - If the user corrects an earlier fact, emit the removal AND the addition (e.g. remove_dependency then add_dependency).
 - If the user states something you are inferring rather than reading directly, emit it as an add_assumption patch instead.
+- ASSUMPTIONS MUST BE CONFIRMABLE, NOT REPEATED: the injected model lists every existing assumption with its
+  id, raised_by, and resolved flag. If the user's message is confirming, correcting, rejecting, or answering
+  ANY assumption already listed with resolved=false (e.g. "yes, that's correct", "yes, all three are
+  confirmed", "actually it's X not Y") — even if your own previous narration restated that assumption's text
+  back to the user — you MUST emit confirm_assumption with that exact assumption's id for EVERY assumption the
+  message addresses (set updated_text only if the user corrected the wording; omit it to confirm as-is).
+  NEVER emit a fresh add_assumption that just restates an already-listed unresolved assumption — that leaves
+  the original stuck at resolved=false forever and the same question gets asked again next turn. Only use
+  add_assumption for a genuinely NEW inference not already present in the assumptions list.
 - If the user's message answers an open question, emit resolve_open_question with that question's id.
+- If the user states how business-critical a component is (e.g. "tier-1", "business-critical",
+  "best-effort", "not critical"), emit update_component with that component's `criticality` field set —
+  a criticality gap only clears once the field is actually set, restating the answer in narration alone
+  does not clear it.
 - The `narration` field is what the user reads: state plainly what you understood, in one or two sentences.
 """,
 )

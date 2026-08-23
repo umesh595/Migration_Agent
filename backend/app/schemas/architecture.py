@@ -74,6 +74,13 @@ class Assumption(BaseModel):
     text: str
     raised_by: str = Field(description="'llm' or 'user'.")
     related_component_ids: list[str] = Field(default_factory=list)
+    # User-attributed assumptions (raised_by == "user") are inherently confirmed —
+    # they came FROM the user, not as an LLM guess awaiting confirmation — so they
+    # default resolved. An LLM-raised assumption starts unresolved and stays a gap
+    # (surfaced by GapAnalyzer) until a ConfirmAssumptionPatch resolves it; without
+    # that patch existing, confirming an assumption was structurally impossible and
+    # discovery would re-ask about it every single turn.
+    resolved: bool = False
 
 
 class OpenQuestion(BaseModel):

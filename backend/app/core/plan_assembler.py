@@ -182,7 +182,7 @@ def assemble_plan(
             source="model_assumption",
         )
         for a in model.assumptions
-        if a.raised_by == "llm"
+        if a.raised_by == "llm" and not a.resolved
     ]
 
     return MigrationPlan(

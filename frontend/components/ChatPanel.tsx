@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { ApiError, streamMessage } from "@/lib/api";
-import type { NodeCompleteEvent, TurnCompleteEvent } from "@/lib/types";
+import type { NodeCompleteEvent, SessionStatus, TurnCompleteEvent } from "@/lib/types";
 
 interface ChatMessage {
   role: "user" | "agent" | "status" | "error";
@@ -40,6 +40,19 @@ const NODE_LABELS: Record<string, string> = {
   finalize_review: "Finalizing the review…",
 };
 
+const PLANNING_NODES = [
+  "elicit_context",
+  "compute_sequence",
+  "per_component_planning",
+  "strategy",
+  "assemble_plan",
+  "rules_review",
+  "llm_review",
+  "judge_review",
+  "refine",
+  "finalize_review",
+];
+
 function narrateNode(event: NodeCompleteEvent): string {
   return NODE_LABELS[event.node] ?? `Working (${event.node})…`;
 }
@@ -52,27 +65,42 @@ function ChatBubble({ message }: { message: ChatMessage }) {
       ? `${message.text.slice(0, MESSAGE_PREVIEW_LENGTH).trimEnd()}\n\n...`
       : message.text;
 
+  if (message.role === "user") {
+    return (
+      <div className="flex justify-end animate-pop-in">
+        <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-grad-primary px-3.5 py-2.5 text-sm text-white shadow-lg shadow-brand-900/30">
+          <div className="whitespace-pre-line">{visibleText}</div>
+          {isLongUserMessage && (
+            <button
+              type="button"
+              className="mt-2 text-xs font-medium text-white/80 underline-offset-2 hover:text-white hover:underline"
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? "Show less" : `Show full input (${message.text.length.toLocaleString()} characters)`}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (message.role === "error") {
+    return (
+      <div role="alert" className="flex items-start gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300 animate-pop-in">
+        <span className="mt-0.5">⚠️</span>
+        <div className="whitespace-pre-line">{visibleText}</div>
+      </div>
+    );
+  }
+
   return (
-    <div
-      className={
-        message.role === "user"
-          ? "ml-8 rounded-lg bg-brand-50 p-2 text-sm text-slate-800"
-          : message.role === "error"
-            ? "rounded-lg bg-red-50 p-2 text-sm text-red-700"
-            : "mr-8 whitespace-pre-line rounded-lg bg-slate-100 p-2 text-sm text-slate-800"
-      }
-      role={message.role === "error" ? "alert" : undefined}
-    >
-      <div className="whitespace-pre-line">{visibleText}</div>
-      {isLongUserMessage && (
-        <button
-          type="button"
-          className="mt-2 text-xs font-medium text-brand-700 hover:text-brand-800"
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? "Show less" : `Show full input (${message.text.length.toLocaleString()} characters)`}
-        </button>
-      )}
+    <div className="flex items-start gap-2.5 animate-pop-in">
+      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.06] ring-1 ring-white/10 text-xs">
+        🤖
+      </span>
+      <div className="max-w-[85%] whitespace-pre-line rounded-2xl rounded-tl-md border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-slate-200">
+        {visibleText}
+      </div>
     </div>
   );
 }
@@ -82,18 +110,24 @@ export function ChatPanel({
   placeholder,
   disabled,
   disabledReason,
+  workflowStatus,
+  componentCount,
   onTurnComplete,
 }: {
   sessionId: string;
   placeholder: string;
   disabled: boolean;
   disabledReason?: string;
+  workflowStatus?: SessionStatus;
+  componentCount?: number;
   onTurnComplete: () => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [liveStatus, setLiveStatus] = useState("");
+  const [activeNode, setActiveNode] = useState<string | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [attachError, setAttachError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -101,6 +135,20 @@ export function ChatPanel({
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, liveStatus]);
+
+  useEffect(() => {
+    if (!streaming) {
+      setElapsedSeconds(0);
+      return;
+    }
+
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [streaming]);
 
   async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -135,6 +183,7 @@ export function ChatPanel({
     setMessages((prev) => [...prev, { role: "user", text }]);
     setInput("");
     setStreaming(true);
+    setActiveNode(null);
     setLiveStatus("Sending…");
 
     // FR-E6: a stable id for this turn so a client-side retry of a dropped
@@ -146,6 +195,7 @@ export function ChatPanel({
       for await (const evt of streamMessage(sessionId, text, messageId)) {
         if (evt.event === "node_complete") {
           const data = evt.data as NodeCompleteEvent;
+          setActiveNode(data.node);
           setLiveStatus(narrateNode(data));
         } else if (evt.event === "turn_complete") {
           const data = evt.data as TurnCompleteEvent;
@@ -180,32 +230,98 @@ export function ChatPanel({
       ]);
     } finally {
       setStreaming(false);
+      setActiveNode(null);
       setLiveStatus("");
       onTurnComplete();
     }
   }
 
-  return (
-    <div className="card flex h-[560px] flex-col">
-      <h3 className="mb-2 text-sm font-semibold text-slate-700">Conversation</h3>
+  const isPlanningRun = streaming && workflowStatus === "planning";
+  const activePlanningIndex = activeNode ? PLANNING_NODES.indexOf(activeNode) : -1;
+  const elapsedLabel =
+    elapsedSeconds < 60
+      ? `${elapsedSeconds}s`
+      : `${Math.floor(elapsedSeconds / 60)}m ${String(elapsedSeconds % 60).padStart(2, "0")}s`;
 
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto pr-1" aria-live="polite">
+  return (
+    <div className="card-glow flex h-[560px] flex-col !p-0 overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-white/10 bg-white/[0.02] px-4 py-3">
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-grad-primary text-[11px]">💬</span>
+        <h3 className="text-sm font-semibold text-slate-200">Conversation</h3>
+        {streaming && <span className="ml-auto h-2 w-2 rounded-full bg-emerald-400 animate-pulse-ring" />}
+      </div>
+
+      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4" aria-live="polite">
         {messages.length === 0 && (
-          <p className="text-sm text-slate-400">{placeholder}</p>
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+            <span className="text-2xl opacity-60">✨</span>
+            <p className="max-w-xs text-sm text-slate-500">{placeholder}</p>
+          </div>
         )}
         {messages.map((m, i) => (
           <ChatBubble key={i} message={m} />
         ))}
-        {streaming && <p className="text-xs text-slate-400">{liveStatus}</p>}
+        {streaming && (
+          <div className="flex items-start gap-2.5 animate-pop-in">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.06] ring-1 ring-white/10 text-xs">
+              🤖
+            </span>
+            <div className="max-w-[88%] rounded-2xl rounded-tl-md border border-white/10 bg-white/[0.04] px-3.5 py-3">
+              <div className="flex items-center gap-2">
+                <span className="flex gap-1">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-400 [animation-delay:-0.3s]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-400 [animation-delay:-0.15s]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-400" />
+                </span>
+                <span className="text-xs font-medium text-slate-300">{liveStatus}</span>
+              </div>
+              {isPlanningRun && (
+                <div className="mt-3 rounded-xl border border-sky-400/20 bg-sky-500/[0.06] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-semibold text-sky-200">Generating migration plan</span>
+                    <span className="text-sky-300/80">Elapsed {elapsedLabel}</span>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">
+                    Large architecture models can take a few minutes. This run is planning{" "}
+                    {componentCount ?? "the selected"} component{componentCount === 1 ? "" : "s"} across sequencing,
+                    target architecture, cutover, rollback, review, and refinements.
+                  </p>
+                  <div className="mt-3 space-y-1.5">
+                    {PLANNING_NODES.map((node, index) => {
+                      const isDone = activePlanningIndex > index;
+                      const isActive = activePlanningIndex === index;
+                      return (
+                        <div key={node} className="flex items-center gap-2 text-[11px]">
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${
+                              isDone
+                                ? "bg-emerald-400"
+                                : isActive
+                                  ? "bg-brand-400 animate-pulse"
+                                  : "bg-white/20"
+                            }`}
+                          />
+                          <span className={isActive ? "text-slate-200" : isDone ? "text-slate-400" : "text-slate-600"}>
+                            {NODE_LABELS[node] ?? `Working (${node})`}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {attachError && (
-        <p role="alert" className="mt-2 text-xs text-red-600">
+        <p role="alert" className="mx-4 mb-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">
           {attachError}
         </p>
       )}
 
-      <form onSubmit={handleSubmit} className="mt-3 flex gap-2">
+      <form onSubmit={handleSubmit} className="flex gap-2 border-t border-white/10 bg-white/[0.02] p-3">
         <label htmlFor="chat-input" className="sr-only">
           Message
         </label>
@@ -219,12 +335,12 @@ export function ChatPanel({
         />
         <button
           type="button"
-          className="btn-secondary self-end"
+          className="btn-secondary self-end !px-2.5"
           disabled={disabled || streaming}
           title="Attach a config file (e.g. docker-compose.yml, a Terraform summary, a README) — read conversationally, same as typing it"
           onClick={() => fileInputRef.current?.click()}
         >
-          Attach
+          📎
         </button>
         <textarea
           id="chat-input"
@@ -251,7 +367,7 @@ export function ChatPanel({
         </button>
       </form>
       {input.length > MAX_MESSAGE_LENGTH * 0.9 && (
-        <p className="mt-1 text-right text-xs text-slate-400">
+        <p className="px-4 pb-2 text-right text-xs text-slate-500">
           {input.length.toLocaleString()} / {MAX_MESSAGE_LENGTH.toLocaleString()} characters
         </p>
       )}

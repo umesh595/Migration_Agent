@@ -10,6 +10,7 @@ from app.schemas.patches import (
     AddAssumptionPatch,
     AddComponentPatch,
     AddDependencyPatch,
+    ConfirmAssumptionPatch,
     Patch,
     PatchOutcome,
     PatchResult,
@@ -88,6 +89,12 @@ def _apply_single(model: ArchitectureModel, patch: Patch) -> ArchitectureModel:
                     related_component_ids=patch.related_component_ids,
                 )
             )
+
+        case ConfirmAssumptionPatch():
+            assumption = next(a for a in data.assumptions if a.id == patch.assumption_id)
+            assumption.resolved = True
+            if patch.updated_text is not None:
+                assumption.text = patch.updated_text
 
         case ResolveOpenQuestionPatch():
             question = next((q for q in data.open_questions if q.id == patch.question_id), None)

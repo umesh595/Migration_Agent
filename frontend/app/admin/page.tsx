@@ -86,7 +86,7 @@ export default function AdminPage() {
       <div className="min-h-screen">
         <NavBar />
         <main className="mx-auto max-w-3xl px-4 py-8">
-          <p role="alert" className="card text-sm text-red-700">
+          <p role="alert" className="card text-sm text-rose-300">
             Admin privileges are required to view this page.
           </p>
         </main>
@@ -97,25 +97,31 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen">
       <NavBar />
-      <main className="mx-auto max-w-3xl px-4 py-8">
-        <h1 className="text-2xl font-semibold text-slate-900">User administration</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          There is no self-service sign-up (FR-A5) — every account is created, disabled, or reset here.
-        </p>
+      <main className="mx-auto max-w-3xl px-4 py-10">
+        <div className="animate-fade-up">
+          <h1 className="font-display text-3xl font-bold tracking-tight text-white">
+            User <span className="text-gradient">administration</span>
+          </h1>
+          <p className="mt-2 text-sm text-slate-400">
+            There is no self-service sign-up (FR-A5) — every account is created, disabled, or reset here.
+          </p>
+        </div>
 
         {error && (
-          <p role="alert" className="card mt-4 border-red-200 bg-red-50 text-sm text-red-700">
+          <p role="alert" className="card mt-4 border-rose-500/30 bg-rose-500/10 text-sm text-rose-300">
             {error}
           </p>
         )}
         {notice && (
-          <p role="status" className="card mt-4 border-green-200 bg-green-50 text-sm text-green-800">
+          <p role="status" className="card mt-4 border-emerald-500/30 bg-emerald-500/10 text-sm text-emerald-300">
             {notice}
           </p>
         )}
 
-        <form onSubmit={handleCreate} className="card mt-4 space-y-3">
-          <h2 className="text-sm font-semibold text-slate-700">Provision a new account</h2>
+        <form onSubmit={handleCreate} className="card-glow mt-6 space-y-3 animate-fade-up" style={{ animationDelay: "60ms" }}>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+            <span className="text-base">➕</span> Provision a new account
+          </h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label htmlFor="new-user-email" className="label">
@@ -145,8 +151,13 @@ export default function AdminPage() {
               />
             </div>
           </div>
-          <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />
+          <label className="flex items-center gap-2 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-brand-500"
+              checked={isAdmin}
+              onChange={(e) => setIsAdmin(e.target.checked)}
+            />
             Grant admin privileges
           </label>
           <button type="submit" className="btn-primary" disabled={creating}>
@@ -154,53 +165,70 @@ export default function AdminPage() {
           </button>
         </form>
 
-        <div className="mt-6">
-          <h2 className="mb-2 text-sm font-semibold text-slate-700">All accounts</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="text-slate-500">
-                  <th className="pb-2 pr-4">Email</th>
-                  <th className="pb-2 pr-4">Role</th>
-                  <th className="pb-2 pr-4">Status</th>
-                  <th className="pb-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users?.map((u) => (
-                  <tr key={u.id} className="border-t border-slate-100">
-                    <td className="py-2 pr-4">{u.email}</td>
-                    <td className="py-2 pr-4">{u.is_admin ? "Admin" : "User"}</td>
-                    <td className="py-2 pr-4">
-                      <span className={`badge ${u.is_active ? "bg-green-100 text-green-800" : "bg-slate-200 text-slate-600"}`}>
-                        {u.is_active ? "Active" : "Disabled"}
-                      </span>
-                    </td>
-                    <td className="py-2">
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          className={u.is_active ? "btn-danger text-xs" : "btn-secondary text-xs"}
-                          disabled={busyUserId === u.id}
-                          onClick={() => handleToggleActive(u)}
-                        >
-                          {u.is_active ? "Disable" : "Enable"}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-secondary text-xs"
-                          disabled={busyUserId === u.id}
-                          onClick={() => handleResetPassword(u)}
-                        >
-                          Reset password
-                        </button>
-                      </div>
-                    </td>
+        <div className="mt-8 animate-fade-up" style={{ animationDelay: "120ms" }}>
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-200">
+            <span className="text-base">👥</span> All accounts
+          </h2>
+          <div className="panel overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 text-slate-400">
+                    <th className="px-4 py-3 font-medium">Email</th>
+                    <th className="px-4 py-3 font-medium">Role</th>
+                    <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            {users?.length === 0 && <p className="mt-2 text-sm text-slate-400">No accounts yet.</p>}
+                </thead>
+                <tbody>
+                  {users?.map((u) => (
+                    <tr key={u.id} className="border-b border-white/[0.06] transition-colors hover:bg-white/[0.02]">
+                      <td className="px-4 py-3 text-slate-200">{u.email}</td>
+                      <td className="px-4 py-3">
+                        {u.is_admin ? (
+                          <span className="badge border-violet-400/30 bg-violet-400/10 text-violet-300">Admin</span>
+                        ) : (
+                          <span className="text-slate-400">User</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`badge ${
+                            u.is_active
+                              ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
+                              : "border-slate-400/30 bg-slate-400/10 text-slate-400"
+                          }`}
+                        >
+                          <span className={`h-1.5 w-1.5 rounded-full ${u.is_active ? "bg-emerald-400" : "bg-slate-400"}`} />
+                          {u.is_active ? "Active" : "Disabled"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            className={u.is_active ? "btn-danger !px-2.5 !py-1 !text-xs" : "btn-secondary !px-2.5 !py-1 !text-xs"}
+                            disabled={busyUserId === u.id}
+                            onClick={() => handleToggleActive(u)}
+                          >
+                            {u.is_active ? "Disable" : "Enable"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-secondary !px-2.5 !py-1 !text-xs"
+                            disabled={busyUserId === u.id}
+                            onClick={() => handleResetPassword(u)}
+                          >
+                            Reset password
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {users?.length === 0 && <p className="px-4 py-6 text-sm text-slate-500">No accounts yet.</p>}
+            </div>
           </div>
         </div>
       </main>

@@ -30,7 +30,10 @@ def render_model_for_prompt(model: ArchitectureModel) -> str:
         "dependencies": [
             {"source_id": d.source_id, "target_id": d.target_id, "kind": str(d.kind)} for d in model.dependencies
         ],
-        "assumptions": [{"id": a.id, "text": a.text} for a in model.assumptions],
+        "assumptions": [
+            {"id": a.id, "text": a.text, "raised_by": a.raised_by, "resolved": a.resolved}
+            for a in model.assumptions
+        ],
         "open_questions": [{"id": q.id, "text": q.text} for q in model.open_questions if not q.resolved],
     }
     return json.dumps(payload, indent=2)

@@ -53,12 +53,23 @@ export default function AccountPage() {
   return (
     <div className="min-h-screen">
       <NavBar />
-      <main className="mx-auto max-w-md px-4 py-8">
-        <h1 className="text-xl font-semibold text-slate-900">Your account</h1>
-        <p className="mt-1 text-sm text-slate-500">{user.email}</p>
+      <main className="mx-auto max-w-md px-4 py-10">
+        <div className="animate-fade-up">
+          <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-grad-cool text-2xl font-bold text-white shadow-glow">
+            {user.email[0]?.toUpperCase()}
+          </div>
+          <h1 className="text-center font-display text-2xl font-bold text-white">Your account</h1>
+          <p className="mt-1 text-center text-sm text-slate-400">{user.email}</p>
+        </div>
 
-        <form onSubmit={handleSubmit} className="card mt-6 space-y-4">
-          <h2 className="text-sm font-semibold text-slate-700">Change password</h2>
+        <form
+          onSubmit={handleSubmit}
+          className="card-glow mt-7 space-y-4 animate-fade-up"
+          style={{ animationDelay: "60ms" }}
+        >
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+            <span className="text-base">🔒</span> Change password
+          </h2>
           <div>
             <label htmlFor="current-password" className="label">
               Current password
@@ -90,12 +101,12 @@ export default function AccountPage() {
           </div>
 
           {error && (
-            <p role="alert" className="text-sm text-red-600">
+            <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
               {error}
             </p>
           )}
           {notice && (
-            <p role="status" className="text-sm text-green-700">
+            <p role="status" className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
               {notice}
             </p>
           )}
@@ -105,23 +116,20 @@ export default function AccountPage() {
           </button>
         </form>
 
-        <div className="card mt-6 space-y-3">
-          <h2 className="text-sm font-semibold text-slate-700">Sessions</h2>
+        <div className="card mt-6 space-y-3 animate-fade-up" style={{ animationDelay: "120ms" }}>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+            <span className="text-base">🛡️</span> Sessions
+          </h2>
           <p className="text-xs text-slate-500">
             If you suspect a device or a copied access/refresh token is no longer under your control, revoke
             every outstanding session immediately — this signs you out everywhere, including this device.
           </p>
           {revokeError && (
-            <p role="alert" className="text-sm text-red-600">
+            <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
               {revokeError}
             </p>
           )}
-          <button
-            type="button"
-            className="btn-secondary w-full border-red-200 text-red-700 hover:bg-red-50"
-            disabled={revoking}
-            onClick={handleLogoutEverywhere}
-          >
+          <button type="button" className="btn-danger w-full" disabled={revoking} onClick={handleLogoutEverywhere}>
             {revoking ? "Revoking…" : "Sign out of all sessions"}
           </button>
         </div>

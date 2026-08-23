@@ -64,6 +64,15 @@ class Settings(BaseSettings):
     langfuse_secret_key: str | None = Field(default=None, alias="LANGFUSE_SECRET_KEY")
     langfuse_host: str = Field(default="https://cloud.langfuse.com", alias="LANGFUSE_HOST")
 
+    # --- Enterprise catalog integration (optional, no-op if unset — same
+    # pattern as Langfuse above: the feature is simply absent, not broken,
+    # on a deployment that never configured it) ---
+    catalog_base_url: str | None = Field(default=None, alias="CATALOG_BASE_URL")
+    catalog_token_url: str | None = Field(default=None, alias="CATALOG_TOKEN_URL")
+    catalog_client_id: str | None = Field(default=None, alias="CATALOG_CLIENT_ID")
+    catalog_client_secret: SecretStr | None = Field(default=None, alias="CATALOG_CLIENT_SECRET")
+    catalog_request_timeout_s: float = Field(default=10.0, alias="CATALOG_REQUEST_TIMEOUT_S")
+
     # --- CORS ---
     # NoDecode is required: without it pydantic-settings tries to JSON-parse the env
     # value before any validator runs, so a plain comma-separated list (the format

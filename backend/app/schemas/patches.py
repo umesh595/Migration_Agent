@@ -20,6 +20,7 @@ class PatchOp(StrEnum):
     ADD_DEPENDENCY = "add_dependency"
     REMOVE_DEPENDENCY = "remove_dependency"
     ADD_ASSUMPTION = "add_assumption"
+    CONFIRM_ASSUMPTION = "confirm_assumption"
     RESOLVE_OPEN_QUESTION = "resolve_open_question"
 
 
@@ -96,6 +97,22 @@ class AddAssumptionPatch(BaseModel):
     related_component_ids: list[str] = Field(default_factory=list)
 
 
+class ConfirmAssumptionPatch(BaseModel):
+    """The user's counterpart to add_assumption: when the user confirms, corrects,
+    or rejects an assumption the LLM previously raised, this resolves it so
+    GapAnalyzer stops re-flagging it every turn. Without this op, an LLM-raised
+    assumption had no path to ever leave the open-gap list — 'yes, that's
+    correct' had nothing to attach to."""
+
+    op: Literal[PatchOp.CONFIRM_ASSUMPTION] = PatchOp.CONFIRM_ASSUMPTION
+    assumption_id: str
+    updated_text: str | None = Field(
+        default=None,
+        description="Set only if the user's confirmation corrects or refines the original wording; "
+        "omit to confirm the assumption exactly as originally stated.",
+    )
+
+
 class ResolveOpenQuestionPatch(BaseModel):
     op: Literal[PatchOp.RESOLVE_OPEN_QUESTION] = PatchOp.RESOLVE_OPEN_QUESTION
     question_id: str
@@ -109,6 +126,7 @@ Patch = (
     | AddDependencyPatch
     | RemoveDependencyPatch
     | AddAssumptionPatch
+    | ConfirmAssumptionPatch
     | ResolveOpenQuestionPatch
 )
 
@@ -142,6 +160,7 @@ __all__ = [
     "AddDependencyPatch",
     "RemoveDependencyPatch",
     "AddAssumptionPatch",
+    "ConfirmAssumptionPatch",
     "ResolveOpenQuestionPatch",
     "Patch",
     "PatchSet",

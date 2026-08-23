@@ -10,6 +10,7 @@ from app.schemas.patches import (
     AddAssumptionPatch,
     AddComponentPatch,
     AddDependencyPatch,
+    ConfirmAssumptionPatch,
     Patch,
     RemoveComponentPatch,
     RemoveDependencyPatch,
@@ -89,6 +90,16 @@ def validate_patch(model: ArchitectureModel, patch: Patch) -> str | None:
             unknown = set(patch.related_component_ids) - model.component_ids()
             if unknown:
                 return f"related component id(s) {sorted(unknown)} do not exist"
+            return None
+
+        case ConfirmAssumptionPatch():
+            assumption = next((a for a in model.assumptions if a.id == patch.assumption_id), None)
+            if assumption is None:
+                return f"no assumption with id '{patch.assumption_id}' exists"
+            if assumption.resolved:
+                return f"assumption '{patch.assumption_id}' is already resolved"
+            if patch.updated_text is not None and not patch.updated_text.strip():
+                return "updated_text cannot be empty — omit it to confirm as originally stated"
             return None
 
         case ResolveOpenQuestionPatch():

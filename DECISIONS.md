@@ -310,3 +310,42 @@ Fixed two things, not one:
 Neither canvas decides anything — both are pure renders of what the deterministic
 core and LLM already produced (technique #12 extended to the frontend layer, as
 already noted for `ArchitectureCanvas` in the earlier frontend-build entry above).
+
+## Enterprise catalog import (Non-Goals boundary respected, not silently ignored)
+
+The PRD's Non-Goal — no automated discovery from cloud accounts, IaC repos, or
+monitoring systems in v1 — is kept exactly as written, same as the conversational
+config paste-in decision above. What's added is narrower and stays inside it: a
+user can trigger a one-shot, on-demand pull from an external enterprise
+catalog/CMDB (`POST /sessions/{id}/integrations/catalog/import`), and the records
+it returns go through the *same* `PatchSet` → `validate_patch` → `apply_patch_set`
+pipeline as an LLM-proposed patch — same audit trail (`PatchAuditRecord`), same
+rejection semantics. Nothing scans continuously; nothing runs without an explicit
+user request; nothing writes to `ArchitectureModel` directly.
+
+- `app/integrations/catalog_provider.py` — `CatalogProvider` ABC, mirroring
+  `app/llm/base.py`'s `LLMProvider` pattern: one interface, swappable adapters.
+- `app/integrations/rest_catalog_provider.py` — the real adapter: OAuth2
+  client-credentials via `httpx` (already a dependency; no new library added —
+  matches this codebase's preference for small hand-rolled primitives over a
+  heavy OAuth2 framework, same reasoning as `session_lock.py`/`rate_limit.py`),
+  cached token with a safety margin before real expiry, `tenacity`-based retry
+  restricted to transport-level failures only (a 401/404/malformed-response is a
+  definitive rejection, not something retrying fixes).
+- `app/integrations/mapper.py` — pure function, external record → `PatchSet`.
+  No I/O. Unit-tested without touching HTTP or the database.
+- Config is optional and no-op if unset (`CATALOG_BASE_URL`/`CATALOG_TOKEN_URL`/
+  `CATALOG_CLIENT_ID`/`CATALOG_CLIENT_SECRET`), same shape as the Langfuse
+  pattern — a deployment that never configures this simply doesn't see the
+  feature, rather than seeing a broken one. Surfaced on `/health/ready` under
+  `catalog_integration.configured` for the same "don't fail silently" reason
+  `tracing_status()` exists.
+- Only permitted while `session.status == DISCOVERY` — planning consumes the
+  frozen *accepted* model, not the mutable draft this endpoint edits, so
+  allowing an import mid-planning would create a `ModelVersion` the planning
+  graph never reads. Serialized through the same `SessionTurnLock` a discovery
+  turn uses, so an import can't race a concurrent chat turn on the same session.
+- Re-importing the same external record twice is a no-op, not a duplicate:
+  `mapper.external_component_id()` derives a stable `ext:{external_id}` id, and
+  `validate_patch`'s existing "component id already exists" rejection handles
+  the rest — no separate idempotency-key table needed for this endpoint.

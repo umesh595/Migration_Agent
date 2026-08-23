@@ -2,10 +2,12 @@
 'uncertainty as data' (technique #12). These are how an unknown surfaces instead of
 being silently filled in, so their validation matters as much as the structural ops."""
 
+from app.core.gap_analyzer import GapCategory, top_gaps
 from app.core.patch_applier import apply_patch_set
-from app.schemas.architecture import ArchitectureModel, Component, OpenQuestion
+from app.schemas.architecture import ArchitectureModel, Assumption, Component, OpenQuestion
 from app.schemas.patches import (
     AddAssumptionPatch,
+    ConfirmAssumptionPatch,
     PatchOutcome,
     PatchSet,
     ResolveOpenQuestionPatch,
@@ -78,3 +80,81 @@ def test_resolving_an_already_resolved_question_rejected():
 
     assert results[0].outcome == PatchOutcome.REJECTED
     assert "already resolved" in results[0].reason
+
+
+def test_unresolved_llm_assumption_is_a_gap_but_resolved_one_is_not():
+    """The exact production bug this guards: an LLM-raised assumption with no way
+    to be confirmed used to be flagged by GapAnalyzer forever, since 'yes, that's
+    correct' had no patch to attach to and the same question got re-asked every
+    turn indefinitely."""
+
+    model = _model()
+    model.assumptions.append(Assumption(id="A1", text="The API is stateless", raised_by="llm", resolved=False))
+
+    gaps = top_gaps(model, n=10)
+    assert any(g.category == GapCategory.UNCONFIRMED_ASSUMPTION for g in gaps)
+
+    confirmed = model.model_copy(deep=True)
+    confirmed.assumptions[0].resolved = True
+    gaps_after = top_gaps(confirmed, n=10)
+    assert not any(g.category == GapCategory.UNCONFIRMED_ASSUMPTION for g in gaps_after)
+
+
+def test_confirm_assumption_marks_it_resolved():
+    model = _model()
+    model.assumptions.append(Assumption(id="A1", text="The API is stateless", raised_by="llm", resolved=False))
+
+    new_model, results = apply_patch_set(
+        model, PatchSet(patches=[ConfirmAssumptionPatch(assumption_id="A1")], narration="")
+    )
+
+    assert results[0].outcome == PatchOutcome.APPLIED
+    assert new_model.assumptions[0].resolved is True
+    assert new_model.assumptions[0].text == "The API is stateless"
+
+
+def test_confirm_assumption_can_correct_the_wording():
+    model = _model()
+    model.assumptions.append(Assumption(id="A1", text="The API is stateless", raised_by="llm", resolved=False))
+
+    new_model, results = apply_patch_set(
+        model,
+        PatchSet(
+            patches=[ConfirmAssumptionPatch(assumption_id="A1", updated_text="The API is stateless except for caching")],
+            narration="",
+        ),
+    )
+
+    assert results[0].outcome == PatchOutcome.APPLIED
+    assert new_model.assumptions[0].resolved is True
+    assert new_model.assumptions[0].text == "The API is stateless except for caching"
+
+
+def test_confirm_unknown_assumption_rejected():
+    model = _model()
+    _, results = apply_patch_set(model, PatchSet(patches=[ConfirmAssumptionPatch(assumption_id="A99")], narration=""))
+
+    assert results[0].outcome == PatchOutcome.REJECTED
+    assert "A99" in results[0].reason
+
+
+def test_confirm_already_resolved_assumption_rejected():
+    model = _model()
+    model.assumptions.append(Assumption(id="A1", text="x", raised_by="llm", resolved=True))
+
+    _, results = apply_patch_set(model, PatchSet(patches=[ConfirmAssumptionPatch(assumption_id="A1")], narration=""))
+
+    assert results[0].outcome == PatchOutcome.REJECTED
+    assert "already resolved" in results[0].reason
+
+
+def test_confirm_assumption_with_blank_updated_text_rejected():
+    model = _model()
+    model.assumptions.append(Assumption(id="A1", text="x", raised_by="llm", resolved=False))
+
+    _, results = apply_patch_set(
+        model, PatchSet(patches=[ConfirmAssumptionPatch(assumption_id="A1", updated_text="   ")], narration="")
+    )
+
+    assert results[0].outcome == PatchOutcome.REJECTED
+    assert "empty" in results[0].reason

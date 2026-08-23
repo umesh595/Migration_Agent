@@ -1,4 +1,8 @@
-from app.core.exporter import generate_architecture_mermaid, render_docx, render_markdown, sanitize_mermaid_label
+from io import BytesIO
+
+from pypdf import PdfReader
+
+from app.core.exporter import render_docx, render_pdf
 from app.core.graph_engine import compute_sequence
 from app.core.plan_assembler import assemble_plan
 from app.core.review_rules_engine import run_rules
@@ -88,7 +92,7 @@ def test_cross_wave_coexistence_is_attached_to_waves_and_satisfies_rule_007():
     assert not any(f.rule_id == "RULE-007" for f in findings), findings
 
 
-def test_markdown_export_contains_all_ten_deliverable_sections():
+def test_pdf_export_contains_all_ten_deliverable_sections():
     model = _sample_model()
     waves = compute_sequence(model)
     plan = assemble_plan(
@@ -97,14 +101,16 @@ def test_markdown_export_contains_all_ten_deliverable_sections():
         cutover=CutoverReviewOutput(approach="phased", steps=["go"], go_no_go_criteria=["green"], communication_plan="email"),
         rollback=RollbackPlanOutput(approach="revert", triggers=["errors"], steps=["revert"]),
     )
-    md = render_markdown(model, plan, context=None)
+    pdf_bytes = render_pdf(model, plan, context=None)
+    assert pdf_bytes[:4] == b"%PDF"
 
+    text = "".join(page.extract_text() for page in PdfReader(BytesIO(pdf_bytes)).pages)
     for heading in [
         "Current Architecture", "Target Architecture", "Component Mapping",
         "Component Migration Approach", "Migration Sequence", "Risks & Assumptions",
         "Validation Approach", "Cutover Strategy", "Rollback Strategy", "Migration Roadmap",
     ]:
-        assert heading in md, f"missing section: {heading}"
+        assert heading in text, f"missing section: {heading}"
 
 
 def test_roadmap_uses_discovered_owner_team_instead_of_tbd_placeholder():
@@ -129,7 +135,7 @@ def test_roadmap_uses_discovered_owner_team_instead_of_tbd_placeholder():
     assert web_item.owner_placeholder == "TBD"
 
 
-def test_markdown_roadmap_includes_owner_placeholder():
+def test_pdf_roadmap_includes_owner_placeholder():
     """The PRD's data model names 'owner placeholder' as part of RoadmapItem
     (Section: Data Model Overview); the export must actually surface it, not just
     carry it in the schema unused."""
@@ -142,10 +148,43 @@ def test_markdown_roadmap_includes_owner_placeholder():
         cutover=CutoverReviewOutput(approach="phased", steps=["go"], go_no_go_criteria=["green"], communication_plan="email"),
         rollback=RollbackPlanOutput(approach="revert", triggers=["errors"], steps=["revert"]),
     )
-    md = render_markdown(model, plan, context=None)
+    pdf_bytes = render_pdf(model, plan, context=None)
+    text = "".join(page.extract_text() for page in PdfReader(BytesIO(pdf_bytes)).pages)
 
-    assert "Owner" in md
-    assert all(item.owner_placeholder in md for item in plan.roadmap_items)
+    assert "Owner" in text
+    assert all(item.owner_placeholder in text for item in plan.roadmap_items)
+
+
+def test_pdf_tables_preserve_long_cell_context():
+    """Long target descriptions and roadmap summaries must wrap inside PDF tables
+    instead of being clipped off the page. Text extraction is a practical proxy for
+    'the full context made it into the PDF content stream'."""
+
+    model = _sample_model()
+    waves = compute_sequence(model)
+    outputs = _component_outputs(model)
+    outputs[0].target_description = (
+        "Amazon CloudFront with origin access control, private S3 document access, "
+        "Cognito-authenticated frontend behavior preserved, and rollback validation "
+        "covering cache invalidation and signed download links."
+    )
+    outputs[0].steps = [
+        "Prepare a production build, upload static assets to the private S3 origin, "
+        "configure CloudFront origin access control, validate Cognito login, and "
+        "confirm presigned document downloads remain private."
+    ]
+    plan = assemble_plan(
+        model, waves, outputs,
+        target_architecture_description="Cloud-native target",
+        cutover=CutoverReviewOutput(approach="phased", steps=["go"], go_no_go_criteria=["green"], communication_plan="email"),
+        rollback=RollbackPlanOutput(approach="revert", triggers=["errors"], steps=["revert"]),
+    )
+
+    pdf_bytes = render_pdf(model, plan, context=None)
+    text = "".join(page.extract_text() for page in PdfReader(BytesIO(pdf_bytes)).pages)
+
+    assert "private S3 document access" in text
+    assert "presigned document downloads remain private" in text
 
 
 def test_docx_export_produces_nonempty_bytes():
@@ -159,20 +198,3 @@ def test_docx_export_produces_nonempty_bytes():
     )
     docx_bytes = render_docx(model, plan, context=None)
     assert docx_bytes[:2] == b"PK"  # docx is a zip container
-
-
-def test_mermaid_label_sanitization_strips_injection_characters():
-    malicious = 'evil"] --> hacked; <script>alert(1)</script>'
-    cleaned = sanitize_mermaid_label(malicious)
-    assert "<" not in cleaned and ">" not in cleaned and '"' not in cleaned and "[" not in cleaned
-
-
-def test_architecture_mermaid_handles_adversarial_component_name():
-    model = ArchitectureModel(
-        components=[Component(id="a", name='"] end \n graph malicious', workload_type="other")]
-    )
-    diagram = generate_architecture_mermaid(model)
-    node_line = next(line for line in diagram.splitlines() if line.strip().startswith("a["))
-    # exactly one opening and one closing bracket/quote pair — nothing injected mid-label
-    assert node_line.count('["') == 1 and node_line.count('"]') == 1
-    assert "\n" not in node_line.strip()

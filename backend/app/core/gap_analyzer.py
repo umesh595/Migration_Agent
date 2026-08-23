@@ -95,11 +95,12 @@ def analyze_gaps(model: ArchitectureModel) -> list[Gap]:
             )
 
     for assumption in model.assumptions:
-        if assumption.raised_by == "llm":
+        if assumption.raised_by == "llm" and not assumption.resolved:
             gaps.append(
                 Gap(
                     category=GapCategory.UNCONFIRMED_ASSUMPTION,
-                    description=f"Assuming: {assumption.text} — is that correct?",
+                    description=f"Assuming: {assumption.text} — is that correct? "
+                    f"(assumption id: {assumption.id})",
                     related_component_ids=assumption.related_component_ids,
                     priority=_PRIORITY[GapCategory.UNCONFIRMED_ASSUMPTION],
                 )

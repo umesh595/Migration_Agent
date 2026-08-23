@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Background, Controls, ReactFlow, type Edge, type Node } from "@xyflow/react";
+import { Background, BackgroundVariant, Controls, ReactFlow, type Edge, type Node } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
 import { layoutPositions } from "@/lib/graphLayout";
@@ -9,15 +9,16 @@ import type { ArchitectureModel, MigrationPlan, SevenR } from "@/lib/types";
 
 /** Distinct per-disposition styling so the diagram itself communicates what's
  * happening to each component at a glance — retiring looks retired, a like-for-like
- * rehost looks stable, a refactor looks like it's genuinely being rebuilt. */
+ * rehost looks stable, a refactor looks like it's genuinely being rebuilt. Dark-mode
+ * native: translucent tinted backgrounds over the canvas rather than opaque pastels. */
 const DISPOSITION_STYLE: Record<SevenR, { bg: string; border: string; text: string; dashed?: boolean }> = {
-  retire: { bg: "#fef2f2", border: "#fca5a5", text: "#991b1b", dashed: true },
-  retain: { bg: "#f8fafc", border: "#cbd5e1", text: "#475569" },
-  rehost: { bg: "#eff6ff", border: "#93c5fd", text: "#1e40af" },
-  replatform: { bg: "#eef2ff", border: "#a5b4fc", text: "#3730a3" },
-  refactor: { bg: "#faf5ff", border: "#d8b4fe", text: "#6b21a8" },
-  repurchase: { bg: "#f0fdfa", border: "#5eead4", text: "#115e59" },
-  relocate: { bg: "#fffbeb", border: "#fcd34d", text: "#92400e" },
+  retire: { bg: "rgba(244,63,94,0.12)", border: "rgba(251,113,133,0.5)", text: "#fda4af", dashed: true },
+  retain: { bg: "rgba(148,163,184,0.10)", border: "rgba(203,213,225,0.35)", text: "#cbd5e1" },
+  rehost: { bg: "rgba(56,189,248,0.12)", border: "rgba(125,211,252,0.5)", text: "#7dd3fc" },
+  replatform: { bg: "rgba(99,102,241,0.14)", border: "rgba(165,180,252,0.5)", text: "#a5b4fc" },
+  refactor: { bg: "rgba(192,132,252,0.14)", border: "rgba(216,180,254,0.5)", text: "#e9d5ff" },
+  repurchase: { bg: "rgba(45,212,191,0.12)", border: "rgba(94,234,212,0.5)", text: "#5eead4" },
+  relocate: { bg: "rgba(251,191,36,0.12)", border: "rgba(252,211,77,0.5)", text: "#fcd34d" },
 };
 
 const DISPOSITION_LABEL: Record<SevenR, string> = {
@@ -62,13 +63,15 @@ export function TargetArchitectureCanvas({ model, plan }: { model: ArchitectureM
           data: { label: `${c.name}\n${truncatedTarget ?? "(no target decision recorded)"}` },
           style: {
             fontSize: 11,
+            fontFamily: "var(--font-body)",
             whiteSpace: "pre-line" as const,
             border: `1.5px ${style.dashed ? "dashed" : "solid"} ${style.border}`,
-            borderRadius: 8,
-            padding: 8,
+            borderRadius: 12,
+            padding: "10px 12px",
             width: 220,
             background: style.bg,
             color: style.text,
+            boxShadow: "0 4px 16px -6px rgba(0,0,0,0.5)",
           },
         };
       }),
@@ -81,10 +84,11 @@ export function TargetArchitectureCanvas({ model, plan }: { model: ArchitectureM
         id: d.id,
         source: d.source_id,
         target: d.target_id,
-        label: d.kind,
+        label: d.kind.replace(/_/g, " "),
         animated: true,
-        style: { stroke: "#16a34a" },
-        labelStyle: { fontSize: 10, fill: "#166534" },
+        style: { stroke: "#34d399", strokeWidth: 1.5 },
+        labelStyle: { fontSize: 10, fill: "#6ee7b7" },
+        labelBgStyle: { fill: "#0d1f1a" },
       })),
     [model.dependencies]
   );
@@ -99,25 +103,26 @@ export function TargetArchitectureCanvas({ model, plan }: { model: ArchitectureM
 
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-slate-700">Target architecture (migrated)</h3>
-          <p className="text-xs text-slate-400">
-            What the system becomes — computed sequencing, per-component target decisions. Compare against
-            "Current architecture" above to see exactly what changed.
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+            <span className="text-base">🎯</span> Target architecture (migrated)
+          </h3>
+          <p className="mt-0.5 text-xs text-slate-500">
+            What the system becomes — computed sequencing, per-component target decisions.
           </p>
         </div>
         <button
           type="button"
-          className="btn-secondary shrink-0 text-xs"
+          className="btn-secondary shrink-0 !px-2.5 !py-1.5 !text-xs"
           aria-pressed={showText}
           onClick={() => setShowText((v) => !v)}
         >
-          {showText ? "Show diagram" : "View as text"}
+          {showText ? "📋 Text" : "🖼️ Diagram"}
         </button>
       </div>
 
-      <div className="mb-2 flex flex-wrap gap-2">
+      <div className="mb-3 flex flex-wrap gap-1.5">
         {[...dispositionCounts.entries()].map(([disposition, count]) => (
           <span
             key={disposition}
@@ -125,7 +130,7 @@ export function TargetArchitectureCanvas({ model, plan }: { model: ArchitectureM
             style={{
               background: DISPOSITION_STYLE[disposition].bg,
               color: DISPOSITION_STYLE[disposition].text,
-              border: `1px solid ${DISPOSITION_STYLE[disposition].border}`,
+              borderColor: DISPOSITION_STYLE[disposition].border,
             }}
           >
             {DISPOSITION_LABEL[disposition]}: {count}
@@ -139,29 +144,30 @@ export function TargetArchitectureCanvas({ model, plan }: { model: ArchitectureM
             {plan.component_mappings.map((m) => {
               const component = model.components.find((c) => c.id === m.component_id);
               return (
-                <li key={m.component_id}>
+                <li key={m.component_id} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
                   <div className="flex items-center gap-2">
                     <span
                       className="badge"
                       style={{
                         background: DISPOSITION_STYLE[m.disposition].bg,
                         color: DISPOSITION_STYLE[m.disposition].text,
+                        borderColor: DISPOSITION_STYLE[m.disposition].border,
                       }}
                     >
                       {DISPOSITION_LABEL[m.disposition]}
                     </span>
-                    <span className="font-medium text-slate-800">{component?.name ?? m.component_id}</span>
+                    <span className="font-medium text-slate-100">{component?.name ?? m.component_id}</span>
                   </div>
-                  <p className="mt-1 text-slate-600">{m.target_description}</p>
+                  <p className="mt-1.5 text-slate-400">{m.target_description}</p>
                 </li>
               );
             })}
           </ul>
         </div>
       ) : (
-        <div style={{ height: 460 }} className="card p-0" role="img" aria-label="Target migrated architecture diagram">
+        <div style={{ height: 460 }} className="card overflow-hidden !p-0" role="img" aria-label="Target migrated architecture diagram">
           <ReactFlow nodes={nodes} edges={edges} fitView proOptions={{ hideAttribution: true }}>
-            <Background />
+            <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="rgba(255,255,255,0.08)" />
             <Controls />
           </ReactFlow>
         </div>

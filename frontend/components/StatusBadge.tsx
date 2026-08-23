@@ -1,10 +1,17 @@
 import type { SessionStatus } from "@/lib/types";
 
 const STYLES: Record<SessionStatus, string> = {
-  discovery: "bg-amber-100 text-amber-800",
-  planning: "bg-blue-100 text-blue-800",
-  review: "bg-purple-100 text-purple-800",
-  exported: "bg-green-100 text-green-800",
+  discovery: "border-amber-400/30 bg-amber-400/10 text-amber-300",
+  planning: "border-sky-400/30 bg-sky-400/10 text-sky-300",
+  review: "border-violet-400/30 bg-violet-400/10 text-violet-300",
+  exported: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
+};
+
+const DOT_STYLES: Record<SessionStatus, string> = {
+  discovery: "bg-amber-400",
+  planning: "bg-sky-400",
+  review: "bg-violet-400",
+  exported: "bg-emerald-400",
 };
 
 const LABELS: Record<SessionStatus, string> = {
@@ -14,6 +21,11 @@ const LABELS: Record<SessionStatus, string> = {
   exported: "Exported",
 };
 
-export function StatusBadge({ status }: { status: SessionStatus }) {
-  return <span className={`badge ${STYLES[status]}`}>{LABELS[status]}</span>;
+export function StatusBadge({ status, pulse = false }: { status: SessionStatus; pulse?: boolean }) {
+  return (
+    <span className={`badge ${STYLES[status]}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${DOT_STYLES[status]} ${pulse ? "animate-pulse-ring" : ""}`} />
+      {LABELS[status]}
+    </span>
+  );
 }

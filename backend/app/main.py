@@ -7,15 +7,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
-from app.api.routers import admin, auth, sessions
+from app.api.routers import admin, auth, integrations, sessions
 from app.config import get_settings
 from app.db.session import AsyncSessionLocal
+from app.integrations.rest_catalog_provider import RestCatalogProvider
 from app.llm.gateway import LLMGateway
 from app.llm.providers.openai_provider import OpenAIProvider
 from app.observability.tracing import flush as tracing_flush
 from app.observability.tracing import tracing_status
 from app.orchestration.checkpointer import close_checkpointer, init_checkpointer
 from app.security.rate_limit import RateLimiter
+from app.security.session_lock import SessionTurnLock
 from app.services.user_service import bootstrap_admin_if_configured
 
 logging.basicConfig(level=get_settings().log_level)
@@ -28,6 +30,19 @@ async def lifespan(app: FastAPI):
 
     app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
     app.state.rate_limiter = RateLimiter(app.state.redis, fail_open=settings.rate_limit_fail_open)
+    app.state.session_lock = SessionTurnLock(app.state.redis)
+
+    # Optional, no-op if unset — mirrors the Langfuse pattern below.
+    if settings.catalog_base_url and settings.catalog_token_url and settings.catalog_client_id and settings.catalog_client_secret:
+        app.state.catalog_provider = RestCatalogProvider(
+            base_url=settings.catalog_base_url,
+            token_url=settings.catalog_token_url,
+            client_id=settings.catalog_client_id,
+            client_secret=settings.catalog_client_secret.get_secret_value(),
+            timeout_s=settings.catalog_request_timeout_s,
+        )
+    else:
+        app.state.catalog_provider = None
 
     provider = OpenAIProvider(
         api_key=settings.openai_api_key.get_secret_value(),
@@ -81,13 +96,18 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_allow_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    # PATCH is required for /admin/users/{id}/active and /sessions/{id}/findings/{id} —
+    # a browser preflight (OPTIONS with Access-Control-Request-Method: PATCH) was
+    # rejected with this list missing PATCH, silently breaking both endpoints
+    # cross-origin (the default dev topology: frontend :3000, API :8000).
+    allow_methods=["GET", "POST", "PATCH"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(auth.router)
 app.include_router(sessions.router)
 app.include_router(admin.router)
+app.include_router(integrations.router)
 
 
 @app.get("/health", tags=["ops"])
@@ -122,7 +142,9 @@ async def readiness() -> dict:
     return {
         "status": "ready" if healthy else "degraded",
         "checks": checks,
-        # Not part of readiness — tracing being down shouldn't pull a replica from
-        # the load balancer — but surfaced so it can't fail silently.
+        # Neither is part of readiness — an unconfigured optional integration
+        # shouldn't pull a healthy replica from the load balancer — but both
+        # are surfaced so "configured but silently no-op" can't hide.
         "tracing": tracing_status(),
+        "catalog_integration": {"configured": app.state.catalog_provider is not None},
     }

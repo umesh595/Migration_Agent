@@ -190,7 +190,7 @@ export function getComponentImpact(
   return request(`/sessions/${sessionId}/impact/${encodeURIComponent(componentId)}`);
 }
 
-export async function downloadExport(sessionId: string, format: "markdown" | "docx"): Promise<void> {
+export async function downloadExport(sessionId: string, format: "pdf" | "docx"): Promise<void> {
   const token = getAccessToken();
   const response = await fetch(`${API_BASE}/sessions/${sessionId}/export?format=${format}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -201,7 +201,7 @@ export async function downloadExport(sessionId: string, format: "markdown" | "do
   const blob = await response.blob();
   const disposition = response.headers.get("Content-Disposition") ?? "";
   const match = /filename="([^"]+)"/.exec(disposition);
-  const filename = match?.[1] ?? `migration-plan.${format === "docx" ? "docx" : "md"}`;
+  const filename = match?.[1] ?? `migration-plan.${format === "docx" ? "docx" : "pdf"}`;
 
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement("a");

@@ -12,8 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, get_settings
 from app.db.models import User
 from app.db.session import get_db
+from app.integrations.catalog_provider import CatalogProvider
 from app.llm.gateway import LLMGateway
 from app.security.rate_limit import RateLimiter
+from app.security.session_lock import SessionTurnLock
 from app.security.tokens import TokenError, decode_token
 
 _bearer = HTTPBearer(auto_error=True)
@@ -63,6 +65,17 @@ def get_gateway(request: Request) -> LLMGateway:
     return request.app.state.gateway
 
 
+def get_session_lock(request: Request) -> SessionTurnLock:
+    return request.app.state.session_lock
+
+
+def get_catalog_provider(request: Request) -> CatalogProvider | None:
+    """None when the enterprise catalog integration isn't configured for this
+    deployment — callers must treat that as 'feature disabled', not an error."""
+
+    return getattr(request.app.state, "catalog_provider", None)
+
+
 async def enforce_rate_limit(
     request: Request,
     user: Annotated[User, Depends(current_user)],
@@ -97,6 +110,8 @@ async def enforce_message_rate_limit(
 
 CurrentUser = Annotated[User, Depends(current_user)]
 Db = Annotated[AsyncSession, Depends(get_db)]
+SessionLock = Annotated[SessionTurnLock, Depends(get_session_lock)]
+CatalogProviderDep = Annotated[CatalogProvider | None, Depends(get_catalog_provider)]
 
 
 def parse_uuid(value: str, field: str = "id") -> uuid.UUID:

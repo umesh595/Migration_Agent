@@ -9,8 +9,10 @@ behavior. Requires Postgres + Redis; skips cleanly without them.
 from __future__ import annotations
 
 import json
+from io import BytesIO
 
 import pytest
+from pypdf import PdfReader
 
 from app.llm.schemas import (
     ComponentPlanLLMOutput,
@@ -251,14 +253,14 @@ async def test_full_lifecycle_discovery_to_export(app_client, auth_headers):
     assert response.json()["session_status"] == "exported"
 
     # --- export both formats ---
-    md = await client.get(f"/sessions/{session_id}/export?format=markdown", headers=auth_headers)
-    assert md.status_code == 200
-    body = md.text
+    pdf = await client.get(f"/sessions/{session_id}/export?format=pdf", headers=auth_headers)
+    assert pdf.status_code == 200
+    assert pdf.content[:4] == b"%PDF"
+    body = "".join(page.extract_text() for page in PdfReader(BytesIO(pdf.content)).pages)
     for heading in ["Current Architecture", "Target Architecture", "Component Mapping",
                     "Component Migration Approach", "Migration Sequence", "Risks & Assumptions",
                     "Validation Approach", "Cutover Strategy", "Rollback Strategy", "Migration Roadmap"]:
         assert heading in body, f"export missing deliverable section: {heading}"
-    assert "```mermaid" in body
 
     docx = await client.get(f"/sessions/{session_id}/export?format=docx", headers=auth_headers)
     assert docx.status_code == 200

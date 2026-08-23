@@ -3,53 +3,217 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: #05060f;
 }
 
 body {
-  @apply bg-slate-50 text-slate-900;
+  @apply min-h-screen text-slate-100;
+  font-family: var(--font-body), ui-sans-serif, system-ui;
+  position: relative;
+  isolation: isolate;
 }
 
-/* Visible focus states everywhere (WCAG 2.1 AA) — never suppressed with
-   outline: none without a replacement. */
+h1,
+h2,
+h3,
+h4,
+.font-display {
+  font-family: var(--font-display), ui-sans-serif, system-ui;
+}
+
+/* Fixed, full-viewport ambient backdrop — sits behind everything, never scrolls,
+   never intercepts clicks. Two layers: a soft animated mesh-gradient "aurora"
+   for color/depth, plus a faint grid for structure so panels read as floating
+   above something, not against a flat void. */
+.bg-aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background: #05060f;
+  background-image: theme("backgroundImage.grad-mesh");
+  filter: saturate(1.1);
+  animation: aurora-drift 22s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.bg-grid {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 40%, transparent 90%);
+}
+
+/* Visible focus states everywhere (WCAG 2.1 AA) — never suppressed without a
+   replacement, just restyled for the dark palette. */
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible,
 [tabindex]:focus-visible {
-  @apply outline outline-2 outline-offset-2 outline-brand-600;
+  @apply outline outline-2 outline-offset-2 outline-brand-400 rounded-md;
 }
 
-.btn {
-  @apply inline-flex items-center justify-center rounded-md px-3 py-2 text-sm font-medium
-    transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+::selection {
+  background: rgba(99, 102, 241, 0.35);
 }
 
-.btn-primary {
-  @apply btn bg-brand-600 text-white hover:bg-brand-700;
+/* Scrollbars that match the theme instead of the OS default light scrollbar. */
+* {
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
 }
 
-.btn-secondary {
-  @apply btn bg-white text-slate-700 border border-slate-300 hover:bg-slate-100;
+@layer components {
+  /* --- Buttons --- */
+  .btn {
+    @apply relative inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold
+      transition-all duration-200 ease-out disabled:cursor-not-allowed disabled:opacity-40
+      active:scale-[0.98];
+  }
+
+  .btn-primary {
+    @apply btn text-white shadow-lg shadow-brand-900/40;
+    background-image: linear-gradient(135deg, #6366f1, #8b5cf6);
+  }
+  .btn-primary:hover:not(:disabled) {
+    @apply shadow-glow;
+    filter: brightness(1.08);
+  }
+
+  .btn-secondary {
+    @apply btn border border-white/10 bg-white/[0.04] text-slate-200 backdrop-blur-sm hover:bg-white/[0.09] hover:border-white/20;
+  }
+
+  .btn-danger {
+    @apply btn text-white shadow-lg shadow-rose-900/40;
+    background-image: linear-gradient(135deg, #f43f5e, #db2777);
+  }
+  .btn-danger:hover:not(:disabled) {
+    filter: brightness(1.1);
+  }
+
+  /* --- Surfaces --- */
+  .card {
+    @apply relative rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-panel-sm backdrop-blur-xl;
+  }
+
+  .card-glow {
+    @apply card;
+  }
+  .card-glow::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, rgba(129, 140, 248, 0.5), rgba(236, 72, 153, 0.15), transparent 70%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .panel {
+    @apply rounded-3xl border border-white/10 bg-ink-900/60 shadow-panel backdrop-blur-2xl;
+  }
+
+  .glass-nav {
+    @apply border-b border-white/10 bg-ink-950/70 backdrop-blur-2xl;
+  }
+
+  /* --- Form controls --- */
+  .input {
+    @apply w-full rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-slate-100
+      placeholder:text-slate-500 transition-colors duration-150
+      focus:border-brand-400/60 focus:bg-white/[0.06] focus:outline-none;
+  }
+
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-slate-300;
+  }
+
+  /* --- Badges --- */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold tracking-wide;
+  }
+
+  /* --- Gradient text --- */
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: theme("backgroundImage.grad-primary");
+  }
+
+  /* --- Shimmer skeleton / loading sheen --- */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.03) 25%,
+      rgba(255, 255, 255, 0.09) 37%,
+      rgba(255, 255, 255, 0.03) 63%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2.2s linear infinite;
+  }
+
+  /* --- Dotted connector line used behind stage steppers --- */
+  .step-line {
+    background-image: linear-gradient(to right, rgba(255, 255, 255, 0.25) 0 6px, transparent 6px 12px);
+    background-size: 12px 2px;
+    background-repeat: repeat-x;
+    background-position: center;
+  }
 }
 
-.btn-danger {
-  @apply btn bg-red-600 text-white hover:bg-red-700;
+/* --- React Flow dark theme overrides --- */
+/* @xyflow/react's default style.css assumes a light canvas; this codebase is
+   dark-first, so the library's CSS variables are repointed here rather than
+   fighting them with !important overrides per-node. */
+.react-flow {
+  --xy-background-color: transparent;
+  --xy-node-border-radius: 12px;
+  --xy-node-boxshadow-hover: 0 0 0 1px rgba(129, 140, 248, 0.5), 0 8px 24px -8px rgba(99, 102, 241, 0.35);
+  --xy-node-boxshadow-selected: 0 0 0 2px rgba(129, 140, 248, 0.7);
+  --xy-edge-stroke-default: rgba(148, 163, 184, 0.55);
+  --xy-edge-label-background-color-default: #12142a;
+  --xy-controls-button-background-color: rgba(255, 255, 255, 0.06);
+  --xy-controls-button-background-color-hover: rgba(255, 255, 255, 0.14);
+  --xy-controls-button-color: #cbd5e1;
+  --xy-controls-button-color-hover: #ffffff;
+  --xy-controls-button-border-color: rgba(255, 255, 255, 0.1);
+  --xy-minimap-background-color: #0d0f20;
 }
-
-.card {
-  @apply rounded-lg border border-slate-200 bg-white p-4 shadow-sm;
+.react-flow__attribution {
+  display: none;
 }
-
-.input {
-  @apply w-full rounded-md border border-slate-300 px-3 py-2 text-sm placeholder:text-slate-400;
+.react-flow__controls {
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.5);
 }
-
-.label {
-  @apply mb-1 block text-sm font-medium text-slate-700;
+.react-flow__edge-text {
+  fill: #cbd5e1;
 }
-
-.badge {
-  @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
+.react-flow__edge-textbg {
+  fill: #12142a;
 }
