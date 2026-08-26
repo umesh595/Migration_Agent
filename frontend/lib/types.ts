@@ -241,6 +241,12 @@ export interface ReviewQualityScore {
   flagged_issues: string[];
 }
 
+export interface ConversationTurn {
+  role: "user" | "agent" | "error";
+  text: string;
+  created_at: string;
+}
+
 export interface AdminUser {
   id: string;
   email: string;

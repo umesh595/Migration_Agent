@@ -1,5 +1,6 @@
 import type {
   AdminUser,
+  ConversationTurn,
   Finding,
   PatchAuditEntry,
   ReviewQualityScore,
@@ -177,6 +178,10 @@ export function resolveFinding(
 
 export function getAudit(sessionId: string): Promise<{ records: PatchAuditEntry[] }> {
   return request(`/sessions/${sessionId}/audit`);
+}
+
+export function getConversation(sessionId: string): Promise<{ turns: ConversationTurn[] }> {
+  return request(`/sessions/${sessionId}/messages`);
 }
 
 export function getReviewQuality(sessionId: string): Promise<{ scores: ReviewQualityScore[] }> {

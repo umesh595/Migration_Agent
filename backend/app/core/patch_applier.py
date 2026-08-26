@@ -38,6 +38,7 @@ def _apply_single(model: ArchitectureModel, patch: Patch) -> ArchitectureModel:
                     description=patch.description,
                     technology=patch.technology,
                     environment=patch.environment or Environment.UNKNOWN,
+                    criticality=patch.criticality,
                 )
             )
 

@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -68,6 +68,9 @@ class MigrationSession(Base):
     )
     findings: Mapped[list["FindingRecord"]] = relationship(back_populates="session", cascade="all, delete-orphan")
     review_quality_records: Mapped[list["ReviewQualityRecord"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+    conversation_turns: Mapped[list["ConversationTurn"]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
     )
 
@@ -156,6 +159,24 @@ class ProcessedMessage(Base):
     session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True)
     message_id: Mapped[str] = mapped_column(String(128), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConversationTurn(Base):
+    """Persists what ChatPanel renders. Previously there was no server-side record
+    of turn text at all — only the LangGraph checkpoint (structured graph state,
+    not chat history) and ProcessedMessage (an idempotency marker holding just the
+    message_id). A page refresh had nothing to rehydrate from, so the conversation
+    silently vanished even though the underlying model/plan state was intact."""
+
+    __tablename__ = "conversation_turns"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)  # user | agent | error
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    session: Mapped[MigrationSession] = relationship(back_populates="conversation_turns")
 
 
 class ReviewQualityRecord(Base):

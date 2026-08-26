@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Background, BackgroundVariant, Controls, ReactFlow, type Edge, type Node } from "@xyflow/react";
-import "@xyflow/react/dist/style.css";
+import { MarkerType, type Edge, type Node } from "@xyflow/react";
 
+import { DiagramFrame } from "@/components/DiagramFrame";
 import { layoutPositions } from "@/lib/graphLayout";
 import type { ArchitectureModel, MigrationPlan, SevenR } from "@/lib/types";
 
@@ -85,8 +85,9 @@ export function TargetArchitectureCanvas({ model, plan }: { model: ArchitectureM
         source: d.source_id,
         target: d.target_id,
         label: d.kind.replace(/_/g, " "),
-        animated: true,
-        style: { stroke: "#34d399", strokeWidth: 1.5 },
+        type: "smoothstep",
+        style: { stroke: "#34d399", strokeWidth: 1.5, opacity: 0.85 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "#34d399", width: 16, height: 16 },
         labelStyle: { fontSize: 10, fill: "#6ee7b7" },
         labelBgStyle: { fill: "#0d1f1a" },
       })),
@@ -165,12 +166,13 @@ export function TargetArchitectureCanvas({ model, plan }: { model: ArchitectureM
           </ul>
         </div>
       ) : (
-        <div style={{ height: 460 }} className="card overflow-hidden !p-0" role="img" aria-label="Target migrated architecture diagram">
-          <ReactFlow nodes={nodes} edges={edges} fitView proOptions={{ hideAttribution: true }}>
-            <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="rgba(255,255,255,0.08)" />
-            <Controls />
-          </ReactFlow>
-        </div>
+        <DiagramFrame
+          nodes={nodes}
+          edges={edges}
+          height={600}
+          title="Target architecture (migrated)"
+          ariaLabel="Target migrated architecture diagram"
+        />
       )}
     </div>
   );

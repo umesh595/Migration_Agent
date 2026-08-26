@@ -195,21 +195,37 @@ export default function SessionWorkspacePage() {
                 </div>
               )}
 
-              <ChatPanel
-                sessionId={sessionId}
-                onTurnComplete={refresh}
-                disabled={status === "exported"}
-                disabledReason="This plan has been finalized — no further turns are accepted."
-                workflowStatus={status}
-                componentCount={state.model.components.length}
-                placeholder={
-                  status === "discovery"
-                    ? "Describe your existing system, e.g. \"We have a customer portal, backend APIs, PostgreSQL, event streaming, and a data warehouse.\""
-                    : status === "planning"
-                      ? "Describe your migration goal, e.g. \"Move everything from on-prem to AWS, 4-hour maintenance window is acceptable.\""
-                      : "Planning is complete. Review the plan and findings, then approve when ready."
-                }
-              />
+              {status === "exported" ? (
+                <div className="card-glow flex flex-col items-center gap-3 py-10 text-center animate-fade-up">
+                  <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/15 text-3xl ring-1 ring-emerald-400/30">
+                    ✅
+                  </span>
+                  <div>
+                    <h3 className="font-display text-lg font-semibold text-white">Export ready</h3>
+                    <p className="mt-1 max-w-sm text-sm text-slate-400">
+                      This plan has been reviewed, approved, and finalized — no further turns are accepted. Download
+                      the full 10-deliverable package below.
+                    </p>
+                  </div>
+                  <div className="mt-2 w-full max-w-sm">
+                    <ExportButtons sessionId={sessionId} />
+                  </div>
+                </div>
+              ) : (
+                <ChatPanel
+                  sessionId={sessionId}
+                  onTurnComplete={refresh}
+                  workflowStatus={status}
+                  componentCount={state.model.components.length}
+                  placeholder={
+                    status === "discovery"
+                      ? "Describe your existing system, e.g. \"We have a customer portal, backend APIs, PostgreSQL, event streaming, and a data warehouse.\""
+                      : status === "planning"
+                        ? "Describe your migration goal, e.g. \"Move everything from on-prem to AWS, 4-hour maintenance window is acceptable.\""
+                        : "Planning is complete. Review the plan and findings, then approve when ready."
+                  }
+                />
+              )}
 
               {status === "discovery" && (
                 <div className="card-glow animate-fade-up">
@@ -251,14 +267,6 @@ export default function SessionWorkspacePage() {
                 </div>
               )}
 
-              {status === "exported" && (
-                <div className="card-glow animate-fade-up">
-                  <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
-                    <span className="text-base">📦</span> Export
-                  </h3>
-                  <ExportButtons sessionId={sessionId} />
-                </div>
-              )}
             </div>
 
             <div className="space-y-4">

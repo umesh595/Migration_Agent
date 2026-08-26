@@ -24,6 +24,7 @@ def render_model_for_prompt(model: ArchitectureModel) -> str:
                 "technology": c.technology,
                 "description": c.description,
                 "owner_team": c.owner_team,
+                "criticality": c.criticality,
             }
             for c in model.components
         ],

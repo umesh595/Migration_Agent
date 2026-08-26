@@ -32,6 +32,11 @@ class AddComponentPatch(BaseModel):
     description: str = ""
     technology: str | None = None
     environment: Environment | None = None
+    criticality: str | None = Field(
+        default=None,
+        description="Set when confidently inferable from the component's role at creation time "
+        "(e.g. 'tier-1', 'tier-2') — avoids a separate update_component just to record it.",
+    )
 
 
 class UpdateComponentPatch(BaseModel):

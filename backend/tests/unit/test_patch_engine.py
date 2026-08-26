@@ -36,6 +36,23 @@ def test_add_component_applies_and_bumps_version():
     assert results[0].outcome == PatchOutcome.APPLIED
 
 
+def test_add_component_with_inferred_criticality_sets_it_at_creation():
+    """The senior-migration-architect behavior (see gap_analyzer.py) infers
+    criticality by role at ingestion time instead of leaving it to a later
+    per-component question — this is the patch-layer half of that: add_component
+    must actually carry the field through to the created Component."""
+
+    model = ArchitectureModel()
+    patch_set = PatchSet(
+        patches=[AddComponentPatch(id="api", name="API", workload_type="api_service", criticality="tier-1")],
+        narration="",
+    )
+    new_model, results = apply_patch_set(model, patch_set)
+
+    assert results[0].outcome == PatchOutcome.APPLIED
+    assert new_model.get_component("api").criticality == "tier-1"
+
+
 def test_add_duplicate_component_is_rejected_not_applied():
     model = _model_with_two_components()
     patch_set = PatchSet(

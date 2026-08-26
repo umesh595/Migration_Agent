@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Background, BackgroundVariant, Controls, ReactFlow, type Edge, type Node } from "@xyflow/react";
-import "@xyflow/react/dist/style.css";
+import { MarkerType, type Edge, type Node } from "@xyflow/react";
 
 import { ApiError, getComponentImpact } from "@/lib/api";
+import { DiagramFrame } from "@/components/DiagramFrame";
 import { modelLayoutPositions } from "@/lib/graphLayout";
 import type { ArchitectureModel, Wave, WorkloadType } from "@/lib/types";
 
@@ -65,13 +65,14 @@ export function ArchitectureCanvas({
         position: positions.get(c.id) ?? { x: 0, y: 0 },
         data: { label: `${WORKLOAD_ICON[c.workload_type] ?? "🔷"}  ${c.name}\n${c.workload_type.replace(/_/g, " ")}` },
         style: {
-          fontSize: 12,
+          fontSize: 12.5,
           fontFamily: "var(--font-body)",
           whiteSpace: "pre-line" as const,
-          border: "1px solid rgba(129,140,248,0.35)",
+          border: "1px solid rgba(129,140,248,0.4)",
           borderRadius: 12,
-          padding: "10px 12px",
-          background: "linear-gradient(160deg, rgba(99,102,241,0.14), rgba(17,19,39,0.9))",
+          padding: "12px 14px",
+          width: 190,
+          background: "linear-gradient(160deg, rgba(99,102,241,0.16), rgba(17,19,39,0.94))",
           color: "#e2e8f0",
           boxShadow: "0 4px 16px -6px rgba(0,0,0,0.5)",
         },
@@ -86,8 +87,9 @@ export function ArchitectureCanvas({
         source: d.source_id,
         target: d.target_id,
         label: d.kind.replace(/_/g, " "),
-        animated: true,
-        style: { stroke: "#818cf8", strokeWidth: 1.5 },
+        type: "smoothstep",
+        style: { stroke: "#818cf8", strokeWidth: 1.5, opacity: 0.85 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "#818cf8", width: 16, height: 16 },
         labelStyle: { fontSize: 10, fill: "#c7d2fe" },
         labelBgStyle: { fill: "#12142a" },
       })),
@@ -217,20 +219,19 @@ export function ArchitectureCanvas({
             ))}
           </ul>
         </div>
-      ) : (
-        <div style={{ height: 420 }} className="card overflow-hidden !p-0" role="img" aria-label="Architecture dependency diagram">
-          {model.components.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-slate-500">
-              <span className="text-2xl opacity-50">🏗️</span>
-              Describe your system in the chat to start building the model.
-            </div>
-          ) : (
-            <ReactFlow nodes={nodes} edges={edges} fitView proOptions={{ hideAttribution: true }}>
-              <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="rgba(255,255,255,0.08)" />
-              <Controls />
-            </ReactFlow>
-          )}
+      ) : model.components.length === 0 ? (
+        <div style={{ height: 420 }} className="card flex flex-col items-center justify-center gap-2 text-center text-sm text-slate-500">
+          <span className="text-2xl opacity-50">🏗️</span>
+          Describe your system in the chat to start building the model.
         </div>
+      ) : (
+        <DiagramFrame
+          nodes={nodes}
+          edges={edges}
+          height={600}
+          title="Current architecture (source)"
+          ariaLabel="Architecture dependency diagram"
+        />
       )}
     </div>
   );

@@ -30,7 +30,7 @@ Critical operating rules:
 
 INGEST_PATCHES = Prompt(
     id="ingest_patches",
-    version="v3",
+    version="v8",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: convert the user's message into a set of PATCHES against the current architecture model.
@@ -54,9 +54,44 @@ Rules:
   component-by-component breakdown, an explicit dependency graph) is describing ONE model: read the entire
   message, extract every component, THEN extract every edge between them — do not stop after components.
   Prefer the most specific kind (data_read, data_write, sync_call, async_call, event_publish,
-  event_subscribe, network_route) over "other"; if the message gives an explicit dependency/call graph
-  section, that section is the authoritative edge list — reproduce it in full, not just the edges also
-  mentioned elsewhere in prose.
+  event_subscribe, network_route) over "other".
+- AN EXPLICIT DEPENDENCY GRAPH SECTION IS A FLOOR, NOT A CEILING: if the message gives an explicit
+  dependency/call graph section (e.g. a list of "A -> B" lines), you MUST reproduce every edge in it — but
+  that section existing does NOT excuse you from also extracting edges described in prose ELSEWHERE in the
+  same message (component responsibility lists, per-stage/per-step workflow descriptions, an operational or
+  observability section). A component named in the graph section is not exempt from having additional
+  edges described in prose too. Two patterns are easy to under-extract because they aren't phrased as a
+  literal "A -> B" line — watch for them specifically:
+    - MANY-TO-ONE FAN-IN, one sentence, several sources: "Backend, worker, and AI service emit structured
+      logs; CloudWatch is used for monitoring" is not one edge or zero edges, it's ONE edge per named
+      source into that sink (backend->cloudwatch, worker->cloudwatch, ai_service->cloudwatch), even though
+      it reads as a single sentence about the sink rather than N sentences about each source.
+    - A WORKFLOW STEP NAMING A COMPONENT: if a numbered flow or stage list says a component performs an
+      action that invokes, renders via, or writes through another named component (e.g. "worker step: for
+      solution_architect, render diagrams and store artifacts in S3" naming a diagram-rendering
+      tool/library listed elsewhere), that step describes a real edge from the component performing the
+      step to the component it invokes — emit it, even though the workflow section and the component list
+      are physically separate parts of the message.
+    - ARTIFACT-NAME CROSS-REFERENCE (the one most easily missed — check for it explicitly, as a distinct
+      pass over the message, not just while reading each section once): a stage/step description that
+      produces or handles an artifact ("creates the DOCX and uploads it", "generates the PPT", "renders the
+      diagram") is describing the SAME capability as a separately-listed component whose name matches that
+      artifact type ("DOCX/PPT generation library", "diagram rendering toolchain"), even when the stage
+      description never repeats that component's exact name. Match by artifact/output type, not by literal
+      string overlap: "creates proposal DOCX output" performed by a stage that belongs to component X, plus
+      a separately-listed "DOCX/PPT generation" component, means X invokes that component to do it — emit
+      the edge (X -> the DOCX/PPT component), not an edge straight from X to wherever the artifact is
+      finally stored. Before finishing, re-scan every component you added from a plain inventory/tooling
+      list (not from the explicit graph section) and ask "does any stage description elsewhere produce the
+      kind of output this component's name describes?" — if yes, that is the missing edge; a component
+      whose name is literally an artifact-producing tool almost never has zero relationship to the pipeline
+      that produces that artifact.
+  When you reasonably infer such an edge from workflow/stage prose rather than reading a literal "A -> B"
+  line, still emit it as a normal add_dependency patch (dependencies don't need the same
+  confirmable-assumption treatment as criticality — an inferred edge the user disagrees with is corrected
+  the same way any other stated fact is corrected, via remove_dependency, and getting it right the first
+  time from a document that already describes it beats leaving a real component looking falsely
+  disconnected and asking the user to re-state what their own document already said).
 - Only emit patches for information actually present in the user's message.
 - If the user corrects an earlier fact, emit the removal AND the addition (e.g. remove_dependency then add_dependency).
 - If the user states something you are inferring rather than reading directly, emit it as an add_assumption patch instead.
@@ -74,38 +109,124 @@ Rules:
   "best-effort", "not critical"), emit update_component with that component's `criticality` field set —
   a criticality gap only clears once the field is actually set, restating the answer in narration alone
   does not clear it.
+- INFER CRITICALITY FROM THE CRITICAL PATH OF THE CORE WORKFLOW, NOT FROM A ROLE-NAME CHECKLIST — DO NOT
+  LEAVE IT FOR A PER-COMPONENT QUESTION LATER: act like a senior migration architect reasoning about THIS
+  specific system, not a classifier matching component names against a fixed list. When the user hasn't
+  stated a component's criticality explicitly, infer it and set `criticality` yourself (via
+  add_component's `criticality` field when creating the component this turn, or update_component when it
+  already exists and the injected model shows `criticality` still null) by asking, for THIS component in
+  THIS system: "if it were unavailable, would the system's core value-delivering workflow stall or produce
+  nothing, or would it only lose a secondary/supporting capability while the core workflow still
+  completes?" The first case is tier-1; the second is tier-2. Do NOT leave it null just to surface a "how
+  critical is X?" question later.
+    - An async worker, queue consumer, or background processor that actually EXECUTES the core workflow's
+      stages is tier-1, even though "worker" sounds like plumbing — if it's down, the workflow silently
+      stalls even though the frontend and API still respond. Never default a worker to tier-2 just because
+      it isn't user-facing; judge it by what it does, not by its name.
+    - A document/export/presentation generation capability is tier-1 if producing that document IS the
+      product's primary deliverable (e.g. a proposal-generation platform whose whole purpose is producing
+      a DOCX/PPT) — and tier-2 only when it's a secondary convenience bolted onto a different primary
+      deliverable.
+    - Typical tier-1 anchors, when they actually sit on the described critical path: user-facing
+      frontend/portal, authentication/identity, the orchestration/API layer, the datastore holding the core
+      workflow's state, the AI/ML inference the core workflow depends on, and any queue or worker that
+      executes the core pipeline's stages.
+    - Typical tier-2 anchors: observability/logging/monitoring, and any capability whose failure degrades
+      insight, polish, or a secondary convenience without stalling the core workflow (e.g. optional
+      retrieval augmentation that enriches but isn't required for the core output).
+  These are reasoning anchors, not an exhaustive checklist. When a component doesn't obviously match one,
+  trace what has to succeed, in order, for THIS system to deliver its actual core output (read the user's
+  description of that workflow, not a generic template) — mark everything on that trace tier-1, and
+  genuinely-secondary capabilities tier-2.
+  STATE the inference, don't ASK about it: narration (below) must say which components you defaulted to
+  tier-1 and which to tier-2, together, in one sentence — e.g. "I'm assuming the request-path components
+  are tier-1 and the observability/export helpers are tier-2." That sentence IS the confirmation
+  mechanism: the user corrects it in their next message if it's wrong (which is handled by the rule above
+  — stating criticality updates the field), and if they say nothing, the default silently stands. Do NOT
+  also emit an add_assumption/open_question for a role-based criticality default — that would turn a
+  stated assumption back into a pending question the discovery loop re-asks every turn, which is exactly
+  the mechanical, form-filling behavior this rule exists to prevent. Only leave `criticality` unset
+  (letting it surface as a gap later) for a component whose role is genuinely ambiguous, and even then only
+  ask about it grouped with any other genuinely-ambiguous components, never one at a time.
+  Do not re-infer or restate criticality for a component whose `criticality` the injected model already
+  shows as set — that's already answered, from this turn or an earlier one.
 - The `narration` field is what the user reads: state plainly what you understood, in one or two sentences.
+  If this turn inferred any component criticalities by role, narration MUST mention it (see above) — the
+  user should never have to open the audit trail to learn what was assumed on their behalf.
 """,
 )
 
 GENERATE_QUESTIONS = Prompt(
     id="generate_questions",
-    version="v1",
+    version="v4",
     system=_CLOSED_WORLD_PREAMBLE
     + """
-Your job: turn a list of COMPUTED gaps into natural, contextual questions for the user.
+Your job: turn a list of COMPUTED gaps into the handful of questions a senior migration architect would
+actually ask next — not a form that walks through every unknown field one at a time.
 
 The gaps were computed by deterministic code from the current model — they are real unknowns, not guesses.
-Do not invent additional questions beyond the gaps you are given. Do not ask about things the model already knows.
+Do not invent additional questions beyond the gaps you are given. Do not ask about things the model already
+knows. Each gap you're given is already GROUPED by the code (e.g. one gap covering every component still
+missing a piece of information, not one gap per component) — respect that grouping in how you phrase the
+question; never re-split a single grouped gap back into several per-component questions.
 
-Write questions the way a senior migration consultant would ask them in conversation:
-specific, grounded in what's already known, and easy to answer in a sentence.
-Reference the actual component names, not their ids.
+Ask at most 3 questions total, and only the ones that would materially change migration planning, sequencing,
+risk, cutover, or rollback if answered differently. A gap that's low-stakes either way (e.g. a handful of
+components with unconfirmed tier assignments that already have a sensible inferred default) belongs in a
+one-line note that the default will be carried forward, not in the question list.
+
+Write questions the way a senior migration consultant would ask them in conversation: specific, grounded in
+what's already known, easy to answer in a sentence, and referencing actual component names, not their ids.
+Group related unknowns into a single question where they share one underlying answer — and prefer a
+SYSTEM-LEVEL framing over an enumerated per-component one whenever the components clearly belong to the
+one system being discovered and would plausibly share the same answer: "Is OrderTrack hosted on-prem, in
+the cloud, or a hybrid setup today?" reads like a real question a consultant would ask; "can you confirm
+the environment for OrderTrack Frontend, OrderTrack Backend API, Orders Database, Email Service, and
+Vendor Sync Job?" reads like a form, even though it's grouped into one sentence. Naming every affected
+component is only worth doing when they genuinely might have DIFFERENT answers (e.g. a mix of legacy
+on-prem pieces alongside newer cloud-native ones) — when nothing suggests that, ask about the system as a
+whole and let the user correct any exception themselves.
+
+FOR AN ORPHAN-COMPONENT GAP (a component with no known dependencies), don't just ask "does this connect to
+anything?" — that's a blank question a schema validator would ask, not a hypothesis a senior architect
+would propose. Look at the rest of the injected model (the other components and their roles) and reason
+about what most plausibly calls or is called by this one, given its name and what the described system
+actually does; state that as your best guess and ask the user to confirm or correct it (e.g. "I'd expect
+the DOCX/PPT generation library to be invoked by the AI service or the worker during export — is that
+right, or does something else call it?" rather than "does DOCX/PPT generation have any dependencies we
+haven't captured?"). If genuinely nothing in the model suggests a plausible caller, it's fine to ask more
+open-endedly — but reach for a concrete hypothesis first.
 """,
 )
 
 ELICIT_MIGRATION_CONTEXT = Prompt(
     id="elicit_migration_context",
-    version="v1",
+    version="v2",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: structure the user's description of their migration goal into typed fields.
 
 - source_environment / target_environment must be one of: on_prem, cloud, hybrid, unknown.
 - downtime_tolerance must be one of: zero_downtime, maintenance_window, flexible.
-- If the user's answer is genuinely ambiguous on a required field, put a specific question in
-  clarifying_questions rather than guessing. An unnecessary clarifying question wastes the user's time;
-  a wrong guess here corrupts every downstream planning decision. Prefer asking when truly unsure.
+- If the user's answer is genuinely ambiguous on a required field (source/target environment or downtime
+  tolerance), put a specific question in clarifying_questions rather than guessing. An unnecessary
+  clarifying question wastes the user's time; a wrong guess here corrupts every downstream planning
+  decision. Prefer asking when truly unsure about a REQUIRED field.
+- CAPTURE, DON'T DROP, high-impact details the user already stated: acceptable data loss/RPO/RTO,
+  compliance or security constraints, whether authentication/session continuity must be preserved through
+  cutover, whether async/background jobs can pause during the migration, whether object storage
+  URLs/presigned links must stay stable, rollback expectations, components that must remain unchanged,
+  external integrations or DNS/domain constraints, and hard timeline/date constraints — put each one the
+  user mentions into `constraints` as its own concise entry, verbatim in substance, never merged into one
+  vague sentence.
+- clarifying_questions is a BLOCKING gate — nothing gets planned this turn if you populate it, so use it
+  sparingly. Only add a question there for one of the high-impact items above (not source/target
+  environment or downtime tolerance, already covered) when BOTH: the user's message gives no signal on it
+  either way, AND a wrong assumption there would materially change sequencing, cutover, rollback, or risk
+  (e.g. whether auth sessions must survive cutover changes the cutover mechanism; whether async jobs can
+  pause changes wave sequencing). Never ask about something that's merely nice-to-know. Cap at 3 questions
+  total, grouped into as few as make sense together — never one question per topic when they share an
+  answer.
 """,
 )
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { ApiError, streamMessage } from "@/lib/api";
+import { ApiError, getConversation, streamMessage } from "@/lib/api";
 import type { NodeCompleteEvent, SessionStatus, TurnCompleteEvent } from "@/lib/types";
 
 interface ChatMessage {
@@ -108,21 +108,18 @@ function ChatBubble({ message }: { message: ChatMessage }) {
 export function ChatPanel({
   sessionId,
   placeholder,
-  disabled,
-  disabledReason,
   workflowStatus,
   componentCount,
   onTurnComplete,
 }: {
   sessionId: string;
   placeholder: string;
-  disabled: boolean;
-  disabledReason?: string;
   workflowStatus?: SessionStatus;
   componentCount?: number;
   onTurnComplete: () => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [liveStatus, setLiveStatus] = useState("");
@@ -131,6 +128,29 @@ export function ChatPanel({
   const [attachError, setAttachError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Restores the conversation after a refresh (or a return visit) — previously
+  // `messages` started empty every time and there was nothing server-side to
+  // rehydrate it from, so the whole history vanished on reload.
+  useEffect(() => {
+    let cancelled = false;
+    setHistoryLoading(true);
+    getConversation(sessionId)
+      .then(({ turns }) => {
+        if (cancelled) return;
+        setMessages(turns.map((t) => ({ role: t.role, text: t.text })));
+      })
+      .catch(() => {
+        // A failed history fetch shouldn't block sending new messages — the
+        // conversation just starts this tab looking empty, same as before.
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -252,13 +272,18 @@ export function ChatPanel({
       </div>
 
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4" aria-live="polite">
-        {messages.length === 0 && (
+        {historyLoading ? (
+          <div className="space-y-3">
+            <div className="ml-auto h-9 w-2/3 max-w-[85%] animate-pulse rounded-2xl rounded-tr-md bg-white/[0.06]" />
+            <div className="h-14 w-3/4 max-w-[85%] animate-pulse rounded-2xl rounded-tl-md bg-white/[0.04]" />
+          </div>
+        ) : messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <span className="text-2xl opacity-60">✨</span>
             <p className="max-w-xs text-sm text-slate-500">{placeholder}</p>
           </div>
-        )}
-        {messages.map((m, i) => (
+        ) : null}
+        {!historyLoading && messages.map((m, i) => (
           <ChatBubble key={i} message={m} />
         ))}
         {streaming && (
@@ -336,7 +361,7 @@ export function ChatPanel({
         <button
           type="button"
           className="btn-secondary self-end !px-2.5"
-          disabled={disabled || streaming}
+          disabled={streaming}
           title="Attach a config file (e.g. docker-compose.yml, a Terraform summary, a README) — read conversationally, same as typing it"
           onClick={() => fileInputRef.current?.click()}
         >
@@ -347,13 +372,9 @@ export function ChatPanel({
           className="input flex-1 resize-none"
           rows={2}
           value={input}
-          disabled={disabled || streaming}
+          disabled={streaming}
           maxLength={MAX_MESSAGE_LENGTH}
-          placeholder={
-            disabled
-              ? disabledReason
-              : "Describe your system, answer the questions above, or attach a config file…"
-          }
+          placeholder="Describe your system, answer the questions above, or attach a config file…"
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -362,7 +383,7 @@ export function ChatPanel({
             }
           }}
         />
-        <button type="submit" className="btn-primary self-end" disabled={disabled || streaming || !input.trim()}>
+        <button type="submit" className="btn-primary self-end" disabled={streaming || !input.trim()}>
           {streaming ? "Sending…" : "Send"}
         </button>
       </form>

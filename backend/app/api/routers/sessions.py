@@ -104,6 +104,21 @@ async def get_state(session_id: uuid.UUID, user: CurrentUser, db: Db) -> dict:
     }
 
 
+@router.get("/{session_id}/messages", dependencies=[Depends(enforce_rate_limit)])
+async def get_conversation(session_id: uuid.UUID, user: CurrentUser, db: Db) -> dict:
+    """Full conversation history so ChatPanel can rehydrate after a refresh —
+    previously there was no persisted record of turn text at all (see
+    ConversationTurn's docstring)."""
+
+    try:
+        await session_service.get_session_for_user(db, session_id, user.id)
+    except LookupError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found") from None
+
+    turns = await session_service.list_conversation_turns(db, session_id)
+    return {"turns": [{"role": t.role, "text": t.text, "created_at": t.created_at.isoformat()} for t in turns]}
+
+
 @router.post("/{session_id}/messages", dependencies=[Depends(enforce_message_rate_limit)])
 async def post_message(
     session_id: uuid.UUID,
@@ -161,6 +176,10 @@ async def post_message(
             detail="this message_id was already processed for this session — not re-running the turn",
         )
 
+    # Persisted immediately (not after the graph runs) so a page refresh mid-turn
+    # still shows the message the user just sent, even if the run itself fails.
+    await session_service.save_conversation_turn(db, session.id, "user", payload.message)
+
     settings = get_settings()
     meter = SessionTokenMeter(settings.session_token_budget, already_spent=session.token_usage or 0)
     model_before = await session_service.latest_model(db, session.id)
@@ -216,6 +235,9 @@ async def post_message(
                 # claim so a legitimate client retry isn't permanently rejected
                 # as a duplicate (see claim_message's docstring).
                 await session_service.release_message_claim(db, session.id, payload.message_id)
+                # Stores the same text the client displays (below), not the raw
+                # exception — internals stay out of the conversation history.
+                await session_service.save_conversation_turn(db, session.id, "error", "planning run failed")
                 yield {"event": "error", "data": json.dumps({"detail": "planning run failed", "error": str(exc)})}
                 return
 
@@ -252,6 +274,28 @@ async def post_message(
                 else:
                     narration = "Migration context captured."
                 questions = []
+
+            # Mirrors exactly what ChatPanel synthesizes from this same payload
+            # (narration + questions/clarifying_questions, "Understood." fallback)
+            # so history read back later matches what was actually shown live.
+            turn_error = values.get("error")
+            if turn_error:
+                await session_service.save_conversation_turn(db, session.id, "error", str(turn_error))
+            else:
+                clarifying_questions = values.get("context_clarifying_questions") or []
+                display_parts = []
+                if narration:
+                    display_parts.append(narration)
+                if clarifying_questions:
+                    display_parts.append(
+                        "I need to clarify a few things before continuing:\n"
+                        + "\n".join(f"• {q}" for q in clarifying_questions)
+                    )
+                elif questions:
+                    display_parts.append("\n".join(f"• {q}" for q in questions))
+                await session_service.save_conversation_turn(
+                    db, session.id, "agent", "\n\n".join(display_parts) or "Understood."
+                )
 
             yield {
                 "event": "turn_complete",

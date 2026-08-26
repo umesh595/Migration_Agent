@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
+    ConversationTurn,
     FindingRecord,
     MigrationContextRecord,
     MigrationSession,
@@ -332,5 +333,21 @@ async def get_review_quality(db: AsyncSession, session_id: uuid.UUID) -> list[Re
         select(ReviewQualityRecord)
         .where(ReviewQualityRecord.session_id == session_id)
         .order_by(ReviewQualityRecord.iteration)
+    )
+    return list(result.scalars().all())
+
+
+async def save_conversation_turn(db: AsyncSession, session_id: uuid.UUID, role: str, text: str) -> None:
+    """Persists one line of what ChatPanel renders, so GET .../messages can restore
+    the conversation after a refresh. Stores the same final display text the
+    frontend would otherwise compute once itself and never see again."""
+
+    db.add(ConversationTurn(session_id=session_id, role=role, text=text))
+    await db.commit()
+
+
+async def list_conversation_turns(db: AsyncSession, session_id: uuid.UUID) -> list[ConversationTurn]:
+    result = await db.execute(
+        select(ConversationTurn).where(ConversationTurn.session_id == session_id).order_by(ConversationTurn.created_at)
     )
     return list(result.scalars().all())

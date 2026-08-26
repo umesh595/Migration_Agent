@@ -192,6 +192,26 @@ async def test_full_lifecycle_discovery_to_export(app_client, auth_headers):
     assert ("storefront", "postgres") not in edges
     assert ("storefront", "orders_api") in edges
 
+    # --- conversation history survives a "refresh" (a fresh GET, no client state) ---
+    # This is what ChatPanel rehydrates from — before this endpoint existed, turn
+    # text was never persisted anywhere, so reloading the page always came back empty
+    # even though the underlying model state was intact.
+    conversation = (await client.get(f"/sessions/{session_id}/messages", headers=auth_headers)).json()
+    turns = conversation["turns"]
+    assert [t["role"] for t in turns] == ["user", "agent", "user", "agent"]
+    assert turns[0]["text"] == "We have a storefront, an orders API, and Postgres."
+    assert turns[1]["text"] == (
+        "Captured storefront, orders API, and Postgres.\n\n"
+        "A detail or two would help.\n\n"
+        "• Which environment does the storefront run in?"
+    )
+    assert turns[2]["text"] == "The storefront goes through the orders API, not Postgres directly."
+    assert turns[3]["text"] == (
+        "Corrected: storefront calls the orders API, not Postgres directly.\n\n"
+        "One more.\n\n"
+        "• How critical is the orders API?"
+    )
+
     # --- audit trail records every patch, applied or rejected ---
     audit = (await client.get(f"/sessions/{session_id}/audit", headers=auth_headers)).json()
     assert len(audit["records"]) >= 7  # 5 from turn 1, 2 from turn 2

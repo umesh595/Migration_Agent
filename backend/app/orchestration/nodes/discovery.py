@@ -33,8 +33,15 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
     )
 
     try:
+        # STRONG tier, not CHEAP: extracting dependency edges that are only implied
+        # by prose spread across separate sections (a many-sources-to-one-sink
+        # observability sentence, an artifact type in a workflow step matching a
+        # separately-listed component) requires cross-section compositional
+        # reasoning CHEAP-tier models don't reliably do — verified directly against
+        # both tiers on a real multi-section architecture document before this
+        # change (see ingest_patches prompt's dependency-extraction rules).
         response = await gateway.complete(
-            tier=ModelTier.CHEAP,
+            tier=ModelTier.STRONG,
             system_prompt=prompt.system,
             user_prompt=user_prompt,
             response_model=PatchSet,
@@ -107,8 +114,13 @@ async def generate_questions_node(state: GraphState, gateway: LLMGateway, meter:
     )
 
     try:
+        # STRONG tier: proposing a plausible caller for an orphan component (rather
+        # than asking a blank "does this connect to anything?") needs the same
+        # cross-section reasoning over the injected model that ingestion needs —
+        # this call is small (a handful of gaps, not a full document), so the
+        # marginal cost of matching ingestion's tier here is low.
         response = await gateway.complete(
-            tier=ModelTier.CHEAP,
+            tier=ModelTier.STRONG,
             system_prompt=prompt.system,
             user_prompt=user_prompt,
             response_model=QuestionGenerationOutput,
