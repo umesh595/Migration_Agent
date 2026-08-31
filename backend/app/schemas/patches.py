@@ -18,7 +18,7 @@ class PatchOp(StrEnum):
     UPDATE_COMPONENT = "update_component"
     REMOVE_COMPONENT = "remove_component"
     ADD_DEPENDENCY = "add_dependency"
-    REMOVE_DEPENDENCY = "remove_dependency"
+    REMOVE_DEPENDENCY = "remove_dependency" 
     ADD_ASSUMPTION = "add_assumption"
     CONFIRM_ASSUMPTION = "confirm_assumption"
     RESOLVE_OPEN_QUESTION = "resolve_open_question"
@@ -101,6 +101,13 @@ class AddAssumptionPatch(BaseModel):
     op: Literal[PatchOp.ADD_ASSUMPTION] = PatchOp.ADD_ASSUMPTION
     text: str
     related_component_ids: list[str] = Field(default_factory=list)
+    confidence: str = Field(
+        default="stated",
+        description="'stated' for a plain confirmed fact. 'hedged' if the user's own wording signaled "
+        "uncertainty ('maybe', 'I think', 'probably', 'not sure'). 'unsure' if the user said they don't know "
+        "and gave a guess anyway (e.g. 'no idea how X works, maybe just Y'). Preserve the hedge here — do not "
+        "smooth it into a confident-sounding sentence.",
+    )
 
 
 class ConfirmAssumptionPatch(BaseModel):

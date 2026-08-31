@@ -34,6 +34,7 @@ class GraphState(TypedDict, total=False):
 
     # Discovery
     user_message: str
+    conversation_context: str | None
     previous_agent_message: str | None
     request_impact: RequestImpact
     model: Annotated[ArchitectureModel, _replace]

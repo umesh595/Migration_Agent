@@ -81,6 +81,19 @@ class Assumption(BaseModel):
     # that patch existing, confirming an assumption was structurally impossible and
     # discovery would re-ask about it every single turn.
     resolved: bool = False
+    # Distinct from `resolved`: resolved means "not an open question anymore",
+    # confidence means "how sure was the user when they said this". "no idea,
+    # maybe just a db transaction" and "we use SELECT FOR UPDATE" both read as
+    # a plain confirmed fact once flattened to a resolved assumption's text
+    # alone — without this, a hedge on a load-bearing detail (double-booking
+    # prevention, payment idempotency) is indistinguishable from a confident
+    # answer to any downstream gap/coverage check, and discovery moves on as
+    # if the risk were actually addressed.
+    confidence: str = Field(
+        default="stated",
+        description="'stated' (a plain confirmed fact), 'hedged' (the user signaled uncertainty — "
+        "'maybe', 'I think', 'probably', 'not sure'), or 'unsure' (the user said they don't know).",
+    )
 
 
 class OpenQuestion(BaseModel):

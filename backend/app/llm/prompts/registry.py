@@ -30,7 +30,7 @@ Critical operating rules:
 
 INGEST_PATCHES = Prompt(
     id="ingest_patches",
-    version="v15",
+    version="v17",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: convert the user's message into a set of PATCHES against the current architecture model.
@@ -66,6 +66,15 @@ Rules:
   If the user later answers with actual parts such as frontend/mobile/admin portal, backend/API, database,
   cache, queue/events, auth/SSO, payment, notifications, reporting, files/storage, monitoring, or external
   integrations, then capture those as patches.
+  ONCE THE USER NAMES CONCRETE FUNCTIONALITY THE SYSTEM PERFORMS — not just a business/product domain word,
+  but an actual behavior like "users log in", "book tickets", "browse products", "upload files" — add_component
+  for AT LEAST ONE component representing the system doing that work, even if you don't yet know its internal
+  breakdown into frontend/backend/database. A single component named after the product itself (e.g. "Movie
+  Booking Application") is a legitimate, honest starting point — it is far better than leaving the model at
+  zero components while the same facts pile up only as assumptions. A model that never gains a component
+  cannot stop looking sparse no matter how many turns of real detail the user gives, so the intake question
+  keeps repeating verbatim forever; committing to at least one component (updated or split into more later,
+  as normal) is what lets discovery actually move forward.
 - If a DETERMINISTIC REQUEST CLASSIFICATION block is provided, use it as a hard planning hint. If it says
   intent=target_planning, emit no source-model patches or source-revision questions; let the planning
   context collector handle it. If it says intent=source_correction after Gate 1, ask for explicit
@@ -207,6 +216,14 @@ Rules:
 - Only emit patches for information actually present in the user's message.
 - If the user corrects an earlier fact, emit the removal AND the addition (e.g. remove_dependency then add_dependency).
 - If the user states something you are inferring rather than reading directly, emit it as an add_assumption patch instead.
+- PRESERVE HEDGING — DO NOT SMOOTH IT INTO A CONFIDENT SENTENCE: when the user's own wording signals
+  uncertainty about something they're telling you ("maybe", "I think", "probably", "not sure", "no idea how
+  X works, maybe just Y", "tbh not sure"), set that add_assumption patch's `confidence` field to "hedged", or
+  "unsure" if they explicitly said they don't know and gave a guess anyway. Do not rewrite "no idea how seat
+  locking works, maybe just a db transaction" as a plain confident assumption like "concurrency control is
+  handled via database transactions" — that erases the exact signal that this is a real, unresolved risk, not
+  a settled fact. Leave `confidence` at its default ("stated") only for things the user actually knows and
+  said plainly.
 - ASSUMPTIONS MUST BE CONFIRMABLE, NOT REPEATED: the injected model lists every existing assumption with its
   id, raised_by, and resolved flag. If the user's message is confirming, correcting, rejecting, or answering
   ANY assumption already listed with resolved=false (e.g. "yes, that's correct", "yes, all three are
@@ -406,6 +423,117 @@ vague restatement like "some details may be missing." If the message is a pure q
 confirmation/rejection with no new factual content, or otherwise has nothing concrete to capture,
 fully_captured is true and missed_facts is empty — do not invent a missing fact where the message gave none
 to capture.
+""",
+)
+
+ASSESS_REQUIREMENT_COVERAGE = Prompt(
+    id="assess_requirement_coverage",
+    version="v4",
+    system=_CLOSED_WORLD_PREAMBLE
+    + """
+Your job: given the current architecture model, decide what basic application requirement areas matter for
+THIS specific system, and whether each one is covered, explicitly not applicable, hedged/uncertain, still
+unknown, or needs to be escalated as a risk instead of asked about again.
+
+You are replacing a fixed, generic checklist. Do not just restate a template list of categories — reason
+about what this system, as actually described, would genuinely need for a credible migration plan, and name
+categories specifically. A movie booking system's meaningful categories include things like seat/inventory
+concurrency control during checkout and payment idempotency, not just a generic "integrations" line; an IoT
+telemetry platform's meaningful categories include device provisioning/registration and firmware update
+mechanism; an HR system's include approval workflows and data retention by employee-record type. Start from
+these common baseline areas as a seed, not a ceiling — drop any that are clearly irrelevant to this kind of
+system, and add domain-specific ones the baseline doesn't cover: user access channel, authentication/
+authorization/roles, external integrations (including payments if relevant), async messaging/events/jobs,
+reporting/analytics/exports, security/audit/monitoring/compliance/retention/PII, scale/traffic/data volume.
+Nothing about this category list is fixed — treat it as a conversation about THIS system's actual migration
+risk, open to whatever categories that specific system genuinely raises, not a form to fill in the same way
+every time.
+
+DISTINGUISH CASUAL PHRASING FROM AN ACTUALLY UNCERTAIN ANSWER — this is the single most common misjudgment:
+- "no compliance framework that i know of, so none i guess" — the CLAIM is unambiguous (none). "that i know
+  of" and "i guess" are just casual speech, not doubt about the substance. This is "not_applicable", not
+  hedged.
+- "no idea how seat locking works, maybe just a db transaction" — here the user is uncertain about the
+  SUBSTANCE itself: they don't know if a db transaction is even the right mechanism. This IS
+  "hedged_or_uncertain".
+The test: would a senior architect need to ask a follow-up to know what to build, or do they already know
+what the user means and it's just informally worded? If the latter, it's covered/not_applicable.
+
+FIRST — check whether the injected model already contains an assumption whose text starts with "FLAGGED
+RISK" for this same underlying concern. If so, it has ALREADY been escalated in a previous turn: classify it
+"covered" (the risk is now a permanently-documented, accepted fact of the migration plan, not an open
+question) and do not ask about it, re-escalate it, or create a second FLAGGED RISK entry for the same
+concern. This check comes before all the others below.
+
+Otherwise, for EACH category you settle on, classify status:
+- "covered": the claim is unambiguous, however casually phrased — cite the specific fact as evidence.
+- "not_applicable": the user explicitly said this doesn't apply — cite that statement as evidence.
+- "hedged_or_uncertain": the SUBSTANCE is genuinely uncertain (see distinction above) AND this is the first
+  time this concern has come up hedged. Quote the hedge as evidence.
+- "unknown": genuinely unaddressed either way.
+- "escalate_as_risk": check the injected model's assumptions for one already marked confidence "hedged" or
+  "unsure" (and NOT already a "FLAGGED RISK" — that case is handled above) that addresses this same
+  underlying concern. If this turn's message does not give a genuinely MORE CONFIDENT answer than that
+  existing assumption already reflects, this category has already been asked about once — do not classify it
+  as hedged_or_uncertain again. Classify it "escalate_as_risk" instead, and give a concrete
+  recommended_mitigation (e.g. "implement row-level locking or a unique constraint on (show_id, seat_id) to
+  prevent double-booking" — specific to this system, not generic advice).
+Judge by MEANING, not keyword presence: "we removed SSO last year" is not "covered: has SSO"; a component
+named "AuthService" without any stated behavior is not automatically "covered" for authentication just
+because the word appears in a name — look for an actual stated fact.
+
+Also set high_impact for each category: true if getting it wrong or leaving it vague would cause a real
+production problem for THIS system (double-booking, a payment charged twice, silent data loss, a security
+hole) — false for cosmetic or nice-to-have areas. A category that is both high_impact and hedged_or_uncertain
+is exactly the case that must never be silently treated as settled — and if it's already been hedged once
+before, it must escalate rather than repeat.
+
+If everything genuinely relevant has real, confidently-stated detail (covered or explicitly not applicable),
+return the full list with none marked unknown or hedged_or_uncertain — do not invent an unknown category just
+to have something to ask about.
+""",
+)
+
+REQUIREMENT_COVERAGE_CRITIC = Prompt(
+    id="requirement_coverage_critic",
+    version="v3",
+    system=_CLOSED_WORLD_PREAMBLE
+    + """
+Your job: independently re-check another model's requirement-coverage verdicts against the same architecture
+model and conversation, looking specifically for four failure modes.
+
+FAILURE MODE 0 — a concern that's already been escalated getting escalated AGAIN: if the injected model
+already contains an assumption whose text starts with "FLAGGED RISK" for the same underlying concern as one
+of the generator's verdicts, that verdict must be "covered" (already permanently documented), never
+"escalate_as_risk" a second time and never "hedged_or_uncertain" again either — check this before anything
+else, since it overrides every other failure mode below for that category.
+
+FAILURE MODE 1 — a genuinely uncertain answer wrongly marked "covered": re-read the evidence quoted for every
+verdict marked "covered" or "not_applicable". Downgrade to "hedged_or_uncertain" ONLY if the SUBSTANCE is
+actually in doubt — the user doesn't know whether their answer is even correct or sufficient (e.g. "maybe
+just a db transaction" for something that needs real concurrency control). Do NOT downgrade a claim that is
+unambiguous but casually worded — "no compliance framework that i know of, so none i guess" is a clear "none"
+in plain speech, not a hedge; downgrading answers like this is itself a bug, since it makes the app re-ask a
+question the user already answered clearly. Only correct verdicts that are actually wrong either direction.
+
+FAILURE MODE 2 — a high-impact category this system class obviously needs that was never even considered:
+think about what could cause a real production incident for a system like this one specifically (not a
+generic checklist) — e.g. a booking/reservation system needs double-booking prevention and payment
+idempotency; a system handling payments needs refund/chargeback handling; a multi-tenant system needs tenant
+data isolation. If the generator's list is missing something like this, add it as a new verdict (status
+"unknown" or "hedged_or_uncertain" as appropriate, high_impact=true).
+
+FAILURE MODE 3 — a hedge that's already been asked about once and must now escalate, not repeat: for every
+verdict still marked "hedged_or_uncertain", check the injected model's assumptions for one already recorded
+with confidence "hedged" or "unsure" addressing the same underlying concern. If this turn's message doesn't
+add genuinely new, more confident information about it, change the verdict to "escalate_as_risk" and write a
+concrete recommended_mitigation grounded in what this system specifically needs — never leave the SAME
+category sitting at "hedged_or_uncertain" turn after turn once it has already been raised and the user still
+doesn't have a confident answer; a repeated identical question is worse than an imperfect assumption the user
+can correct later.
+
+Do NOT touch verdicts that are already correct — copy them through unchanged. List every actual change you
+made in corrections_made, in plain language; leave it empty if the generator's verdicts needed no correction.
 """,
 )
 
@@ -708,6 +836,8 @@ _ALL = [
     INGEST_PATCHES,
     GENERATE_QUESTIONS,
     INGEST_COMPLETENESS_CRITIC,
+    ASSESS_REQUIREMENT_COVERAGE,
+    REQUIREMENT_COVERAGE_CRITIC,
     ELICIT_MIGRATION_CONTEXT,
     PLAN_COMPONENT,
     TARGET_ARCHITECTURE,

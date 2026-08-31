@@ -6,16 +6,23 @@ Flow (Doc 3 §3.1):
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 
-from app.core.gap_analyzer import Gap, GapCategory, top_gaps
+from app.core.gap_analyzer import _PRIORITY, Gap, GapCategory, analyze_gaps
 from app.core.patch_applier import apply_patch_set
 from app.core.request_intelligence import RequestIntent, render_request_impact_for_prompt
 from app.llm.base import ModelTier, StructuredOutputError
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.prompts.registry import get_prompt
-from app.llm.schemas import IngestCompletenessCriticOutput, QuestionGenerationOutput
+from app.llm.schemas import (
+    IngestCompletenessCriticOutput,
+    QuestionGenerationOutput,
+    RequirementCoverageCriticOutput,
+    RequirementCoverageOutput,
+    RequirementCoverageVerdict,
+)
 from app.llm.state_injection import render_gaps_for_prompt, render_model_for_prompt
 from app.observability.tracing import trace_node
 from app.orchestration.state import GraphState, Stage
@@ -47,6 +54,7 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
     )
     user_prompt = (
         f"{impact_section}CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}\n\n"
+        f"USER MESSAGE HISTORY FOR THIS SESSION:\n{state.get('conversation_context') or '(none)'}\n\n"
         f"PREVIOUS AGENT MESSAGE, IF THE USER IS ANSWERING IT:\n{state.get('previous_agent_message') or '(none)'}\n\n"
         f"USER MESSAGE:\n{state['user_message']}"
     )
@@ -69,10 +77,37 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
         )
     except StructuredOutputError as exc:
         # State untouched — this is the documented failure branch (Doc 3 §3.2).
+        if getattr(impact, "intent", None) == RequestIntent.SPARSE_INTAKE:
+            logger.info(
+                "sparse intake produced no structured patches for session %s; continuing to intake questions",
+                state.get("session_id"),
+            )
+            return {
+                "_patch_set": PatchSet(patches=[], narration=""),
+                "error": None,
+                "last_patch_results": [],
+            }
         logger.error("ingest failed for session %s: %s", state.get("session_id"), exc)
+        fallback_model = _capture_raw_message_after_total_ingest_failure(state["model"], state.get("user_message", ""))
+        degradation_notice = (
+            "I couldn't fully process that message through the usual extraction step, so I've recorded "
+            "what you said as a raw note for now — you may want to restate the key facts more explicitly "
+            "once this is working normally again."
+        )
         return {
-            "error": "I couldn't process that message reliably. Could you rephrase it?",
+            "model": fallback_model,
+            # Set on BOTH keys deliberately: error is what a genuinely stuck
+            # turn shows (see apply_patches_node), but generate_questions_node
+            # clears error back to None once it produces a usable follow-up —
+            # reasonably, since downstream nodes may still recover something
+            # useful (as the requirement-coverage classifier does, reading the
+            # raw note this same fallback just captured). narration is never
+            # cleared, only appended to by later nodes, so it's the one that
+            # reliably survives to reach the user either way.
+            "error": degradation_notice,
+            "narration": degradation_notice,
             "last_patch_results": [],
+            "_patch_set": None,
         }
 
     patch_set = resolve_dependency_open_questions_from_short_answer(
@@ -98,6 +133,38 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
     )
     patch_set = auto_confirm_directly_stated_assumptions(state["model"], state.get("request_impact"), patch_set)
     return {"_patch_set": patch_set, "error": None}
+
+
+def _capture_raw_message_after_total_ingest_failure(model: ArchitectureModel, user_message: str) -> ArchitectureModel:
+    """Deterministic last resort for when the ingest LLM call fails outright —
+    e.g. a provider-side request-size or quota error, not a malformed
+    response. "Never persist partial output" (Doc 3 §3.2) protects against
+    trusting a bad LLM response; it says nothing about a message the LLM
+    never got to see at all. Leaving the model silently untouched here means
+    gap analysis can never tell "the user hasn't answered yet" apart from
+    "extraction is broken" — both look like zero new detail, so the exact
+    same question repeats forever with no sign anything is wrong. Recording
+    the user's own words verbatim, clearly labeled as unparsed and low-
+    confidence, breaks that loop and keeps the information from being lost
+    outright, at the cost of it needing a manual look later.
+    """
+
+    if len(user_message.split()) < 6:
+        return model
+
+    patch_set = PatchSet(
+        patches=[
+            AddAssumptionPatch(
+                text=f'UNPARSED — automatic extraction failed for this message; recorded as-is for manual '
+                f'review: "{user_message.strip()}"',
+                related_component_ids=[component.id for component in model.components],
+                confidence="unsure",
+            )
+        ],
+        narration="",
+    )
+    new_model, _ = apply_patch_set(model, patch_set)
+    return new_model
 
 
 async def critique_ingest_completeness(
@@ -736,7 +803,14 @@ def apply_patches_node(state: GraphState) -> dict:
 
     patch_set: PatchSet | None = state.get("_patch_set")
     if patch_set is None:
-        return {"last_patch_results": []}
+        # Preserve whatever error ingest_node may have just set. This branch
+        # runs both when ingest legitimately had nothing to patch (error is
+        # already None) and when ingest FAILED outright (error is a real
+        # message) — blindly overwriting it here silently erased a genuine
+        # ingest failure, making it look like an ordinary error-free turn
+        # while the model quietly stayed untouched and the same question
+        # repeated with no indication anything had gone wrong.
+        return {"last_patch_results": [], "error": state.get("error")}
 
     new_model, results = apply_patch_set(
         state["model"],
@@ -760,6 +834,7 @@ def apply_patches_node(state: GraphState) -> dict:
         "last_patch_results": results,
         "narration": patch_set.narration,
         "_patch_set": None,
+        "error": None,
     }
 
 
@@ -857,17 +932,238 @@ def _apply_obvious_helper_dependencies(model: ArchitectureModel):
     return new_model, results
 
 
-def gap_analysis_node(state: GraphState) -> dict:
-    """Deterministic: recompute unknowns from the UPDATED model."""
+async def gap_analysis_node(state: GraphState, gateway: LLMGateway, meter: SessionTokenMeter) -> dict:
+    """Recomputes unknowns from the UPDATED model. Open questions, orphan
+    components, missing environment/criticality, and unconfirmed assumptions
+    stay pure deterministic code (technique #4) — those are structural facts
+    about the model that never need judgment. Which basic application
+    requirement areas matter for THIS system, and whether each is covered, is
+    inherently semantic and domain-dependent, so that piece is a separate LLM
+    classification call merged in alongside the deterministic gaps, not a
+    fixed keyword-matched category list.
+    """
 
-    gaps = top_gaps(state["model"], n=3)
+    model = state["model"]
+    deterministic_gaps = analyze_gaps(model)
+    requirement_gaps, model = await assess_dynamic_requirement_coverage(
+        model,
+        gateway,
+        meter,
+        user_message=state.get("user_message", ""),
+        conversation_context=state.get("conversation_context") or "",
+        session_id=state.get("session_id", ""),
+    )
+    gaps = sorted([*deterministic_gaps, *requirement_gaps], key=lambda g: g.priority, reverse=True)[:3]
     gaps = _adapt_gaps_to_latest_user_message(gaps, state)
     trace_node(
         node_name="discovery.gap_analysis",
         session_id=state.get("session_id", ""),
         metadata={"gap_count": len(gaps)},
     )
-    return {"_gaps": gaps}
+    return {"_gaps": gaps, "model": model, "error": None}
+
+
+async def assess_dynamic_requirement_coverage(
+    model: ArchitectureModel,
+    gateway: LLMGateway,
+    meter: SessionTokenMeter,
+    *,
+    user_message: str = "",
+    conversation_context: str = "",
+    session_id: str = "",
+) -> tuple[list[Gap], ArchitectureModel]:
+    """Replaces a fixed keyword-matched requirement checklist with domain-aware
+    LLM judgment: what requirement areas actually matter for THIS system, and
+    is each one covered, explicitly not applicable, hedged/uncertain, still
+    unknown, or already asked about once and due to be escalated instead of
+    repeated? A keyword scan can't tell "we removed SSO" from "we have SSO",
+    can't handle paraphrase, and can only ever check categories a human
+    anticipated in advance — this call is free to propose categories specific
+    to this system's domain a fixed list never would (e.g. "seat locking
+    during checkout" for a booking system).
+
+    A generator/critic pair (technique #8), the same pattern already used for
+    ingestion: the generator's own single-shot judgment can mark a hedge
+    ("no idea how seat locking works, maybe just a db transaction") as
+    "covered" — a plain db transaction doesn't actually prevent double-
+    booking — and a system class can need a category (double-booking
+    prevention, payment idempotency) the generator simply didn't think to
+    ask about. The critic re-reads the same conversation independently and
+    corrects both failure modes, plus a third: a hedge that's already been
+    asked about once and would otherwise repeat the identical question
+    forever, since "still uncertain" and "never asked" look the same to a
+    single-shot classifier with no sense of its own history. Escalating a
+    repeated hedge into a durably-recorded, clearly-labeled risk assumption
+    (returned as part of the model) is what actually stops the loop — the
+    caller must persist the returned model, not just the gaps.
+
+    Skipped while the model is still sparse (no components, no assumptions)
+    — that case is the deterministic SPARSE_ARCHITECTURE_CONTEXT gap's job,
+    asking one compact intake question rather than a per-category breakdown.
+    """
+
+    if not model.components and not model.assumptions:
+        return [], model
+
+    prompt = get_prompt("assess_requirement_coverage")
+    user_prompt = (
+        f"CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(model)}\n\n"
+        f"USER MESSAGE HISTORY FOR THIS SESSION:\n{conversation_context or user_message or '(none)'}\n\n"
+        "LATEST USER MESSAGE (check its exact wording for hedges too, in case something from this turn "
+        f"hasn't been written into the model yet):\n{user_message or '(none)'}"
+    )
+
+    try:
+        response = await gateway.complete(
+            tier=ModelTier.STRONG,
+            system_prompt=prompt.system,
+            user_prompt=user_prompt,
+            response_model=RequirementCoverageOutput,
+            meter=meter,
+            node_name="discovery.requirement_coverage",
+        )
+    except StructuredOutputError as exc:
+        logger.warning("requirement coverage assessment failed, skipping this turn: %s", exc)
+        return [], model
+
+    verdicts = await _critique_requirement_coverage(
+        model,
+        user_message,
+        response.parsed.requirements,
+        gateway,
+        meter,
+        conversation_context=conversation_context,
+        session_id=session_id,
+    )
+    trace_node(
+        node_name="discovery.requirement_coverage",
+        session_id=session_id,
+        metadata={
+            "category_count": len(verdicts),
+            "unknown_count": sum(1 for v in verdicts if v.status == "unknown"),
+            "hedged_count": sum(1 for v in verdicts if v.status == "hedged_or_uncertain"),
+            "escalated_count": sum(1 for v in verdicts if v.status == "escalate_as_risk"),
+        },
+    )
+
+    model = _record_escalated_risks(model, [v for v in verdicts if v.status == "escalate_as_risk"])
+
+    concerning = [v for v in verdicts if v.status in ("unknown", "hedged_or_uncertain")]
+    if not concerning:
+        return [], model
+
+    high_impact_hedged = [v for v in concerning if v.high_impact and v.status == "hedged_or_uncertain"]
+    other = [v for v in concerning if v not in high_impact_hedged]
+
+    parts = []
+    if high_impact_hedged:
+        callouts = "; ".join(
+            f'{v.category} (you said: "{v.evidence}")' if v.evidence else v.category for v in high_impact_hedged
+        )
+        parts.append(
+            "IMPORTANT — these were answered with a hedge, but getting them wrong would cause a real "
+            "production problem for this system, so ask for a confident, concrete answer rather than "
+            "accepting the hedge: " + callouts + "."
+        )
+    if other:
+        parts.append(
+            "Also ask one grouped follow-up covering these still-unknown requirement areas for this specific "
+            "system: " + "; ".join(v.category for v in other) + ". The user can answer with details or "
+            "explicitly say none/not applicable for any item."
+        )
+
+    gaps = [
+        Gap(
+            category=GapCategory.BASIC_APP_REQUIREMENTS,
+            description=" ".join(parts),
+            related_component_ids=[component.id for component in model.components],
+            priority=_PRIORITY[GapCategory.BASIC_APP_REQUIREMENTS],
+        )
+    ]
+    return gaps, model
+
+
+def _record_escalated_risks(model: ArchitectureModel, escalated: list[RequirementCoverageVerdict]) -> ArchitectureModel:
+    """Converts a repeated hedge into a durable, auto-confirmed risk assumption
+    instead of another identical question. Applied directly (bypassing the
+    LLM patch-proposal pipeline, the same pattern _apply_obvious_helper_dependencies
+    already uses) since this is code, not the LLM, deciding the escalation —
+    the LLM's role was already spent producing the verdict and the
+    recommended_mitigation text in assess_requirement_coverage's own call.
+    """
+
+    if not escalated:
+        return model
+
+    additions: list = []
+    for verdict in escalated:
+        text = f"FLAGGED RISK — unconfirmed by user: {verdict.category}."
+        if verdict.evidence:
+            text += f' User said: "{verdict.evidence}".'
+        if verdict.recommended_mitigation:
+            text += f" Recommendation: {verdict.recommended_mitigation}"
+        additions.append(
+            AddAssumptionPatch(
+                text=text, related_component_ids=[component.id for component in model.components]
+            )
+        )
+
+    base_count = len(model.assumptions)
+    confirms = [ConfirmAssumptionPatch(assumption_id=f"A{base_count + i + 1}") for i in range(len(additions))]
+    patch_set = PatchSet(patches=[*additions, *confirms], narration="")
+    new_model, _ = apply_patch_set(model, patch_set)
+    return new_model
+
+
+async def _critique_requirement_coverage(
+    model: ArchitectureModel,
+    user_message: str,
+    verdicts: list[RequirementCoverageVerdict],
+    gateway: LLMGateway,
+    meter: SessionTokenMeter,
+    *,
+    conversation_context: str = "",
+    session_id: str = "",
+) -> list[RequirementCoverageVerdict]:
+    """The critic half of the generator/critic pair — see
+    assess_dynamic_requirement_coverage's docstring. Additive-only in effect
+    (it only ever changes what a gap looks like, never mutates the model
+    directly), so a failure here degrades gracefully to the generator's own
+    verdicts rather than blocking the turn.
+    """
+
+    prompt = get_prompt("requirement_coverage_critic")
+    user_prompt = (
+        f"CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(model)}\n\n"
+        f"USER MESSAGE HISTORY FOR THIS SESSION:\n{conversation_context or user_message or '(none)'}\n\n"
+        f"LATEST USER MESSAGE:\n{user_message or '(none)'}\n\n"
+        f"GENERATOR'S VERDICTS TO REVIEW:\n{json.dumps([v.model_dump() for v in verdicts], indent=2)}"
+    )
+
+    try:
+        response = await gateway.complete(
+            tier=ModelTier.STRONG,
+            system_prompt=prompt.system,
+            user_prompt=user_prompt,
+            response_model=RequirementCoverageCriticOutput,
+            meter=meter,
+            node_name="discovery.requirement_coverage_critic",
+        )
+    except StructuredOutputError as exc:
+        logger.warning(
+            "requirement coverage critic failed for session %s, using generator's verdicts unchanged: %s",
+            session_id,
+            exc,
+        )
+        return verdicts
+
+    if response.parsed.corrections_made:
+        logger.info(
+            "requirement coverage critic corrected verdicts for session %s: %s",
+            session_id,
+            response.parsed.corrections_made,
+        )
+    return response.parsed.corrected_requirements
 
 
 def _adapt_gaps_to_latest_user_message(gaps: list[Gap], state: GraphState) -> list[Gap]:
@@ -952,11 +1248,14 @@ async def generate_questions_node(state: GraphState, gateway: LLMGateway, meter:
             "pending_questions": [],
             "stage": Stage.DISCOVERY,
             "_gaps": None,
+            "error": None,
         }
 
     prompt = get_prompt("generate_questions")
     user_prompt = (
         f"CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}\n\n"
+        f"LATEST USER MESSAGE:\n{state.get('user_message', '')}\n\n"
+        f"PREVIOUS AGENT MESSAGE, IF THE USER IS ANSWERING IT:\n{state.get('previous_agent_message') or '(none)'}\n\n"
         f"COMPUTED GAPS (ask about these, and only these):\n{render_gaps_for_prompt(gaps)}"
     )
 
@@ -981,6 +1280,7 @@ async def generate_questions_node(state: GraphState, gateway: LLMGateway, meter:
             "pending_questions": [g.description for g in gaps],
             "stage": Stage.DISCOVERY,
             "_gaps": None,
+            "error": None,
         }
 
     return {
@@ -988,4 +1288,5 @@ async def generate_questions_node(state: GraphState, gateway: LLMGateway, meter:
         "narration": f"{state.get('narration', '')}\n\n{response.parsed.narration}".strip(),
         "stage": Stage.DISCOVERY,
         "_gaps": None,
+        "error": None,
     }

@@ -73,6 +73,7 @@ async def after_gate_intake_node(state: GraphState, gateway: LLMGateway, meter: 
         "model, ask whether to revise that accepted source model or treat it as target-state planning input. "
         "If the user is only giving migration context, emit no patches so context elicitation can continue.\n\n"
         f"{impact_section}ACCEPTED ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}\n\n"
+        f"USER MESSAGE HISTORY FOR THIS SESSION:\n{state.get('conversation_context') or '(none)'}\n\n"
         f"PREVIOUS AGENT MESSAGE, IF THE USER IS ANSWERING IT:\n{state.get('previous_agent_message') or '(none)'}\n\n"
         f"USER MESSAGE:\n{state.get('user_message', '')}"
     )
@@ -195,6 +196,7 @@ async def elicit_context_node(state: GraphState, gateway: LLMGateway, meter: Ses
     )
     user_prompt = (
         f"{impact_section}ACCEPTED ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}\n\n"
+        f"USER MESSAGE HISTORY FOR THIS SESSION:\n{state.get('conversation_context') or '(none)'}\n\n"
         f"USER'S DESCRIPTION OF THE MIGRATION GOAL:\n{state.get('user_message', '')}"
     )
 

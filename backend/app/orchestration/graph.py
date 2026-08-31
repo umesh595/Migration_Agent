@@ -28,7 +28,7 @@ def build_discovery_graph(gateway: LLMGateway, meter: SessionTokenMeter):
 
     graph.add_node("ingest", partial(discovery.ingest_node, gateway=gateway, meter=meter))
     graph.add_node("apply_patches", discovery.apply_patches_node)
-    graph.add_node("gap_analysis", discovery.gap_analysis_node)
+    graph.add_node("gap_analysis", partial(discovery.gap_analysis_node, gateway=gateway, meter=meter))
     graph.add_node("generate_questions", partial(discovery.generate_questions_node, gateway=gateway, meter=meter))
 
     graph.add_edge(START, "ingest")

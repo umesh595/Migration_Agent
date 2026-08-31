@@ -23,6 +23,7 @@ from app.db.models import (
     ReviewQualityRecord,
     SessionStatus,
 )
+from app.llm.base import normalize_llm_text
 from app.schemas.architecture import ArchitectureModel, ModelStatus
 from app.schemas.findings import Finding, ResolutionStatus
 from app.schemas.migration_context import MigrationContext
@@ -33,6 +34,16 @@ from app.schemas.review_quality import ReviewQualityScore
 logger = logging.getLogger(__name__)
 
 
+def _normalize_for_db(value):
+    if isinstance(value, str):
+        return normalize_llm_text(value)
+    if isinstance(value, list):
+        return [_normalize_for_db(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _normalize_for_db(item) for key, item in value.items()}
+    return value
+
+
 class GateError(Exception):
     """Raised when an operation is attempted out of stage order. The API turns this
     into a 409 — gates are enforced against persisted status, not graph state."""
@@ -41,14 +52,21 @@ class GateError(Exception):
 async def create_session(db: AsyncSession, user_id: uuid.UUID, name: str) -> MigrationSession:
     session = MigrationSession(
         user_id=user_id,
-        name=name,
+        name=normalize_llm_text(name),
         status=SessionStatus.DISCOVERY,
         langgraph_thread_id=str(uuid.uuid4()),
     )
     db.add(session)
     await db.flush()
 
-    db.add(ModelVersion(session_id=session.id, version=1, status="draft", data=ArchitectureModel().model_dump(mode="json")))
+    db.add(
+        ModelVersion(
+            session_id=session.id,
+            version=1,
+            status="draft",
+            data=_normalize_for_db(ArchitectureModel().model_dump(mode="json")),
+        )
+    )
     await db.commit()
     await db.refresh(session)
     return session
@@ -149,7 +167,7 @@ async def save_model_version(db: AsyncSession, session_id: uuid.UUID, model: Arc
             session_id=session_id,
             version=model.version,
             status=str(model.status),
-            data=model.model_dump(mode="json"),
+            data=_normalize_for_db(model.model_dump(mode="json")),
         )
     )
 
@@ -163,9 +181,9 @@ async def save_patch_audit(
                 session_id=session_id,
                 model_version_before=version_before,
                 model_version_after=result.resulting_model_version,
-                patch_data=result.patch.model_dump(mode="json"),
+                patch_data=_normalize_for_db(result.patch.model_dump(mode="json")),
                 outcome=str(result.outcome),
-                reason=result.reason,
+                reason=normalize_llm_text(result.reason) if result.reason else None,
             )
         )
 
@@ -206,9 +224,9 @@ async def save_migration_context(db: AsyncSession, session_id: uuid.UUID, contex
     existing = await db.execute(select(MigrationContextRecord).where(MigrationContextRecord.session_id == session_id))
     record = existing.scalar_one_or_none()
     if record is None:
-        db.add(MigrationContextRecord(session_id=session_id, data=context.model_dump(mode="json")))
+        db.add(MigrationContextRecord(session_id=session_id, data=_normalize_for_db(context.model_dump(mode="json"))))
     else:
-        record.data = context.model_dump(mode="json")
+        record.data = _normalize_for_db(context.model_dump(mode="json"))
 
 
 async def get_migration_context(db: AsyncSession, session_id: uuid.UUID) -> MigrationContext | None:
@@ -223,7 +241,7 @@ async def save_plan_version(db: AsyncSession, session_id: uuid.UUID, plan: Migra
     )
     row = existing.scalar_one_or_none()
     if row is not None:
-        row.data = plan.model_dump(mode="json")
+        row.data = _normalize_for_db(plan.model_dump(mode="json"))
         row.status = str(plan.status)
         return row
 
@@ -231,7 +249,7 @@ async def save_plan_version(db: AsyncSession, session_id: uuid.UUID, plan: Migra
         session_id=session_id,
         version=plan.version,
         status=str(plan.status),
-        data=plan.model_dump(mode="json"),
+        data=_normalize_for_db(plan.model_dump(mode="json")),
     )
     db.add(record)
     await db.flush()
@@ -257,8 +275,8 @@ async def save_findings(
                 source=str(finding.source),
                 rule_id=finding.rule_id,
                 severity=str(finding.severity),
-                message=finding.message[:2048],
-                related_component_ids=finding.related_component_ids,
+                message=normalize_llm_text(finding.message)[:2048],
+                related_component_ids=_normalize_for_db(finding.related_component_ids),
                 resolution_status=str(finding.resolution_status),
             )
         )
@@ -335,8 +353,8 @@ async def save_review_quality(db: AsyncSession, session_id: uuid.UUID, scores: l
                 actionability_score=score.actionability_score,
                 context_awareness_score=score.context_awareness_score,
                 overall_score=score.overall_score,
-                rationale=score.rationale[:1024],
-                flagged_issues=score.flagged_issues,
+                rationale=normalize_llm_text(score.rationale)[:1024],
+                flagged_issues=_normalize_for_db(score.flagged_issues),
             )
         )
 
@@ -355,7 +373,7 @@ async def save_conversation_turn(db: AsyncSession, session_id: uuid.UUID, role: 
     the conversation after a refresh. Stores the same final display text the
     frontend would otherwise compute once itself and never see again."""
 
-    db.add(ConversationTurn(session_id=session_id, role=role, text=text))
+    db.add(ConversationTurn(session_id=session_id, role=role, text=normalize_llm_text(text)))
     await db.commit()
 
 

@@ -32,182 +32,11 @@ _PRIORITY = {
 }
 
 
-_BASIC_REQUIREMENTS: dict[str, tuple[str, ...]] = {
-    "user access channel (web, mobile, admin portal, API-only, device/IoT entry point)": (
-        "frontend",
-        "front end",
-        "web app",
-        "web ui",
-        "react",
-        "angular",
-        "vue",
-        "mobile",
-        "ios",
-        "android",
-        "admin portal",
-        "portal",
-        "ui",
-        "iot device",
-        "device",
-        "api-only",
-        "api only",
-    ),
-    "backend/API or processing layer": (
-        "backend",
-        "api",
-        "fastapi",
-        "spring",
-        "node",
-        "django",
-        "service",
-        "worker",
-        "processor",
-        "processing",
-    ),
-    "primary data store and important data entities": (
-        "database",
-        "db",
-        "postgres",
-        "mysql",
-        "sql server",
-        "oracle",
-        "mongodb",
-        "dynamodb",
-        "data store",
-        "datastore",
-        "datalake",
-        "data lake",
-        "warehouse",
-        "employee",
-        "booking",
-        "records",
-        "telemetry",
-    ),
-    "authentication, authorization, or user roles": (
-        "auth",
-        "authentication",
-        "authorization",
-        "login",
-        "sso",
-        "identity",
-        "cognito",
-        "role",
-        "roles",
-        "rbac",
-    ),
-    "external integrations, including payments if relevant": (
-        "integration",
-        "external",
-        "third party",
-        "payment",
-        "gateway",
-        "stripe",
-        "hris",
-        "erp",
-        "crm",
-        "sso",
-    ),
-    "async messaging, events, jobs, or protocols": (
-        "queue",
-        "kafka",
-        "sqs",
-        "pubsub",
-        "pub/sub",
-        "mqtt",
-        "event",
-        "events",
-        "async",
-        "worker",
-        "job",
-        "cron",
-        "scheduler",
-    ),
-    "reporting, analytics, dashboards, or exports": (
-        "report",
-        "reports",
-        "reporting",
-        "analytics",
-        "dashboard",
-        "dashboards",
-        "looker",
-        "export",
-        "csv",
-        "pdf",
-        "docx",
-        "ppt",
-    ),
-    "security, audit, monitoring, compliance, retention, or PII constraints": (
-        "security",
-        "audit",
-        "monitoring",
-        "logs",
-        "logging",
-        "cloudwatch",
-        "encryption",
-        "pii",
-        "compliance",
-        "soc2",
-        "hipaa",
-        "gdpr",
-        "retention",
-        "years",
-    ),
-    "scale, traffic, data volume, or age of existing data": (
-        "scale",
-        "users",
-        "traffic",
-        "requests",
-        "records",
-        "rows",
-        "millions",
-        "miliions",
-        "million",
-        "volume",
-        "4 years",
-        "years",
-        "peak",
-    ),
-}
-
-
 class Gap(BaseModel):
     category: GapCategory
     description: str
     related_component_ids: list[str] = []
     priority: int
-
-
-def _model_text(model: ArchitectureModel) -> str:
-    parts: list[str] = []
-    for component in model.components:
-        parts.extend(
-            [
-                component.id,
-                component.name,
-                component.workload_type,
-                component.description,
-                component.technology or "",
-                component.criticality or "",
-                component.environment,
-            ]
-        )
-    for dependency in model.dependencies:
-        parts.extend([dependency.source_id, dependency.target_id, dependency.kind, dependency.description])
-    for assumption in model.assumptions:
-        parts.append(assumption.text)
-    for question in model.open_questions:
-        if question.resolved:
-            parts.append(question.text)
-    return " ".join(str(part).lower() for part in parts if part)
-
-
-def _covered_basic_requirements(model: ArchitectureModel) -> set[str]:
-    text = _model_text(model)
-    covered: set[str] = set()
-    for requirement, terms in _BASIC_REQUIREMENTS.items():
-        if any(term in text for term in terms):
-            covered.add(requirement)
-    return covered
 
 
 def _format_names(names: list[str], limit: int = 6) -> str:
@@ -237,7 +66,20 @@ def analyze_gaps(model: ArchitectureModel) -> list[Gap]:
     connected_ids = {d.source_id for d in model.dependencies} | {d.target_id for d in model.dependencies}
     is_multi_component = len(model.components) > 1
 
-    if len(model.components) <= 1 and not model.dependencies:
+    # A model with genuinely nothing recorded yet — no components AND no
+    # assumptions — is unambiguously sparse: ask the full compact intake
+    # question. But the LLM sometimes keeps representing real answers as
+    # assumptions without ever committing to a component (e.g. "users log in
+    # and book movie tickets, hosted on GCP" landing as three assumptions and
+    # zero components) — components/dependencies staying at 0 or 1 forever is
+    # NOT the same as nothing having been learned. Once any assumption exists,
+    # there is real substance to work from, so this must fall through to the
+    # BASIC_APP_REQUIREMENTS branch (a targeted follow-up on what's actually
+    # still missing) instead of repeating the entire original intake question
+    # verbatim — the same fact never gets acknowledged as answered otherwise,
+    # regardless of how many turns of real detail accumulate.
+    has_any_real_detail = bool(model.assumptions) or len(model.components) > 1 or bool(model.dependencies)
+    if not has_any_real_detail:
         component_names = [c.name for c in model.components] or ["the application"]
         gaps.append(
             Gap(
@@ -257,26 +99,15 @@ def analyze_gaps(model: ArchitectureModel) -> list[Gap]:
                 priority=_PRIORITY[GapCategory.SPARSE_ARCHITECTURE_CONTEXT],
             )
         )
-    elif model.components:
-        covered = _covered_basic_requirements(model)
-        missing_requirements = [
-            requirement for requirement in _BASIC_REQUIREMENTS if requirement not in covered
-        ]
-        if missing_requirements:
-            gaps.append(
-                Gap(
-                    category=GapCategory.BASIC_APP_REQUIREMENTS,
-                    description=(
-                        "Discovery is not complete yet. Ask one grouped follow-up covering these missing "
-                        "basic application requirements before allowing the current architecture to feel "
-                        "finished: "
-                        + "; ".join(missing_requirements)
-                        + ". The user can answer with details or explicitly say none/not applicable for any item."
-                    ),
-                    related_component_ids=[component.id for component in model.components],
-                    priority=_PRIORITY[GapCategory.BASIC_APP_REQUIREMENTS],
-                )
-            )
+    # else: real detail exists (components and/or assumptions), so the model
+    # is no longer "sparse" — but deciding WHICH requirement areas matter for
+    # this specific system and whether each is covered is inherently semantic
+    # and domain-dependent (a keyword scan can't tell "we removed SSO" from
+    # "we have SSO", and can only ever check categories a human anticipated
+    # in advance). That judgment is an LLM classification call
+    # (assess_dynamic_requirement_coverage in orchestration/nodes/discovery.py),
+    # not something this deterministic function can decide — gap_analysis_node
+    # merges its BASIC_APP_REQUIREMENTS gap in alongside these.
 
     orphans = [c for c in model.components if is_multi_component and c.id not in connected_ids]
     missing_environment = [c for c in model.components if c.environment == Environment.UNKNOWN]

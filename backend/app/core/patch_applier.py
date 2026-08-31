@@ -89,6 +89,7 @@ def _apply_single(model: ArchitectureModel, patch: Patch) -> ArchitectureModel:
                     text=patch.text,
                     raised_by="llm",
                     related_component_ids=patch.related_component_ids,
+                    confidence=patch.confidence,
                 )
             )
 

@@ -12,9 +12,17 @@ from app.llm.base import (
     LLMProvider,
     LLMUsage,
     ModelTier,
+    ProviderQuotaExceededError,
     StructuredOutputError,
     StructuredResponse,
+    normalize_llm_text,
 )
+
+# The specific error `code` OpenAI returns for "your account has no quota/
+# credits left" — distinct from a transient rate limit (code
+# "rate_limit_exceeded"), which should keep retrying against OpenAI itself
+# rather than triggering a permanent switch to a fallback provider.
+_QUOTA_EXHAUSTED_CODES = frozenset({"insufficient_quota", "credit_balance_exhausted"})
 
 
 class OpenAIProvider(LLMProvider):
@@ -48,6 +56,8 @@ class OpenAIProvider(LLMProvider):
                 temperature=temperature,
             )
         except APIError as exc:
+            if getattr(exc, "code", None) in _QUOTA_EXHAUSTED_CODES:
+                raise ProviderQuotaExceededError(f"OpenAI quota/credits exhausted: {exc}") from exc
             raise StructuredOutputError(f"OpenAI API error: {exc}") from exc
 
         message = completion.choices[0].message
@@ -56,9 +66,15 @@ class OpenAIProvider(LLMProvider):
         if message.parsed is None:
             raise StructuredOutputError("model returned no parseable structured output")
 
+        parsed_data = json.loads(normalize_llm_text(message.parsed.model_dump_json()))
+        try:
+            parsed = response_model.model_validate(parsed_data)
+        except ValidationError as exc:
+            raise StructuredOutputError(f"normalized model output failed validation: {exc}") from exc
+
         usage = completion.usage
         return StructuredResponse(
-            parsed=message.parsed,
+            parsed=parsed,
             usage=LLMUsage(
                 prompt_tokens=usage.prompt_tokens if usage else 0,
                 completion_tokens=usage.completion_tokens if usage else 0,

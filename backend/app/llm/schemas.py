@@ -6,6 +6,8 @@ doesn't silently change what we ask the model for, and vice versa."""
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from app.schemas.cost import CloudProvider, ServiceCategory
@@ -22,6 +24,96 @@ class QuestionGenerationOutput(BaseModel):
 
     questions: list[GeneratedQuestion]
     narration: str = Field(description="One or two sentences framing why these questions matter, shown before the questions.")
+
+
+class RequirementCoverageVerdict(BaseModel):
+    category: str = Field(
+        description="A specific requirement area grounded in what THIS system actually does — e.g. 'seat "
+        "locking during checkout' for a booking system, 'device provisioning' for an IoT platform, not a "
+        "generic template label unless it genuinely applies generically to this system."
+    )
+    status: Literal["covered", "not_applicable", "hedged_or_uncertain", "unknown", "escalate_as_risk"] = Field(
+        description="'covered' if the user states this plainly and confidently — casual hedge WORDS around a "
+        "clear core claim ('no compliance framework that i know of, so none i guess') still count as covered/"
+        "not_applicable; the CLAIM itself is unambiguous even if the phrasing is casual. 'not_applicable' if "
+        "the user explicitly said this doesn't apply. 'hedged_or_uncertain' ONLY when the substance itself is "
+        "uncertain — the user doesn't know if their answer actually satisfies the need (e.g. 'maybe just a db "
+        "transaction' — they don't know if that's sufficient). 'unknown' if genuinely unaddressed either way. "
+        "'escalate_as_risk': this exact concern already appears in the injected model as a hedged/unsure "
+        "assumption from an earlier turn, and this turn's message does NOT give a genuinely more confident "
+        "answer than before — do not ask about it a second time; escalate it instead (see "
+        "recommended_mitigation)."
+    )
+    high_impact: bool = Field(
+        description="True if getting this wrong or leaving it vague would cause a real production problem "
+        "for THIS system (e.g. double-booking, a payment charged twice, silent data loss) — false for "
+        "cosmetic or nice-to-have areas. A hedged high_impact item is exactly the case that must not be "
+        "silently treated as done."
+    )
+    evidence: str = Field(
+        default="",
+        description="What in the model/conversation supports this verdict — for 'hedged_or_uncertain' or "
+        "'escalate_as_risk', quote the hedge itself (e.g. \"no idea how seat locking works, maybe just a db "
+        "transaction\"). Empty when status is 'unknown'.",
+    )
+    recommended_mitigation: str = Field(
+        default="",
+        description="Required when status is 'escalate_as_risk': a concrete, specific technical "
+        "recommendation grounded in what a senior architect would actually suggest for THIS category on THIS "
+        "system (e.g. 'implement row-level locking or a unique constraint on (show_id, seat_id) to prevent "
+        "double-booking' — not a generic 'consider best practices'). Empty for every other status.",
+    )
+
+
+class RequirementCoverageOutput(BaseModel):
+    """Output of the discovery-loop requirement-coverage classification call
+    (the generator half of a generator/critic pair — see
+    RequirementCoverageCriticOutput). Replaces a fixed keyword-matched
+    category checklist with domain-aware LLM judgment: a keyword scan can't
+    tell "we removed SSO" from "we have SSO", can't handle paraphrase, and
+    can only ever check categories a human anticipated in advance. This call
+    classifies coverage WITH evidence, and is free to propose requirement
+    categories specific to this system's domain that a fixed list would
+    never anticipate.
+    """
+
+    requirements: list[RequirementCoverageVerdict] = Field(
+        description="Every requirement area worth tracking for THIS system — seeded from common baseline "
+        "categories (auth/roles, external integrations, async messaging/events, reporting/analytics, "
+        "security/compliance/PII, scale/traffic) but free to drop any that are clearly irrelevant to this "
+        "kind of system and add domain-specific ones that matter more."
+    )
+
+
+class RequirementCoverageCriticOutput(BaseModel):
+    """Second, independent opinion on the generator's own verdicts (technique
+    #8's rules->critic->judge pattern, applied a third place this session:
+    ingestion, then this). Re-reads the SAME conversation the generator saw
+    and checks three specific failure modes: something marked 'covered' that
+    was actually just a hedge on the substance (not just casual phrasing of a
+    clear answer), a high-impact category this system class would obviously
+    need that the generator didn't even consider, and a hedge that has
+    already been asked about once before and should now escalate instead of
+    repeating the same question a third time.
+    """
+
+    corrected_requirements: list[RequirementCoverageVerdict] = Field(
+        description="The final verdict list: start from the generator's verdicts, downgrade any wrongly "
+        "marked 'covered' that were actually hedged/uncertain given the conversation (but do NOT downgrade a "
+        "clear claim just because it's phrased casually — 'none i guess' is still not_applicable), upgrade "
+        "any hedge that was already asked about once before (visible as a hedged/unsure assumption in the "
+        "injected model) to 'escalate_as_risk' with a concrete recommended_mitigation, and add any genuinely "
+        "high-impact category this system class needs that the generator missed entirely. Keep everything "
+        "the generator got right unchanged."
+    )
+    corrections_made: list[str] = Field(
+        default_factory=list,
+        description="One entry per change from the generator's original verdicts, in plain language (e.g. "
+        "'seat locking was marked covered but the user said \"no idea, maybe just a db transaction\" — "
+        "downgraded to hedged_or_uncertain', or 'double-booking prevention was already hedged last turn and "
+        "still is — escalated as risk instead of re-asking'). Empty if the generator's verdicts needed no "
+        "changes.",
+    )
 
 
 class IngestCompletenessCriticOutput(BaseModel):

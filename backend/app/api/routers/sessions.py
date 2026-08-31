@@ -67,6 +67,30 @@ def _thread_config(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id}}
 
 
+def _render_user_message_history(turns: list, *, max_chars: int = 8_000) -> str:
+    """Prompt context from the user's own prior messages.
+
+    The canonical model is still the source of truth, but this keeps question
+    generation aware of facts the user just gave while a patch/assumption is
+    still being written. The cap prevents long pasted documents from breaking
+    fallback providers with small context limits.
+    """
+
+    messages = [turn.text.strip() for turn in turns if turn.role == "user" and turn.text.strip()]
+    if not messages:
+        return "(none)"
+
+    rendered = "\n".join(f"{index}. {message}" for index, message in enumerate(messages, start=1))
+    if len(rendered) <= max_chars:
+        return rendered
+
+    tail = rendered[-max_chars:]
+    first_newline = tail.find("\n")
+    if first_newline != -1:
+        tail = tail[first_newline + 1 :]
+    return "[Earlier user messages omitted because the prompt context was too large]\n" + tail
+
+
 def _patch_justification(patch: dict, outcome: str, reason: str | None) -> str:
     op = patch.get("op", "unknown")
     if outcome == "rejected":
@@ -218,6 +242,8 @@ async def post_message(
     settings = get_settings()
     meter = SessionTokenMeter(settings.session_token_budget, already_spent=session.token_usage or 0)
     model_before = await session_service.latest_model(db, session.id)
+    conversation_turns = await session_service.list_conversation_turns(db, session.id)
+    conversation_context = _render_user_message_history(conversation_turns)
     previous_agent_turn = await session_service.latest_conversation_turn(db, session.id, role="agent")
     previous_agent_message = previous_agent_turn.text if previous_agent_turn is not None else None
 
@@ -236,6 +262,7 @@ async def post_message(
                 "stage": Stage.DISCOVERY,
                 "model": model_before,
                 "user_message": payload.message,
+                "conversation_context": conversation_context,
                 "previous_agent_message": previous_agent_message,
                 "request_impact": request_impact,
             }
@@ -248,6 +275,7 @@ async def post_message(
                 "stage": Stage.PLANNING,
                 "model": accepted,
                 "user_message": payload.message,
+                "conversation_context": conversation_context,
                 "previous_agent_message": previous_agent_message,
                 "request_impact": request_impact,
                 "migration_context": await session_service.get_migration_context(db, session.id),
@@ -269,6 +297,7 @@ async def post_message(
                 "stage": Stage.REVIEW,
                 "model": accepted,
                 "user_message": payload.message,
+                "conversation_context": conversation_context,
                 "previous_agent_message": previous_agent_message,
                 "request_impact": request_impact,
                 # Read for context only (what relevance gets judged against) — a
@@ -330,6 +359,7 @@ async def post_message(
                         accumulated_values = dict(initial)
             except Exception as exc:
                 logger.exception("graph run failed for session %s", session.id)
+                await db.rollback()
                 # Nothing was persisted for this turn — release the message_id
                 # claim so a legitimate client retry isn't permanently rejected
                 # as a duplicate (see claim_message's docstring).

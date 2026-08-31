@@ -95,7 +95,8 @@ async def review_discuss_ingest_node(state: GraphState, gateway: LLMGateway, met
         "Gate 1 has already accepted the source architecture; treat new source-model changes as requiring "
         "explicit confirmation unless they resolve an existing open question.\n\n"
         f"{impact_section}CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}"
-        f"{plan_section}\n\nPREVIOUS AGENT MESSAGE, IF THE USER IS ANSWERING IT:\n"
+        f"{plan_section}\n\nUSER MESSAGE HISTORY FOR THIS SESSION:\n{state.get('conversation_context') or '(none)'}\n\n"
+        f"PREVIOUS AGENT MESSAGE, IF THE USER IS ANSWERING IT:\n"
         f"{state.get('previous_agent_message') or '(none)'}\n\nUSER MESSAGE:\n{state['user_message']}"
     )
 

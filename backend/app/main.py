@@ -12,6 +12,8 @@ from app.config import get_settings
 from app.db.session import AsyncSessionLocal
 from app.integrations.rest_catalog_provider import RestCatalogProvider
 from app.llm.gateway import LLMGateway
+from app.llm.providers.fallback_provider import FallbackLLMProvider
+from app.llm.providers.groq_provider import GroqProvider
 from app.llm.providers.openai_provider import OpenAIProvider
 from app.observability.tracing import flush as tracing_flush
 from app.observability.tracing import tracing_status
@@ -49,12 +51,26 @@ async def lifespan(app: FastAPI):
     else:
         app.state.catalog_provider = None
 
-    provider = OpenAIProvider(
+    openai_provider = OpenAIProvider(
         api_key=settings.openai_api_key.get_secret_value(),
         cheap_model=settings.llm_cheap_model,
         strong_model=settings.llm_strong_model,
         timeout_s=settings.llm_request_timeout_s,
     )
+    # Groq is a fallback only (see FallbackLLMProvider) — activated automatically
+    # if OpenAI's account runs out of quota/credits, never otherwise. Unset
+    # GROQ_API_KEY to run OpenAI-only, exactly as before.
+    groq_provider = (
+        GroqProvider(
+            api_key=settings.groq_api_key.get_secret_value(),
+            cheap_model=settings.groq_cheap_model,
+            strong_model=settings.groq_strong_model,
+            timeout_s=settings.llm_request_timeout_s,
+        )
+        if settings.groq_api_key
+        else None
+    )
+    provider = FallbackLLMProvider(primary=openai_provider, fallback=groq_provider)
     app.state.gateway = LLMGateway(
         provider,
         cheap_tier_max_retries=settings.llm_cheap_tier_max_retries,

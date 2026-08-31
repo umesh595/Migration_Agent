@@ -20,6 +20,7 @@ from app.llm.base import (
     StructuredOutputError,
     StructuredResponse,
     TokenBudgetExceededError,
+    normalize_llm_text,
 )
 from app.observability.tracing import trace_llm_call
 
@@ -93,8 +94,8 @@ class LLMGateway:
             try:
                 response = await self._provider.complete_structured(
                     model=model,
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt + error_feedback,
+                    system_prompt=normalize_llm_text(system_prompt),
+                    user_prompt=normalize_llm_text(user_prompt + error_feedback),
                     response_model=response_model,
                     temperature=temperature,
                 )

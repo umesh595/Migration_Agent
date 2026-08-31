@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     bootstrap_admin_email: str | None = Field(default=None, alias="BOOTSTRAP_ADMIN_EMAIL")
     bootstrap_admin_password: SecretStr | None = Field(default=None, alias="BOOTSTRAP_ADMIN_PASSWORD")
 
-    # --- LLM gateway (OpenAI only per DECISIONS.md Q1) ---
+    # --- LLM gateway (OpenAI is the primary provider per DECISIONS.md Q1) ---
     openai_api_key: SecretStr = Field(alias="OPENAI_API_KEY")
     llm_cheap_model: str = Field(default="gpt-4o", alias="LLM_CHEAP_MODEL")
     llm_strong_model: str = Field(default="gpt-4o", alias="LLM_STRONG_MODEL")
@@ -43,6 +43,17 @@ class Settings(BaseSettings):
     llm_strong_tier_max_retries: int = Field(default=3, alias="LLM_STRONG_TIER_MAX_RETRIES")
     llm_request_timeout_s: float = Field(default=60.0, alias="LLM_REQUEST_TIMEOUT_S")
     session_token_budget: int = Field(default=1_000_000, alias="SESSION_TOKEN_BUDGET")
+
+    # --- Groq: optional fallback only, used solely when OpenAI's account has no
+    # quota/credits left (see FallbackLLMProvider). Leave GROQ_API_KEY unset to
+    # disable the fallback entirely — OpenAI-only behavior is unchanged either way. ---
+    groq_api_key: SecretStr | None = Field(default=None, alias="GROQ_API_KEY")
+    # Groq's hosted catalog changes over time and varies by account — verified
+    # directly against this project's own Groq account before picking these
+    # (see DECISIONS.md's OpenAI model-verification note for why that's the
+    # standard here, not assumed from a model's name or release notes).
+    groq_cheap_model: str = Field(default="openai/gpt-oss-20b", alias="GROQ_CHEAP_MODEL")
+    groq_strong_model: str = Field(default="openai/gpt-oss-120b", alias="GROQ_STRONG_MODEL")
 
     # --- Rate limiting ---
     rate_limit_requests_per_minute: int = Field(default=30, alias="RATE_LIMIT_RPM")
