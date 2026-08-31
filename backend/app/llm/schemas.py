@@ -24,31 +24,33 @@ class QuestionGenerationOutput(BaseModel):
     narration: str = Field(description="One or two sentences framing why these questions matter, shown before the questions.")
 
 
-class ArchitectureSufficiencyOutput(BaseModel):
-    """Output of the discovery-loop 'have we asked enough yet' judgment call.
-
-    GapAnalyzer's fixed categories (open questions, orphan components, missing
-    environment/criticality) are deliberately narrow and mechanical — they go
-    silent as soon as those specific checks are satisfied, even when the
-    described system is still far too thin for a credible migration plan (e.g.
-    two connected components with a protocol name and nothing else: no real
-    tech stack, no scale, no data model, no auth story). This call is the
-    senior-architect judgment layer that decides whether discovery should keep
-    probing when the mechanical checklist has nothing left to flag.
+class IngestCompletenessCriticOutput(BaseModel):
+    """Output of the discovery-loop ingest completeness critic (technique #8's
+    rules->critic->judge pattern, applied to discovery ingestion instead of
+    plan review). ingest_node's own patch proposal is trusted once and never
+    independently checked — this is the second opinion: given the same user
+    message and the patches about to be applied, does the resulting model
+    actually capture everything stated? The most common way discovery repeats
+    a question is a fact the user gave landing only in narration (shown once,
+    discarded) rather than as a patch (durable, what gap analysis reads).
     """
 
-    sufficient_for_planning: bool = Field(
-        description="True only if a senior migration architect would consider this enough real detail "
-        "(not just component names) to produce a credible, defensible migration plan."
+    fully_captured: bool = Field(
+        description="True only if every fact the user's message states or clearly implies will be durably "
+        "reflected in the model after the proposed patches apply — not merely mentioned in narration."
     )
-    rationale: str = Field(description="One or two sentences: what's known, and if insufficient, what's genuinely still missing.")
-    next_question: str | None = Field(
-        default=None,
-        description="Required when sufficient_for_planning is false. ONE specific, senior-architect-quality "
-        "question about what's still missing for THIS system — never a generic 'tell me more', and never "
-        "repeating anything already captured in the injected model (components, dependencies, assumptions, "
-        "resolved open questions). Omit when sufficient_for_planning is true.",
+    missed_facts: list[str] = Field(
+        default_factory=list,
+        description="Concrete facts from the user's message that will NOT be reflected in the resulting "
+        "model (e.g. 'PII fields: name, email, phone', 'roughly 50k users', 'no dedicated job queue'). "
+        "Empty when fully_captured is true.",
     )
+    invented_facts: list[str] = Field(
+        default_factory=list,
+        description="Facts the proposed patches introduce that the user's message does not state or clearly, "
+        "reasonably imply — fabrications, not legitimate inferences.",
+    )
+    rationale: str = Field(description="One or two sentences justifying the verdict.")
 
 
 class MigrationContextElicitationOutput(BaseModel):

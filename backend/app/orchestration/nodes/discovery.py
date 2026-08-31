@@ -15,7 +15,7 @@ from app.core.request_intelligence import RequestIntent, render_request_impact_f
 from app.llm.base import ModelTier, StructuredOutputError
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.prompts.registry import get_prompt
-from app.llm.schemas import QuestionGenerationOutput
+from app.llm.schemas import IngestCompletenessCriticOutput, QuestionGenerationOutput
 from app.llm.state_injection import render_gaps_for_prompt, render_model_for_prompt
 from app.observability.tracing import trace_node
 from app.orchestration.state import GraphState, Stage
@@ -93,8 +93,91 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
     patch_set = capture_unpatched_factual_answer_as_assumption(
         state["model"], state.get("user_message", ""), state.get("request_impact"), patch_set
     )
+    patch_set = await critique_ingest_completeness(
+        state["model"], state.get("user_message", ""), patch_set, gateway, meter, session_id=state.get("session_id", "")
+    )
     patch_set = auto_confirm_directly_stated_assumptions(state["model"], state.get("request_impact"), patch_set)
     return {"_patch_set": patch_set, "error": None}
+
+
+async def critique_ingest_completeness(
+    model: ArchitectureModel,
+    user_message: str,
+    patch_set: PatchSet,
+    gateway: LLMGateway,
+    meter: SessionTokenMeter,
+    *,
+    session_id: str = "",
+) -> PatchSet:
+    """Second-opinion pass modeled on the review stage's rules->critic->judge
+    pattern (technique #8), applied to discovery ingestion instead of plan
+    review. ingest_node's own patch proposal (plus every deterministic backup
+    above) is otherwise trusted once and never independently checked. This is
+    the general-purpose backstop for the whole CLASS of bug the deterministic
+    backups above patch one specific instance of at a time: a fact the LLM
+    narrates but never turns into a patch, which silently repeats the same
+    question next turn because gap analysis only ever reads model data, never
+    narration text.
+
+    Skipped for trivial messages (nothing substantive to possibly miss) to
+    avoid spending a full STRONG-tier call auditing "yes"/"gcp"-style replies
+    that are already handled by the dedicated short-answer backups above.
+    """
+
+    if len(user_message.split()) < 6:
+        return patch_set
+
+    prompt = get_prompt("ingest_completeness_critic")
+    user_prompt = (
+        f"ARCHITECTURE MODEL BEFORE THIS TURN:\n{render_model_for_prompt(model)}\n\n"
+        f"USER MESSAGE:\n{user_message}\n\n"
+        f"PROPOSED PATCHES (about to be applied):\n{patch_set.model_dump_json(indent=2)}\n\n"
+        "NARRATION ABOUT TO BE SHOWN (reference only — narration is NOT captured in the model, "
+        "only the patches above are):\n"
+        f"{patch_set.narration}"
+    )
+
+    try:
+        response = await gateway.complete(
+            tier=ModelTier.STRONG,
+            system_prompt=prompt.system,
+            user_prompt=user_prompt,
+            response_model=IngestCompletenessCriticOutput,
+            meter=meter,
+            node_name="discovery.ingest_completeness_critic",
+        )
+    except StructuredOutputError as exc:
+        # Additive-only signal — a failure here must not block the turn.
+        logger.warning("ingest completeness critic failed, continuing without it: %s", exc)
+        return patch_set
+
+    verdict = response.parsed
+    trace_node(
+        node_name="discovery.ingest_completeness_critic",
+        session_id=session_id,
+        metadata={
+            "fully_captured": verdict.fully_captured,
+            "missed_count": len(verdict.missed_facts),
+            "invented_count": len(verdict.invented_facts),
+        },
+    )
+    if verdict.invented_facts:
+        logger.warning(
+            "ingest completeness critic flagged possibly invented facts for session %s: %s",
+            session_id,
+            verdict.invented_facts,
+        )
+    if not verdict.missed_facts:
+        return patch_set
+
+    summary = "Additional detail captured by completeness review: " + "; ".join(verdict.missed_facts) + "."
+    return PatchSet(
+        patches=[
+            *patch_set.patches,
+            AddAssumptionPatch(text=summary, related_component_ids=[component.id for component in model.components]),
+        ],
+        narration=patch_set.narration,
+    )
 
 
 def auto_confirm_directly_stated_assumptions(

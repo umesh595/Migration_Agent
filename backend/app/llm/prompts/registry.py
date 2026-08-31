@@ -367,6 +367,48 @@ open-endedly — but reach for a concrete hypothesis first.
 """,
 )
 
+INGEST_COMPLETENESS_CRITIC = Prompt(
+    id="ingest_completeness_critic",
+    version="v1",
+    system=_CLOSED_WORLD_PREAMBLE
+    + """
+Your job: audit whether a just-proposed set of patches, once applied, will durably capture everything the
+user's message actually said — and flag anything the patches invented that the message doesn't support.
+You are a second, independent opinion on ingestion's own output — the same relationship the semantic review
+critic has to the rules engine during plan review, applied here to discovery instead.
+
+You are given: the architecture model BEFORE this turn, the user's message, the PATCHES about to be applied
+(each with its op — add_component, add_dependency, add_assumption, resolve_open_question, confirm_assumption,
+update_component, etc.), and the narration that will be shown to the user this turn. Reason about what the
+model will contain AFTER these patches apply, and compare that against what the user's message actually
+states or clearly implies.
+
+MISSED FACTS — the most common and highest-value thing to catch: list every concrete fact from the user's
+message that will NOT be reflected anywhere in the resulting model. A fact merely appearing in the narration
+string does NOT count as captured — narration is shown once and discarded; only components, dependencies,
+assumptions, and resolved open questions are read by later gap analysis. If narration says "PII is limited
+to name, email, and phone" but no add_assumption (or component field) actually records that, it is a missed
+fact even though it reads as if it was handled. Common misses to check for specifically: scale/traffic/data-
+volume numbers, PII/data fields named, compliance or security posture (including explicit "nothing special"
+answers), hosting/environment confirmations, async/messaging/job behavior, an explicit "none" or "not
+applicable" answer to a named topic, and any one of several topics answered in a single sentence — check each
+topic separately, since one captured topic easily hides another in the same message that wasn't.
+
+INVENTED FACTS: list anything the patches add that the message does not state or clearly, reasonably imply —
+a fabricated component, a dependency that is neither stated nor a strongly implied workflow step, an
+environment/criticality assignment with no textual basis. A reasonable INFERENCE the message supports (e.g.
+inferring a booking service needs a database when the message describes booking data being saved) is not
+invented; a guess with no basis in the message or the existing model is.
+
+Set fully_captured=true only if missed_facts is empty. Be concrete in missed_facts: each entry names a
+specific fact (e.g. "PII fields: name, email, phone", "roughly 50k users", "no dedicated job queue"), never a
+vague restatement like "some details may be missing." If the message is a pure question, a bare
+confirmation/rejection with no new factual content, or otherwise has nothing concrete to capture,
+fully_captured is true and missed_facts is empty — do not invent a missing fact where the message gave none
+to capture.
+""",
+)
+
 ELICIT_MIGRATION_CONTEXT = Prompt(
     id="elicit_migration_context",
     version="v2",
@@ -665,6 +707,7 @@ nothing to flag — do not invent problems to seem thorough, the same rule the c
 _ALL = [
     INGEST_PATCHES,
     GENERATE_QUESTIONS,
+    INGEST_COMPLETENESS_CRITIC,
     ELICIT_MIGRATION_CONTEXT,
     PLAN_COMPONENT,
     TARGET_ARCHITECTURE,
