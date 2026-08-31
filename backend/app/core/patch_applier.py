@@ -5,11 +5,12 @@ applied or rejected — produces a PatchResult for the audit log (Doc 3 §3.2 st
 from __future__ import annotations
 
 from app.core.patch_validator import validate_patch
-from app.schemas.architecture import ArchitectureModel, Assumption, Component, Dependency, Environment
+from app.schemas.architecture import ArchitectureModel, Assumption, Component, Dependency, Environment, OpenQuestion
 from app.schemas.patches import (
     AddAssumptionPatch,
     AddComponentPatch,
     AddDependencyPatch,
+    AddOpenQuestionPatch,
     ConfirmAssumptionPatch,
     Patch,
     PatchOutcome,
@@ -110,26 +111,70 @@ def _apply_single(model: ArchitectureModel, patch: Patch) -> ArchitectureModel:
                 )
             )
 
+        case AddOpenQuestionPatch():
+            data.open_questions.append(
+                OpenQuestion(
+                    id=f"Q{len(data.open_questions) + 1}",
+                    text=patch.text,
+                    related_component_ids=patch.related_component_ids,
+                )
+            )
+
     data.version = model.version + 1
     return data
 
 
-def apply_patch_set(model: ArchitectureModel, patch_set: PatchSet) -> tuple[ArchitectureModel, list[PatchResult]]:
+_STRUCTURAL_PATCH_TYPES = (
+    AddComponentPatch,
+    UpdateComponentPatch,
+    RemoveComponentPatch,
+    AddDependencyPatch,
+    RemoveDependencyPatch,
+)
+
+
+def apply_patch_set(
+    model: ArchitectureModel,
+    patch_set: PatchSet,
+    *,
+    require_structural_confirmation: bool = False,
+) -> tuple[ArchitectureModel, list[PatchResult]]:
     """Returns the final model after applying every valid patch in order, plus one
     PatchResult per patch (applied or rejected) for the audit log."""
 
     current = model
     results: list[PatchResult] = []
 
+    # The discuss algorithm's auditable-record requirement ("record what changed
+    # and why — the user's stated reason, or 'no reason given' if none"): when a
+    # turn resolves a previously-raised open question, that resolution's text IS
+    # the "why" for whatever gets added in the same breath, so it's attached to
+    # the structural patch(es) in this same set rather than living only in
+    # free-text narration nobody has to read.
+    confirmation_reason = next(
+        (p.resolution_text for p in patch_set.patches if isinstance(p, ResolveOpenQuestionPatch)), None
+    )
+
     for patch in patch_set.patches:
-        rejection_reason = validate_patch(current, patch)
+        rejection_reason = validate_patch(
+            current,
+            patch,
+            allow_high_impact_changes=confirmation_reason is not None,
+            require_structural_confirmation=require_structural_confirmation and confirmation_reason is None,
+        )
         if rejection_reason is not None:
             results.append(PatchResult(patch=patch, outcome=PatchOutcome.REJECTED, reason=rejection_reason))
             continue
 
         current = _apply_single(current, patch)
+        applied_reason = confirmation_reason if isinstance(patch, _STRUCTURAL_PATCH_TYPES) else None
         results.append(
-            PatchResult(patch=patch, outcome=PatchOutcome.APPLIED, resulting_model_version=current.version)
+            PatchResult(
+                patch=patch,
+                outcome=PatchOutcome.APPLIED,
+                resulting_model_version=current.version,
+                reason=applied_reason,
+            )
         )
 
     return current, results

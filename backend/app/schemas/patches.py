@@ -22,6 +22,7 @@ class PatchOp(StrEnum):
     ADD_ASSUMPTION = "add_assumption"
     CONFIRM_ASSUMPTION = "confirm_assumption"
     RESOLVE_OPEN_QUESTION = "resolve_open_question"
+    ADD_OPEN_QUESTION = "add_open_question"
 
 
 class AddComponentPatch(BaseModel):
@@ -124,6 +125,20 @@ class ResolveOpenQuestionPatch(BaseModel):
     resolution_text: str
 
 
+class AddOpenQuestionPatch(BaseModel):
+    """The discuss-before-adding counterpart to add_component/add_dependency: when
+    a message proposes adding something with no discoverable basis in anything
+    described so far (new, unscoped functionality — not a fact about the current
+    system), this records the open question INSTEAD of silently adding it, so the
+    next turn can see "this was asked and is still unresolved" (same pattern as
+    AddAssumptionPatch) rather than the agent either blindly complying or having
+    no memory of having asked at all."""
+
+    op: Literal[PatchOp.ADD_OPEN_QUESTION] = PatchOp.ADD_OPEN_QUESTION
+    text: str
+    related_component_ids: list[str] = Field(default_factory=list)
+
+
 Patch = (
     AddComponentPatch
     | UpdateComponentPatch
@@ -133,6 +148,7 @@ Patch = (
     | AddAssumptionPatch
     | ConfirmAssumptionPatch
     | ResolveOpenQuestionPatch
+    | AddOpenQuestionPatch
 )
 
 
@@ -153,7 +169,13 @@ class PatchResult(BaseModel):
 
     patch: Patch
     outcome: PatchOutcome
-    reason: str | None = Field(default=None, description="Set when outcome is REJECTED.")
+    reason: str | None = Field(
+        default=None,
+        description="Set when outcome is REJECTED (why validation refused it), or when a structural "
+        "APPLIED patch (add/update/remove component or dependency) was added by confirming a prior "
+        "discuss question — the user's stated justification, or 'no reason given' if they gave none "
+        "(see apply_patch_set's confirmation_reason).",
+    )
     resulting_model_version: int | None = None
 
 
@@ -167,6 +189,7 @@ __all__ = [
     "AddAssumptionPatch",
     "ConfirmAssumptionPatch",
     "ResolveOpenQuestionPatch",
+    "AddOpenQuestionPatch",
     "Patch",
     "PatchSet",
     "PatchOutcome",

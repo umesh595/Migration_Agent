@@ -75,15 +75,69 @@ export interface ArchitectureModel {
 
 export type SevenR = "rehost" | "replatform" | "repurchase" | "refactor" | "retain" | "retire" | "relocate";
 
+export type CloudProvider = "aws" | "azure" | "gcp" | "on_prem" | "unknown";
+
+export type ServiceCategory =
+  | "compute_vm"
+  | "compute_serverless"
+  | "managed_database"
+  | "object_storage"
+  | "block_storage"
+  | "message_queue"
+  | "cache"
+  | "cdn"
+  | "load_balancer"
+  | "ml_inference"
+  | "other";
+
 export interface ComponentMapping {
   component_id: string;
   target_description: string;
   disposition: SevenR;
+  target_cloud_provider: CloudProvider;
+  target_service_category: ServiceCategory;
+}
+
+export interface CostEstimate {
+  component_id: string;
+  provider: CloudProvider;
+  service_category: ServiceCategory;
+  sku_description: string;
+  sizing_assumption: string;
+  monthly_usd: number | null;
+  pricing_source: string;
+  priced_at: string;
+  note: string | null;
+}
+
+export interface CostSummary {
+  estimates: CostEstimate[];
+  total_monthly_usd: number;
+  unestimated_component_ids: string[];
+  methodology_note: string;
 }
 
 export interface ValidationCheck {
   description: string;
   check_type: string;
+}
+
+export interface EffortBreakdown {
+  total: string;
+  implementation: string;
+  validation: string;
+  cutover: string;
+  rollback: string;
+  confidence: string;
+  rationale: string;
+}
+
+export interface EfficiencyBreakdown {
+  expected_benefits: string[];
+  tradeoffs: string[];
+  primary_efficiency_gain: string;
+  confidence: string;
+  rationale: string;
 }
 
 export interface ComponentPlan {
@@ -94,6 +148,8 @@ export interface ComponentPlan {
   validation_checks: ValidationCheck[];
   rollback_notes: string;
   estimated_effort: string | null;
+  effort_breakdown: EffortBreakdown | null;
+  efficiency_breakdown: EfficiencyBreakdown | null;
   dependencies_considered: string[];
 }
 
@@ -123,6 +179,7 @@ export interface Risk {
 
 export interface CutoverStrategy {
   approach: string;
+  rationale: string | null;
   steps: string[];
   go_no_go_criteria: string[];
   communication_plan: string;
@@ -130,6 +187,7 @@ export interface CutoverStrategy {
 
 export interface RollbackStrategy {
   approach: string;
+  rationale: string | null;
   triggers: string[];
   steps: string[];
   data_reconciliation_notes: string | null;
@@ -148,6 +206,8 @@ export interface RoadmapItem {
   summary: string;
   owner_placeholder: string;
   estimated_effort: string | null;
+  effort_breakdown: EffortBreakdown | null;
+  efficiency_breakdown: EfficiencyBreakdown | null;
   depends_on_waves: number[];
 }
 
@@ -161,6 +221,7 @@ export interface MigrationPlan {
   rollback_strategy: RollbackStrategy | null;
   validation_summary: ValidationSummary | null;
   roadmap_items: RoadmapItem[];
+  cost_summary: CostSummary | null;
   status: "draft" | "reviewed" | "final";
   version: number;
 }
@@ -211,8 +272,28 @@ export interface PatchAuditEntry {
   patch: Record<string, unknown>;
   outcome: "applied" | "rejected";
   reason: string | null;
+  justification: string;
   model_version_before: number;
   model_version_after: number | null;
+}
+
+export type RequestIntent =
+  | "current_fact"
+  | "source_correction"
+  | "target_planning"
+  | "high_impact_replatform"
+  | "unscoped_capability"
+  | "review_explanation"
+  | "terse_confirmation"
+  | "unknown";
+
+export interface RequestImpact {
+  intent: RequestIntent;
+  confidence: string;
+  should_mutate_source: boolean;
+  requires_confirmation: boolean;
+  rationale: string;
+  impact_dimensions: string[];
 }
 
 export interface TurnCompleteEvent {
@@ -222,6 +303,7 @@ export interface TurnCompleteEvent {
   error: string | null;
   model_version: number | null;
   tokens_used: number;
+  request_impact?: RequestImpact | null;
 }
 
 export interface NodeCompleteEvent {

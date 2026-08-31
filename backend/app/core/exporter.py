@@ -25,7 +25,7 @@ from reportlab.platypus import ListFlowable, ListItem, Paragraph, SimpleDocTempl
 
 from app.schemas.architecture import ArchitectureModel
 from app.schemas.migration_context import MigrationContext
-from app.schemas.migration_plan import MigrationPlan
+from app.schemas.migration_plan import EfficiencyBreakdown, EffortBreakdown, MigrationPlan
 
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
@@ -35,6 +35,34 @@ def sanitize_text(value: str) -> str:
     before it's written into any export format."""
 
     return _CONTROL_CHARS_RE.sub("", value)
+
+
+def _effort_lines(headline: str | None, breakdown: EffortBreakdown | None) -> list[str]:
+    if breakdown is None:
+        return [f"Estimated effort: {headline}"] if headline else []
+
+    return [
+        f"Estimated effort: {breakdown.total or headline or '-'}",
+        f"Implementation: {breakdown.implementation}",
+        f"Validation: {breakdown.validation}",
+        f"Cutover support: {breakdown.cutover}",
+        f"Rollback readiness: {breakdown.rollback}",
+        f"Confidence: {breakdown.confidence}",
+        f"Rationale: {breakdown.rationale}",
+    ]
+
+
+def _efficiency_lines(breakdown: EfficiencyBreakdown | None) -> list[str]:
+    if breakdown is None:
+        return []
+
+    return [
+        f"Primary efficiency gain: {breakdown.primary_efficiency_gain}",
+        f"Efficiency confidence: {breakdown.confidence}",
+        f"Expected benefits: {'; '.join(breakdown.expected_benefits)}",
+        f"Tradeoffs: {'; '.join(breakdown.tradeoffs)}",
+        f"Efficiency rationale: {breakdown.rationale}",
+    ]
 
 
 def render_pdf(model: ArchitectureModel, plan: MigrationPlan, context: MigrationContext | None) -> bytes:
@@ -121,8 +149,8 @@ def render_pdf(model: ArchitectureModel, plan: MigrationPlan, context: Migration
     for p in plan.component_plans:
         subheading(f"{s(p.component_id)} (wave {p.wave_index}, {p.disposition})")
         bullets([s(step) for step in p.steps])
-        if p.estimated_effort:
-            body(f"Estimated effort: {s(p.estimated_effort)}")
+        bullets([s(line) for line in _effort_lines(p.estimated_effort, p.effort_breakdown)])
+        bullets([s(line) for line in _efficiency_lines(p.efficiency_breakdown)])
 
     heading("5. Migration Sequence")
     for w in plan.waves:
@@ -143,6 +171,8 @@ def render_pdf(model: ArchitectureModel, plan: MigrationPlan, context: Migration
     heading("8. Cutover Strategy")
     if plan.cutover_strategy:
         body(s(plan.cutover_strategy.approach))
+        if plan.cutover_strategy.rationale:
+            body(f"Why this strategy: {s(plan.cutover_strategy.rationale)}")
         bullets([s(step) for step in plan.cutover_strategy.steps])
         subheading("Go/No-Go criteria")
         bullets([s(c) for c in plan.cutover_strategy.go_no_go_criteria])
@@ -150,11 +180,13 @@ def render_pdf(model: ArchitectureModel, plan: MigrationPlan, context: Migration
     heading("9. Rollback Strategy")
     if plan.rollback_strategy:
         body(s(plan.rollback_strategy.approach))
+        if plan.rollback_strategy.rationale:
+            body(f"Why this strategy: {s(plan.rollback_strategy.rationale)}")
         bullets([s(step) for step in plan.rollback_strategy.steps])
 
     heading("10. Migration Roadmap")
     table(
-        ["Wave", "Component", "Disposition", "Summary", "Owner", "Effort", "Depends on waves"],
+        ["Wave", "Component", "Disposition", "Summary", "Owner", "Effort", "Efficiency", "Depends on waves"],
         [
             [
                 str(item.wave_index),
@@ -162,13 +194,34 @@ def render_pdf(model: ArchitectureModel, plan: MigrationPlan, context: Migration
                 str(item.disposition),
                 s(item.summary),
                 s(item.owner_placeholder),
-                s(item.estimated_effort or "-"),
+                s(item.effort_breakdown.total if item.effort_breakdown else item.estimated_effort or "-"),
+                s(item.efficiency_breakdown.primary_efficiency_gain if item.efficiency_breakdown else "-"),
                 ", ".join(str(w) for w in item.depends_on_waves) or "-",
             ]
             for item in plan.roadmap_items
         ],
-        col_widths=[0.4 * inch, 1.1 * inch, 0.75 * inch, 2.25 * inch, 0.75 * inch, 1.0 * inch, 0.9 * inch],
+        col_widths=[0.35 * inch, 0.9 * inch, 0.65 * inch, 1.7 * inch, 0.55 * inch, 0.75 * inch, 1.25 * inch, 0.65 * inch],
     )
+
+    if plan.cost_summary:
+        heading("11. Cost Estimate")
+        body(s(plan.cost_summary.methodology_note))
+        body(f"<b>Estimated total: ${plan.cost_summary.total_monthly_usd:,.2f}/month</b>")
+        table(
+            ["Component", "Provider", "Category", "Est. $/month", "Sizing assumption", "Source"],
+            [
+                [
+                    s(e.component_id),
+                    e.provider.value,
+                    e.service_category.value,
+                    f"${e.monthly_usd:,.2f}" if e.monthly_usd is not None else "not estimated",
+                    s(e.sizing_assumption),
+                    s(e.note) if e.note else s(e.pricing_source),
+                ]
+                for e in plan.cost_summary.estimates
+            ],
+            col_widths=[0.9 * inch, 0.6 * inch, 0.9 * inch, 0.7 * inch, 2.0 * inch, 1.9 * inch],
+        )
 
     if context:
         heading("Migration Context")
@@ -218,6 +271,10 @@ def render_docx(model: ArchitectureModel, plan: MigrationPlan, context: Migratio
         doc.add_heading(f"{s(p.component_id)} (wave {p.wave_index}, {p.disposition})", level=2)
         for step in p.steps:
             doc.add_paragraph(s(step), style="List Number")
+        for line in _effort_lines(p.estimated_effort, p.effort_breakdown):
+            doc.add_paragraph(s(line), style="List Bullet")
+        for line in _efficiency_lines(p.efficiency_breakdown):
+            doc.add_paragraph(s(line), style="List Bullet")
 
     doc.add_heading("5. Migration Sequence", level=1)
     for w in plan.waves:
@@ -242,20 +299,24 @@ def render_docx(model: ArchitectureModel, plan: MigrationPlan, context: Migratio
     doc.add_heading("8. Cutover Strategy", level=1)
     if plan.cutover_strategy:
         doc.add_paragraph(s(plan.cutover_strategy.approach))
+        if plan.cutover_strategy.rationale:
+            doc.add_paragraph(f"Why this strategy: {s(plan.cutover_strategy.rationale)}")
         for step in plan.cutover_strategy.steps:
             doc.add_paragraph(s(step), style="List Number")
 
     doc.add_heading("9. Rollback Strategy", level=1)
     if plan.rollback_strategy:
         doc.add_paragraph(s(plan.rollback_strategy.approach))
+        if plan.rollback_strategy.rationale:
+            doc.add_paragraph(f"Why this strategy: {s(plan.rollback_strategy.rationale)}")
         for step in plan.rollback_strategy.steps:
             doc.add_paragraph(s(step), style="List Number")
 
     doc.add_heading("10. Migration Roadmap", level=1)
-    table = doc.add_table(rows=1, cols=6)
+    table = doc.add_table(rows=1, cols=7)
     table.style = "Light Grid Accent 1"
     hdr = table.rows[0].cells
-    for i, title in enumerate(["Wave", "Component", "Disposition", "Summary", "Owner", "Effort"]):
+    for i, title in enumerate(["Wave", "Component", "Disposition", "Summary", "Owner", "Effort", "Efficiency"]):
         hdr[i].text = title
     for item in plan.roadmap_items:
         row = table.add_row().cells
@@ -264,7 +325,26 @@ def render_docx(model: ArchitectureModel, plan: MigrationPlan, context: Migratio
         row[2].text = str(item.disposition)
         row[3].text = s(item.summary)
         row[4].text = s(item.owner_placeholder)
-        row[5].text = s(item.estimated_effort or "-")
+        row[5].text = s(item.effort_breakdown.total if item.effort_breakdown else item.estimated_effort or "-")
+        row[6].text = s(item.efficiency_breakdown.primary_efficiency_gain if item.efficiency_breakdown else "-")
+
+    if plan.cost_summary:
+        doc.add_heading("11. Cost Estimate", level=1)
+        doc.add_paragraph(s(plan.cost_summary.methodology_note))
+        doc.add_paragraph(f"Estimated total: ${plan.cost_summary.total_monthly_usd:,.2f}/month")
+        cost_table = doc.add_table(rows=1, cols=6)
+        cost_table.style = "Light Grid Accent 1"
+        hdr = cost_table.rows[0].cells
+        for i, title in enumerate(["Component", "Provider", "Category", "Est. $/month", "Sizing assumption", "Source"]):
+            hdr[i].text = title
+        for e in plan.cost_summary.estimates:
+            row = cost_table.add_row().cells
+            row[0].text = s(e.component_id)
+            row[1].text = e.provider.value
+            row[2].text = e.service_category.value
+            row[3].text = f"${e.monthly_usd:,.2f}" if e.monthly_usd is not None else "not estimated"
+            row[4].text = s(e.sizing_assumption)
+            row[5].text = s(e.note) if e.note else s(e.pricing_source)
 
     if context:
         doc.add_heading("Migration Context", level=1)

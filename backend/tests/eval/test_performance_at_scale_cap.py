@@ -110,7 +110,8 @@ def test_rules_review_under_budget_at_cap():
 
     outputs = [
         ComponentPlanLLMOutput(
-            component_id=c.id, target_description="t", disposition="rehost", steps=["migrate"],
+            component_id=c.id, target_description="t", disposition="rehost",
+            target_cloud_provider="aws", target_service_category="compute_vm", steps=["migrate"],
             validation_checks=[ValidationCheck(description="smoke", check_type="smoke_test")],
             rollback_notes="revert",
             dependencies_considered=[d.target_id for d in model.dependencies if d.source_id == c.id],
@@ -135,7 +136,8 @@ def test_coverage_check_under_budget_at_cap():
     waves = compute_sequence(model)
     outputs = [
         ComponentPlanLLMOutput(
-            component_id=c.id, target_description="t", disposition="rehost", steps=["migrate"],
+            component_id=c.id, target_description="t", disposition="rehost",
+            target_cloud_provider="aws", target_service_category="compute_vm", steps=["migrate"],
             validation_checks=[ValidationCheck(description="smoke", check_type="smoke_test")], rollback_notes="revert",
         )
         for c in model.components

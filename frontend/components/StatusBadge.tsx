@@ -3,14 +3,14 @@ import type { SessionStatus } from "@/lib/types";
 const STYLES: Record<SessionStatus, string> = {
   discovery: "border-amber-400/30 bg-amber-400/10 text-amber-300",
   planning: "border-sky-400/30 bg-sky-400/10 text-sky-300",
-  review: "border-violet-400/30 bg-violet-400/10 text-violet-300",
+  review: "border-cyan-400/30 bg-cyan-400/10 text-cyan-300",
   exported: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
 };
 
 const DOT_STYLES: Record<SessionStatus, string> = {
   discovery: "bg-amber-400",
   planning: "bg-sky-400",
-  review: "bg-violet-400",
+  review: "bg-cyan-400",
   exported: "bg-emerald-400",
 };
 

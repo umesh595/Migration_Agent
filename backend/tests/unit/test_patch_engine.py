@@ -3,10 +3,12 @@ from app.schemas.architecture import ArchitectureModel, Component, Dependency
 from app.schemas.patches import (
     AddComponentPatch,
     AddDependencyPatch,
+    AddOpenQuestionPatch,
     PatchOutcome,
     PatchSet,
     RemoveComponentPatch,
     RemoveDependencyPatch,
+    ResolveOpenQuestionPatch,
     UpdateComponentPatch,
 )
 
@@ -215,3 +217,121 @@ def test_partial_batch_first_patch_valid_second_invalid_first_still_applied():
     assert results[0].outcome == PatchOutcome.APPLIED
     assert results[1].outcome == PatchOutcome.REJECTED
     assert new_model.get_component("cache") is not None
+
+
+def test_update_component_rejects_silent_high_impact_replatform():
+    model = ArchitectureModel(
+        components=[
+            Component(
+                id="fastapi_backend",
+                name="FastAPI Backend",
+                workload_type="api_service",
+                technology="Python FastAPI",
+            )
+        ]
+    )
+    patch_set = PatchSet(
+        patches=[UpdateComponentPatch(id="fastapi_backend", name="Java Backend", technology="Java Spring Boot")],
+        narration="Changed the backend to Java.",
+    )
+
+    new_model, results = apply_patch_set(model, patch_set)
+
+    assert results[0].outcome == PatchOutcome.REJECTED
+    assert "requires discussion first" in results[0].reason
+    assert new_model.get_component("fastapi_backend").technology == "Python FastAPI"
+
+
+def test_update_component_allows_high_impact_replatform_after_discussion_confirmation():
+    model = ArchitectureModel(
+        components=[
+            Component(
+                id="fastapi_backend",
+                name="FastAPI Backend",
+                workload_type="api_service",
+                technology="Python FastAPI",
+            )
+        ]
+    )
+    asked_model, _ = apply_patch_set(
+        model,
+        PatchSet(
+            patches=[
+                AddOpenQuestionPatch(
+                    text="Changing the backend from FastAPI/Python to Java/Spring changes delivery scope. Is this a firm decision?",
+                    related_component_ids=["fastapi_backend"],
+                )
+            ],
+            narration="Let's confirm the replatform first.",
+        ),
+    )
+
+    new_model, results = apply_patch_set(
+        asked_model,
+        PatchSet(
+            patches=[
+                ResolveOpenQuestionPatch(
+                    question_id="Q1",
+                    resolution_text="Confirmed by user: Java backend is the intended target architecture.",
+                ),
+                UpdateComponentPatch(id="fastapi_backend", name="Java Backend", technology="Java Spring Boot"),
+            ],
+            narration="Confirmed and applied.",
+        ),
+    )
+
+    assert [result.outcome for result in results] == [PatchOutcome.APPLIED, PatchOutcome.APPLIED]
+    updated = new_model.get_component("fastapi_backend")
+    assert updated.name == "Java Backend"
+    assert updated.technology == "Java Spring Boot"
+
+
+def test_post_gate_structural_change_requires_discussion_before_mutating_model():
+    model = _model_with_two_components()
+    patch_set = PatchSet(
+        patches=[AddComponentPatch(id="redis_cache", name="Redis Cache", workload_type="cache")],
+        narration="Added Redis cache.",
+    )
+
+    new_model, results = apply_patch_set(model, patch_set, require_structural_confirmation=True)
+
+    assert results[0].outcome == PatchOutcome.REJECTED
+    assert "source architecture changes after Gate 1 require explicit discussion first" in results[0].reason
+    assert new_model.get_component("redis_cache") is None
+
+
+def test_post_gate_structural_change_applies_after_explicit_open_question_resolution():
+    model = _model_with_two_components()
+    asked_model, ask_results = apply_patch_set(
+        model,
+        PatchSet(
+            patches=[
+                AddOpenQuestionPatch(
+                    text=(
+                        "The source architecture is accepted already. Should Redis revise the accepted source model "
+                        "or be treated as a target-state planning change?"
+                    ),
+                    related_component_ids=["ml_inference"],
+                )
+            ],
+            narration="Confirm how Redis should be treated before changing the accepted model.",
+        ),
+        require_structural_confirmation=True,
+    )
+
+    new_model, results = apply_patch_set(
+        asked_model,
+        PatchSet(
+            patches=[
+                ResolveOpenQuestionPatch(question_id="Q1", resolution_text="Revise the accepted source model."),
+                AddComponentPatch(id="redis_cache", name="Redis Cache", workload_type="cache"),
+            ],
+            narration="Confirmed and updated the accepted source model.",
+        ),
+        require_structural_confirmation=True,
+    )
+
+    assert ask_results[0].outcome == PatchOutcome.APPLIED
+    assert [result.outcome for result in results] == [PatchOutcome.APPLIED, PatchOutcome.APPLIED]
+    assert new_model.get_component("redis_cache") is not None
+    assert results[1].reason == "Revise the accepted source model."

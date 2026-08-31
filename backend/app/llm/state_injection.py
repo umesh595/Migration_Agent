@@ -155,6 +155,8 @@ def render_plan_for_review(model: ArchitectureModel, plan: MigrationPlan, contex
                 "validation_checks": [{"type": v.check_type, "description": v.description} for v in p.validation_checks],
                 "rollback_notes": p.rollback_notes,
                 "estimated_effort": p.estimated_effort,
+                "effort_breakdown": p.effort_breakdown.model_dump(mode="json") if p.effort_breakdown else None,
+                "efficiency_breakdown": p.efficiency_breakdown.model_dump(mode="json") if p.efficiency_breakdown else None,
             }
             for p in plan.component_plans
         ],

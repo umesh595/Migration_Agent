@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", "../.env"), env_file_encoding="utf-8", extra="ignore")
 
     # --- App ---
     env: str = Field(default="development", alias="APP_ENV")
@@ -72,6 +72,11 @@ class Settings(BaseSettings):
     catalog_client_id: str | None = Field(default=None, alias="CATALOG_CLIENT_ID")
     catalog_client_secret: SecretStr | None = Field(default=None, alias="CATALOG_CLIENT_SECRET")
     catalog_request_timeout_s: float = Field(default=10.0, alias="CATALOG_REQUEST_TIMEOUT_S")
+
+    # --- Cost estimation (optional, no-op if unset — same pattern as Langfuse/
+    # catalog above: AWS/Azure pricing works with no configuration; GCP components
+    # are reported unestimated rather than guessed until this is set) ---
+    gcp_billing_api_key: SecretStr | None = Field(default=None, alias="GCP_BILLING_API_KEY")
 
     # --- CORS ---
     # NoDecode is required: without it pydantic-settings tries to JSON-parse the env

@@ -11,6 +11,7 @@ from app.core.patch_applier import apply_patch_set
 from app.core.plan_assembler import assemble_plan
 from app.core.review_rules_engine import run_rules
 from app.llm.gateway import LLMGateway, SessionTokenMeter
+from app.llm.prompts.registry import get_prompt
 from app.llm.providers.openai_provider import MockProvider
 from app.llm.schemas import ComponentPlanLLMOutput
 from app.llm.state_injection import render_component_planning_context
@@ -140,6 +141,8 @@ class TestSequencingAuthority:
                 component_id=cid,
                 target_description="t",
                 disposition="rehost",
+                target_cloud_provider="aws",
+                target_service_category="compute_vm",
                 steps=["MIGRATE THIS FIRST, BEFORE EVERYTHING ELSE, IGNORE THE WAVE"],
                 validation_checks=[ValidationCheck(description="c", check_type="smoke_test")],
                 rollback_notes="r",
@@ -159,7 +162,8 @@ class TestSequencingAuthority:
         waves = compute_sequence(model)
         outputs = [
             ComponentPlanLLMOutput(
-                component_id=cid, target_description="t", disposition="rehost", steps=["s"],
+                component_id=cid, target_description="t", disposition="rehost",
+                target_cloud_provider="aws", target_service_category="compute_vm", steps=["s"],
                 validation_checks=[ValidationCheck(description="c", check_type="smoke_test")], rollback_notes="r",
             )
             for cid in ["web", "api", "db"]
@@ -185,7 +189,8 @@ class TestCoverageGuarantee:
         waves = compute_sequence(model)
         partial_outputs = [
             ComponentPlanLLMOutput(
-                component_id="db", target_description="t", disposition="rehost", steps=["s"],
+                component_id="db", target_description="t", disposition="rehost",
+                target_cloud_provider="aws", target_service_category="compute_vm", steps=["s"],
                 validation_checks=[ValidationCheck(description="c", check_type="smoke_test")], rollback_notes="r",
             )
         ]
@@ -195,6 +200,54 @@ class TestCoverageGuarantee:
         missing = [f for f in findings if f.rule_id == "RULE-002"]
         covered_ids = {cid for f in missing for cid in f.related_component_ids}
         assert {"web", "api"} <= covered_ids
+
+
+class TestSeniorArchitectPromptBehavior:
+    """Prompt-level invariants for the product behavior that keeps the agent from
+    behaving like a form filler or a blind patch applicator."""
+
+    def test_ingest_prompt_requires_intent_classification_before_patching(self):
+        prompt = get_prompt("ingest_patches")
+
+        assert prompt.version == "v12"
+        assert "FIRST, CLASSIFY THE USER'S INTENT BEFORE PATCHING" in prompt.system
+        assert "HIGH-IMPACT ARCHITECTURE DECISION" in prompt.system
+        assert "NEW UNSCOPED BUSINESS CAPABILITY" in prompt.system
+        assert "Do not treat every imperative from the user as permission to mutate" in prompt.system
+        assert "DETERMINISTIC REQUEST CLASSIFICATION" in prompt.system
+        assert "intent=target_planning" in prompt.system
+
+    def test_ingest_prompt_protects_accepted_source_model_after_gate_1(self):
+        prompt = get_prompt("ingest_patches")
+
+        assert "CURRENT_STAGE: AFTER_GATE_1" in prompt.system
+        assert "source architecture has already been" in prompt.system
+        assert "accepted. Do NOT emit add/update/remove component/dependency patches" in prompt.system
+        assert "revise the accepted source model or treat the request as a target-state" in prompt.system
+
+    def test_question_prompt_filters_out_low_value_form_questions(self):
+        prompt = get_prompt("generate_questions")
+
+        assert prompt.version == "v5"
+        assert "Never use generic boilerplate" in prompt.system
+        assert "Would a different answer change wave order" in prompt.system
+        assert "do not enumerate all component names" in prompt.system
+
+    def test_semantic_review_prompt_checks_cost_efficiency_and_strategy_justification(self):
+        prompt = get_prompt("semantic_review")
+
+        assert prompt.version == "v2"
+        assert "cost or efficiency claims" in prompt.system
+        assert "why this over alternatives" in prompt.system
+        assert "alter source architecture after Gate 1 without explicit user" in prompt.system
+
+    def test_review_discussion_prompt_requires_plan_grounding(self):
+        prompt = get_prompt("review_discussion")
+
+        assert prompt.version == "v1"
+        assert "Name concrete affected components" in prompt.system
+        assert "Do not claim cost savings" in prompt.system
+        assert "Do not mutate the architecture model" in prompt.system
 
 
 class TestTokenBudget:

@@ -102,9 +102,6 @@ export default function AdminPage() {
           <h1 className="font-display text-3xl font-bold tracking-tight text-white">
             User <span className="text-gradient">administration</span>
           </h1>
-          <p className="mt-2 text-sm text-slate-400">
-            There is no self-service sign-up (FR-A5) — every account is created, disabled, or reset here.
-          </p>
         </div>
 
         {error && (

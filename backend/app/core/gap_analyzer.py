@@ -13,6 +13,7 @@ from app.schemas.architecture import ArchitectureModel, Environment
 
 class GapCategory(StrEnum):
     OPEN_QUESTION = "open_question"
+    SPARSE_ARCHITECTURE_CONTEXT = "sparse_architecture_context"
     ORPHAN_COMPONENT = "orphan_component"
     MISSING_ENVIRONMENT = "missing_environment"
     MISSING_CRITICALITY = "missing_criticality"
@@ -21,6 +22,7 @@ class GapCategory(StrEnum):
 
 _PRIORITY = {
     GapCategory.OPEN_QUESTION: 100,
+    GapCategory.SPARSE_ARCHITECTURE_CONTEXT: 95,
     GapCategory.ORPHAN_COMPONENT: 80,
     GapCategory.MISSING_ENVIRONMENT: 60,
     GapCategory.UNCONFIRMED_ASSUMPTION: 50,
@@ -61,6 +63,23 @@ def analyze_gaps(model: ArchitectureModel) -> list[Gap]:
 
     connected_ids = {d.source_id for d in model.dependencies} | {d.target_id for d in model.dependencies}
     is_multi_component = len(model.components) > 1
+
+    if len(model.components) <= 1 and not model.dependencies:
+        component_names = [c.name for c in model.components] or ["the application"]
+        gaps.append(
+            Gap(
+                category=GapCategory.SPARSE_ARCHITECTURE_CONTEXT,
+                description=(
+                    "The input describes the business purpose but not enough architecture to produce a "
+                    "credible migration model. Ask a compact consultant-style intake question covering: "
+                    "current major components or tech stack, current hosting/source environment, target "
+                    "cloud or desired outcome if known, rough scale/data volume, and downtime tolerance. "
+                    f"Known so far: {_format_names(component_names)}."
+                ),
+                related_component_ids=[c.id for c in model.components],
+                priority=_PRIORITY[GapCategory.SPARSE_ARCHITECTURE_CONTEXT],
+            )
+        )
 
     orphans = [c for c in model.components if is_multi_component and c.id not in connected_ids]
     missing_environment = [c for c in model.components if c.environment == Environment.UNKNOWN]

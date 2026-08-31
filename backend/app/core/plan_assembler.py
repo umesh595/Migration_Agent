@@ -82,6 +82,8 @@ def _build_roadmap_items(
                     # Lead — Story 1: "execute without re-deriving analysis").
                     owner_placeholder=component.owner_team if component and component.owner_team else "TBD",
                     estimated_effort=plan.estimated_effort,
+                    effort_breakdown=plan.effort_breakdown,
+                    efficiency_breakdown=plan.efficiency_breakdown,
                     depends_on_waves=depends_on_waves,
                 )
             )
@@ -128,6 +130,8 @@ def assemble_plan(
             component_id=o.component_id,
             target_description=o.target_description,
             disposition=o.disposition,
+            target_cloud_provider=o.target_cloud_provider,
+            target_service_category=o.target_service_category,
         )
         for o in component_outputs
     ]
@@ -142,6 +146,8 @@ def assemble_plan(
             validation_checks=o.validation_checks,
             rollback_notes=o.rollback_notes,
             estimated_effort=o.estimated_effort,
+            effort_breakdown=o.effort_breakdown,
+            efficiency_breakdown=o.efficiency_breakdown,
             dependencies_considered=o.dependencies_considered,
         )
         for o in component_outputs
@@ -149,12 +155,14 @@ def assemble_plan(
 
     cutover_strategy = CutoverStrategy(
         approach=cutover.approach,
+        rationale=cutover.rationale,
         steps=cutover.steps,
         go_no_go_criteria=cutover.go_no_go_criteria,
         communication_plan=cutover.communication_plan,
     )
     rollback_strategy = RollbackStrategy(
         approach=rollback.approach,
+        rationale=rollback.rationale,
         triggers=rollback.triggers,
         steps=rollback.steps,
         data_reconciliation_notes=rollback.data_reconciliation_notes,

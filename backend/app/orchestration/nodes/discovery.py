@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import logging
 
-from app.core.gap_analyzer import top_gaps
+from app.core.gap_analyzer import Gap, GapCategory, top_gaps
 from app.core.patch_applier import apply_patch_set
+from app.core.request_intelligence import RequestIntent, render_request_impact_for_prompt
 from app.llm.base import ModelTier, StructuredOutputError
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.prompts.registry import get_prompt
@@ -17,7 +18,16 @@ from app.llm.schemas import QuestionGenerationOutput
 from app.llm.state_injection import render_gaps_for_prompt, render_model_for_prompt
 from app.observability.tracing import trace_node
 from app.orchestration.state import GraphState, Stage
-from app.schemas.patches import PatchSet
+from app.schemas.architecture import ArchitectureModel, DependencyKind, Environment
+from app.schemas.patches import (
+    AddAssumptionPatch,
+    AddDependencyPatch,
+    ConfirmAssumptionPatch,
+    PatchOutcome,
+    PatchSet,
+    ResolveOpenQuestionPatch,
+    UpdateComponentPatch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +37,14 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
     plus this message."""
 
     prompt = get_prompt("ingest_patches")
+    impact = state.get("request_impact")
+    impact_section = (
+        f"DETERMINISTIC REQUEST CLASSIFICATION:\n{render_request_impact_for_prompt(impact)}\n\n"
+        if impact is not None
+        else ""
+    )
     user_prompt = (
-        f"CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}\n\n"
+        f"{impact_section}CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}\n\n"
         f"USER MESSAGE:\n{state['user_message']}"
     )
 
@@ -56,7 +72,204 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
             "last_patch_results": [],
         }
 
-    return {"_patch_set": response.parsed, "error": None}
+    patch_set = resolve_dependency_open_questions_from_short_answer(
+        state["model"], state.get("user_message", ""), response.parsed
+    )
+    patch_set = resolve_environment_open_questions_from_short_answer(
+        state["model"], state.get("user_message", ""), patch_set
+    )
+    return {"_patch_set": patch_set, "error": None}
+
+
+def resolve_dependency_open_questions_from_short_answer(
+    model: ArchitectureModel, user_message: str, patch_set: PatchSet
+) -> PatchSet:
+    """Deterministic backup for terse answers like "standalone" or "no
+    connections" to a dependency/open-question prompt. LLMs sometimes narrate
+    those answers but forget the actual resolve_open_question patch, which makes
+    the app ask the same question again."""
+
+    normalized = " ".join(user_message.lower().split())
+    clear_standalone_answer = (
+        normalized in {"no", "none", "nope", "standalone", "no connections", "no dependencies"}
+        or "no connections" in normalized
+        or "no dependencies" in normalized
+        or "standalone" in normalized
+        or "truly operate independently" in normalized
+        or "do not interact" in normalized
+    )
+    if not clear_standalone_answer:
+        return patch_set
+
+    dependency_terms = ("dependenc", "connection", "interact", "standalone", "orphan", "captured")
+    dependency_questions = [
+        question
+        for question in model.open_questions
+        if not question.resolved and any(term in question.text.lower() for term in dependency_terms)
+    ]
+    if not dependency_questions:
+        return patch_set
+
+    already_resolved = {
+        patch.question_id for patch in patch_set.patches if isinstance(patch, ResolveOpenQuestionPatch)
+    }
+    additions = [
+        ResolveOpenQuestionPatch(
+            question_id=question.id,
+            resolution_text=f"User confirmed this dependency question has no missing connections: {user_message.strip()}",
+        )
+        for question in dependency_questions
+        if question.id not in already_resolved
+    ]
+    if not additions:
+        return patch_set
+
+    narration = patch_set.narration
+    if not narration:
+        narration = "Confirmed there are no missing dependencies for the referenced standalone components."
+    return PatchSet(patches=[*patch_set.patches, *additions], narration=narration)
+
+
+def resolve_environment_open_questions_from_short_answer(
+    model: ArchitectureModel, user_message: str, patch_set: PatchSet
+) -> PatchSet:
+    """Deterministic backup for terse environment answers.
+
+    Provider words such as "GCP" and "AWS" are not valid Environment enum values,
+    so the LLM can acknowledge them in narration while leaving every component as
+    environment=unknown. That makes the gap analyzer ask the same hosting question
+    again. This helper converts those provider answers into the canonical
+    environment enum and resolves the matching question/assumption.
+    """
+
+    normalized = " ".join(user_message.lower().replace("-", " ").split())
+    detected = _detect_environment_answer(normalized)
+    if detected is None and normalized in {"yes", "y", "yeah", "yep", "correct", "yes correct", "that's correct"}:
+        context_text = " ".join(
+            [
+                *(question.text for question in model.open_questions if not question.resolved),
+                *(assumption.text for assumption in model.assumptions if not assumption.resolved),
+            ]
+        ).lower()
+        detected = _detect_environment_answer(context_text)
+        if detected is None and "cloud" in context_text:
+            detected = (Environment.CLOUD, "cloud")
+    if detected is None:
+        return patch_set
+
+    environment, provider_label = detected
+    environment_terms = (
+        "environment",
+        "hosting",
+        "hosted",
+        "source",
+        "current",
+        "on prem",
+        "on premises",
+        "cloud",
+        "hybrid",
+        "gcp",
+        "google cloud",
+        "aws",
+        "azure",
+    )
+    matching_questions = [
+        question
+        for question in model.open_questions
+        if not question.resolved and any(term in question.text.lower().replace("-", " ") for term in environment_terms)
+    ]
+    matching_assumptions = [
+        assumption
+        for assumption in model.assumptions
+        if assumption.raised_by == "llm"
+        and not assumption.resolved
+        and any(term in assumption.text.lower().replace("-", " ") for term in environment_terms)
+    ]
+
+    target_component_ids = {
+        component_id
+        for question in matching_questions
+        for component_id in question.related_component_ids
+    } | {
+        component_id
+        for assumption in matching_assumptions
+        for component_id in assumption.related_component_ids
+    }
+    if not target_component_ids:
+        target_component_ids = {component.id for component in model.components if component.environment == Environment.UNKNOWN}
+
+    already_updated = {
+        patch.id
+        for patch in patch_set.patches
+        if isinstance(patch, UpdateComponentPatch) and patch.environment is not None
+    }
+    update_patches = [
+        UpdateComponentPatch(id=component.id, environment=environment)
+        for component in model.components
+        if component.id in target_component_ids
+        and component.environment == Environment.UNKNOWN
+        and component.id not in already_updated
+    ]
+
+    already_resolved = {
+        patch.question_id for patch in patch_set.patches if isinstance(patch, ResolveOpenQuestionPatch)
+    }
+    resolve_patches = [
+        ResolveOpenQuestionPatch(
+            question_id=question.id,
+            resolution_text=f"User confirmed the current hosting environment is {provider_label}.",
+        )
+        for question in matching_questions
+        if question.id not in already_resolved
+    ]
+
+    already_confirmed = {
+        patch.assumption_id for patch in patch_set.patches if isinstance(patch, ConfirmAssumptionPatch)
+    }
+    confirm_patches = [
+        ConfirmAssumptionPatch(assumption_id=assumption.id)
+        for assumption in matching_assumptions
+        if assumption.id not in already_confirmed
+    ]
+
+    existing_user_environment_assumption = any(
+        assumption.raised_by == "user"
+        and "hosting environment" in assumption.text.lower()
+        and provider_label.lower() in assumption.text.lower()
+        for assumption in model.assumptions
+    )
+    has_environment_resolution = bool(resolve_patches or confirm_patches)
+    assumption_patch = []
+    if update_patches and not existing_user_environment_assumption and not has_environment_resolution:
+        assumption_patch.append(
+            AddAssumptionPatch(
+                text=f"The current hosting environment is {provider_label}.",
+                related_component_ids=[patch.id for patch in update_patches],
+            )
+        )
+
+    additions = [*resolve_patches, *confirm_patches, *update_patches, *assumption_patch]
+    if not additions:
+        return patch_set
+
+    narration = patch_set.narration or f"Confirmed the current hosting environment as {provider_label}."
+    return PatchSet(patches=[*patch_set.patches, *additions], narration=narration)
+
+
+def _detect_environment_answer(normalized: str) -> tuple[Environment, str] | None:
+    if any(term in normalized for term in ("google cloud", "gcp", "google cloud platform")):
+        return Environment.CLOUD, "GCP"
+    if any(term in normalized for term in ("aws", "amazon web services")):
+        return Environment.CLOUD, "AWS"
+    if "azure" in normalized:
+        return Environment.CLOUD, "Azure"
+    if any(term in normalized for term in ("on premises", "on premise", "on prem", "onprem", "data center", "datacenter")):
+        return Environment.ON_PREM, "on-premises"
+    if "hybrid" in normalized:
+        return Environment.HYBRID, "hybrid"
+    if normalized in {"cloud", "in cloud", "on cloud", "cloud based", "cloud-based", "yes cloud"}:
+        return Environment.CLOUD, "cloud"
+    return None
 
 
 def apply_patches_node(state: GraphState) -> dict:
@@ -66,7 +279,14 @@ def apply_patches_node(state: GraphState) -> dict:
     if patch_set is None:
         return {"last_patch_results": []}
 
-    new_model, results = apply_patch_set(state["model"], patch_set)
+    new_model, results = apply_patch_set(
+        state["model"],
+        patch_set,
+        require_structural_confirmation=state.get("stage") == Stage.REVIEW,
+    )
+    if state.get("stage") == Stage.DISCOVERY:
+        new_model, inferred_results = _apply_obvious_helper_dependencies(new_model)
+        results = [*results, *inferred_results]
     trace_node(
         node_name="discovery.apply_patches",
         session_id=state.get("session_id", ""),
@@ -84,16 +304,176 @@ def apply_patches_node(state: GraphState) -> dict:
     }
 
 
+def _apply_obvious_helper_dependencies(model: ArchitectureModel):
+    """Add high-confidence helper/tool edges the LLM can miss in long docs."""
+
+    by_id = {component.id: component for component in model.components}
+    normalized = {component.id: f"{component.id} {component.name}".lower() for component in model.components}
+
+    def find(*needles: str) -> str | None:
+        return next(
+            (
+                component_id
+                for component_id, text in normalized.items()
+                if all(needle in text for needle in needles)
+            ),
+            None,
+        )
+
+    docx = next(
+        (
+            component_id
+            for component_id, text in normalized.items()
+            if ("docx" in text or "ppt" in text or "pptx" in text)
+            and ("generation" in text or "export" in text or "library" in text)
+        ),
+        None,
+    )
+    cloudwatch = find("cloudwatch")
+    s3 = find("s3")
+    worker = find("worker")
+    ai_service = find("ai", "service")
+    backend = find("backend")
+    diagram = find("diagram")
+
+    desired: list[AddDependencyPatch] = []
+    if docx:
+        for source_id in [worker, ai_service]:
+            if source_id and source_id in by_id:
+                desired.append(
+                    AddDependencyPatch(
+                        source_id=source_id,
+                        target_id=docx,
+                        kind=DependencyKind.SYNC_CALL,
+                        description="Document export flow invokes DOCX/PPT generation libraries.",
+                    )
+                )
+        if s3 and s3 in by_id:
+            desired.extend(
+                [
+                    AddDependencyPatch(
+                        source_id=docx,
+                        target_id=s3,
+                        kind=DependencyKind.DATA_READ,
+                        description="DOCX/PPT generation reads proposal context and generated content from S3.",
+                    ),
+                    AddDependencyPatch(
+                        source_id=docx,
+                        target_id=s3,
+                        kind=DependencyKind.DATA_WRITE,
+                        description="DOCX/PPT generation writes completed export files back to S3.",
+                    ),
+                ]
+            )
+
+    if cloudwatch:
+        for source_id in [backend, worker, ai_service, docx, diagram]:
+            if source_id and source_id in by_id:
+                desired.append(
+                    AddDependencyPatch(
+                        source_id=source_id,
+                        target_id=cloudwatch,
+                        kind=DependencyKind.EVENT_PUBLISH,
+                        description="Component emits operational logs and errors to CloudWatch.",
+                    )
+                )
+
+    existing = {(d.source_id, d.target_id, d.kind) for d in model.dependencies}
+    missing = [
+        patch
+        for patch in desired
+        if (patch.source_id, patch.target_id, patch.kind) not in existing and patch.source_id != patch.target_id
+    ]
+    if not missing:
+        return model, []
+
+    patch_set = PatchSet(
+        patches=missing,
+        narration="Applied high-confidence helper dependencies inferred from the component roles.",
+    )
+    new_model, results = apply_patch_set(model, patch_set)
+    for result in results:
+        if result.outcome == PatchOutcome.APPLIED:
+            result.reason = "high-confidence helper dependency inferred from discovered component roles"
+    return new_model, results
+
+
 def gap_analysis_node(state: GraphState) -> dict:
     """Deterministic: recompute unknowns from the UPDATED model."""
 
     gaps = top_gaps(state["model"], n=3)
+    gaps = _adapt_gaps_to_latest_user_message(gaps, state)
     trace_node(
         node_name="discovery.gap_analysis",
         session_id=state.get("session_id", ""),
         metadata={"gap_count": len(gaps)},
     )
     return {"_gaps": gaps}
+
+
+def _adapt_gaps_to_latest_user_message(gaps: list[Gap], state: GraphState) -> list[Gap]:
+    """Prevent form-like repeated questions when the latest user message has
+    changed the conversation shape.
+
+    If the user says there is no current system yet and asks to build/move to a
+    target cloud, the app should not ask where the current app is hosted. There
+    is no current hosting. The useful next question is product architecture
+    intake: workflows, data, auth, integrations, reporting, compliance, scale.
+    """
+
+    if not _looks_like_greenfield_build_context(
+        state.get("user_message", ""),
+        getattr(state.get("request_impact"), "intent", None),
+    ):
+        return gaps
+
+    adapted: list[Gap] = []
+    for gap in gaps:
+        if gap.category == GapCategory.MISSING_ENVIRONMENT:
+            continue
+        if gap.category == GapCategory.SPARSE_ARCHITECTURE_CONTEXT:
+            adapted.append(
+                gap.model_copy(
+                    update={
+                        "description": (
+                            "The user says there is no current deployed architecture and wants to build for "
+                            "a target cloud at large scale. Do not ask where the current app is hosted. Ask "
+                            "one consultant-style product architecture question covering the core workflows "
+                            "or modules, data entities and retention, authentication and roles, integrations, "
+                            "reporting/export needs, compliance/security constraints, and expected traffic or "
+                            "data volume."
+                        )
+                    }
+                )
+            )
+        else:
+            adapted.append(gap)
+    return adapted
+
+
+def _looks_like_greenfield_build_context(user_message: str, intent: object = None) -> bool:
+    text = " ".join(user_message.lower().split())
+    no_current_signal = any(
+        phrase in text
+        for phrase in (
+            "nothing for now",
+            "nothing exists",
+            "not built",
+            "not build",
+            "needed to build",
+            "need to build",
+            "building it",
+            "build it",
+            "no current",
+            "from scratch",
+            "greenfield",
+        )
+    )
+    target_signal = any(
+        phrase in text
+        for phrase in ("aws", "azure", "gcp", "target", "move to", "migrate to", "cloud")
+    )
+    return no_current_signal and (target_signal or intent == RequestIntent.TARGET_PLANNING)
 
 
 async def generate_questions_node(state: GraphState, gateway: LLMGateway, meter: SessionTokenMeter) -> dict:

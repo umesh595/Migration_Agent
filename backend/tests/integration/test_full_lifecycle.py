@@ -120,6 +120,8 @@ def _register_planning(provider) -> None:
                 component_id=cid,
                 target_description=f"{cid} on managed AWS infrastructure",
                 disposition="replatform",
+                target_cloud_provider="aws",
+                target_service_category="compute_vm",
                 steps=[f"provision {cid} target", f"cut {cid} traffic over"],
                 validation_checks=[ValidationCheck(description=f"{cid} smoke test", check_type="smoke_test")],
                 rollback_notes=f"revert {cid} DNS and restore source",

@@ -115,10 +115,6 @@ export default function LoginPage() {
               "Sign in"
             )}
           </button>
-
-          <p className="text-center text-xs text-slate-500">
-            Accounts are provisioned by an administrator — there is no self-service sign-up.
-          </p>
         </form>
       </div>
     </main>

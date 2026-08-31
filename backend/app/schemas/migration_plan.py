@@ -9,6 +9,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from app.schemas.cost import CloudProvider, CostSummary, ServiceCategory
+
 
 class SevenR(StrEnum):
     REHOST = "rehost"
@@ -33,11 +35,43 @@ class ComponentMapping(BaseModel):
     component_id: str
     target_description: str
     disposition: SevenR
+    target_cloud_provider: CloudProvider = Field(
+        default=CloudProvider.UNKNOWN,
+        description="Classified from target_description by the same planning call that wrote it — "
+        "drives cost estimation (see app.core.cost_estimator).",
+    )
+    target_service_category: ServiceCategory = Field(default=ServiceCategory.OTHER)
 
 
 class ValidationCheck(BaseModel):
     description: str
     check_type: str = Field(description="e.g. 'smoke_test', 'data_parity', 'load_test', 'manual_signoff'.")
+
+
+class EffortBreakdown(BaseModel):
+    """Detailed effort estimate shown in UI and exports.
+
+    `estimated_effort` remains as the short headline for old plans and compact
+    roadmap views; this structure carries the reasoning a delivery lead needs.
+    """
+
+    total: str = Field(description="Short total estimate, e.g. '5-7 days'.")
+    implementation: str = Field(description="Build/configuration/migration work estimate.")
+    validation: str = Field(description="Testing and evidence-gathering estimate.")
+    cutover: str = Field(description="Cutover/release support estimate.")
+    rollback: str = Field(description="Rollback rehearsal or rollback-readiness estimate.")
+    confidence: str = Field(description="low, medium, or high.")
+    rationale: str = Field(description="Why this effort is plausible for this component.")
+
+
+class EfficiencyBreakdown(BaseModel):
+    """Operational benefit/tradeoff estimate, separate from effort and cloud cost."""
+
+    expected_benefits: list[str] = Field(description="Concrete efficiency or operational benefits expected.")
+    tradeoffs: list[str] = Field(description="Costs, complexity, or operational downsides introduced.")
+    primary_efficiency_gain: str = Field(description="The main efficiency gain in one sentence.")
+    confidence: str = Field(description="low, medium, or high.")
+    rationale: str = Field(description="Why these efficiency claims fit this component and target service.")
 
 
 class ComponentPlan(BaseModel):
@@ -52,6 +86,8 @@ class ComponentPlan(BaseModel):
     validation_checks: list[ValidationCheck]
     rollback_notes: str
     estimated_effort: str | None = Field(default=None, description="Free-text, e.g. '3-5 days'.")
+    effort_breakdown: EffortBreakdown | None = None
+    efficiency_breakdown: EfficiencyBreakdown | None = None
     dependencies_considered: list[str] = Field(default_factory=list)
 
 
@@ -89,6 +125,7 @@ class CutoverStrategy(BaseModel):
     """Deliverable 8 — Cutover Strategy."""
 
     approach: str = Field(description="e.g. 'blue-green', 'phased-by-wave', 'big-bang'.")
+    rationale: str | None = Field(default=None, description="Why this cutover approach fits the plan and downtime tolerance.")
     steps: list[str]
     go_no_go_criteria: list[str]
     communication_plan: str
@@ -98,6 +135,7 @@ class RollbackStrategy(BaseModel):
     """Deliverable 9 — Rollback Strategy."""
 
     approach: str
+    rationale: str | None = Field(default=None, description="Why this rollback approach fits the cutover and data-risk profile.")
     triggers: list[str] = Field(description="Conditions that invoke rollback.")
     steps: list[str]
     data_reconciliation_notes: str | None = None
@@ -124,6 +162,8 @@ class RoadmapItem(BaseModel):
     summary: str
     owner_placeholder: str = "TBD"
     estimated_effort: str | None = None
+    effort_breakdown: EffortBreakdown | None = None
+    efficiency_breakdown: EfficiencyBreakdown | None = None
     depends_on_waves: list[int] = Field(default_factory=list)
 
 
@@ -143,6 +183,9 @@ class MigrationPlan(BaseModel):
     rollback_strategy: RollbackStrategy | None = None
     validation_summary: ValidationSummary | None = None
     roadmap_items: list[RoadmapItem] = Field(default_factory=list)
+    cost_summary: CostSummary | None = Field(
+        default=None, description="Deliverable 11 — Cost Estimate. Computed by cost_estimator, never LLM-generated."
+    )
     status: PlanStatus = PlanStatus.DRAFT
     version: int = 1
 

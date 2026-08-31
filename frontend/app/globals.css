@@ -8,7 +8,7 @@
 
 html,
 body {
-  background: #05060f;
+  background: #05090e;
 }
 
 body {
@@ -34,10 +34,9 @@ h4,
   position: fixed;
   inset: 0;
   z-index: -2;
-  background: #05060f;
+  background: #05090e;
   background-image: theme("backgroundImage.grad-mesh");
-  filter: saturate(1.1);
-  animation: aurora-drift 22s ease-in-out infinite;
+  filter: saturate(0.95);
   pointer-events: none;
 }
 
@@ -87,14 +86,14 @@ select:focus-visible,
 @layer components {
   /* --- Buttons --- */
   .btn {
-    @apply relative inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold
+    @apply relative inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold
       transition-all duration-200 ease-out disabled:cursor-not-allowed disabled:opacity-40
       active:scale-[0.98];
   }
 
   .btn-primary {
-    @apply btn text-white shadow-lg shadow-brand-900/40;
-    background-image: linear-gradient(135deg, #6366f1, #8b5cf6);
+    @apply btn text-white shadow-lg shadow-brand-900/30;
+    background-image: linear-gradient(135deg, #155d79, #1f8fb8);
   }
   .btn-primary:hover:not(:disabled) {
     @apply shadow-glow;
@@ -106,8 +105,8 @@ select:focus-visible,
   }
 
   .btn-danger {
-    @apply btn text-white shadow-lg shadow-rose-900/40;
-    background-image: linear-gradient(135deg, #f43f5e, #db2777);
+    @apply btn text-white shadow-lg shadow-rose-900/30;
+    background-image: linear-gradient(135deg, #dc2626, #b91c1c);
   }
   .btn-danger:hover:not(:disabled) {
     filter: brightness(1.1);
@@ -115,7 +114,7 @@ select:focus-visible,
 
   /* --- Surfaces --- */
   .card {
-    @apply relative rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-panel-sm backdrop-blur-xl;
+    @apply relative rounded-xl border border-white/10 bg-white/[0.035] p-5 shadow-panel-sm backdrop-blur-xl;
   }
 
   .card-glow {
@@ -127,7 +126,7 @@ select:focus-visible,
     inset: -1px;
     border-radius: inherit;
     padding: 1px;
-    background: linear-gradient(135deg, rgba(129, 140, 248, 0.5), rgba(236, 72, 153, 0.15), transparent 70%);
+    background: linear-gradient(135deg, rgba(31, 143, 184, 0.35), rgba(20, 184, 166, 0.12), transparent 72%);
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
@@ -135,7 +134,7 @@ select:focus-visible,
   }
 
   .panel {
-    @apply rounded-3xl border border-white/10 bg-ink-900/60 shadow-panel backdrop-blur-2xl;
+    @apply rounded-xl border border-white/10 bg-ink-900/60 shadow-panel backdrop-blur-2xl;
   }
 
   .glass-nav {
@@ -144,7 +143,7 @@ select:focus-visible,
 
   /* --- Form controls --- */
   .input {
-    @apply w-full rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-slate-100
+    @apply w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-slate-100
       placeholder:text-slate-500 transition-colors duration-150
       focus:border-brand-400/60 focus:bg-white/[0.06] focus:outline-none;
   }
@@ -161,7 +160,7 @@ select:focus-visible,
   /* --- Gradient text --- */
   .text-gradient {
     @apply bg-clip-text text-transparent;
-    background-image: theme("backgroundImage.grad-primary");
+    background-image: linear-gradient(135deg, #67e8f9, #5eead4);
   }
 
   /* --- Shimmer skeleton / loading sheen --- */

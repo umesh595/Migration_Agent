@@ -90,6 +90,8 @@ def component_plan_outputs() -> list[ComponentPlanLLMOutput]:
             component_id=cid,
             target_description=f"{cid} on managed cloud infrastructure",
             disposition="replatform",
+            target_cloud_provider="aws",
+            target_service_category="compute_vm",
             steps=[f"provision target for {cid}", f"migrate {cid} traffic"],
             validation_checks=[ValidationCheck(description=f"verify {cid} responds correctly", check_type="smoke_test")],
             rollback_notes=f"restore {cid} to source environment and revert DNS",

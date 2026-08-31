@@ -16,6 +16,7 @@ from app.llm.providers.openai_provider import OpenAIProvider
 from app.observability.tracing import flush as tracing_flush
 from app.observability.tracing import tracing_status
 from app.orchestration.checkpointer import close_checkpointer, init_checkpointer
+from app.security.in_memory_redis import InMemoryRedis
 from app.security.rate_limit import RateLimiter
 from app.security.session_lock import SessionTurnLock
 from app.services.user_service import bootstrap_admin_if_configured
@@ -28,7 +29,11 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     settings = get_settings()
 
-    app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    if settings.redis_url == "memory://":
+        logger.warning("using in-memory Redis substitute; this is for local single-process development only")
+        app.state.redis = InMemoryRedis()
+    else:
+        app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
     app.state.rate_limiter = RateLimiter(app.state.redis, fail_open=settings.rate_limit_fail_open)
     app.state.session_lock = SessionTurnLock(app.state.redis)
 

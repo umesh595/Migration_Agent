@@ -10,23 +10,23 @@ const config: Config = {
       },
       colors: {
         brand: {
-          50: "#eef2ff",
-          100: "#e0e7ff",
-          200: "#c7d2fe",
-          300: "#a5b4fc",
-          400: "#818cf8",
-          500: "#6366f1",
-          600: "#4f46e5",
-          700: "#4338ca",
-          800: "#3730a3",
-          900: "#312e81",
+          50: "#eef9ff",
+          100: "#d9f0fb",
+          200: "#b7e2f3",
+          300: "#83cce8",
+          400: "#43abd1",
+          500: "#1f8fb8",
+          600: "#167396",
+          700: "#155d79",
+          800: "#174d64",
+          900: "#163f53",
         },
         aurora: {
-          violet: "#7c3aed",
-          indigo: "#4f46e5",
+          violet: "#2563eb",
+          indigo: "#155d79",
           cyan: "#06b6d4",
-          pink: "#ec4899",
-          amber: "#f59e0b",
+          pink: "#14b8a6",
+          amber: "#d97706",
         },
         ink: {
           950: "#05060f",
@@ -39,19 +39,18 @@ const config: Config = {
         },
       },
       backgroundImage: {
-        "grad-primary": "linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%)",
-        "grad-cool": "linear-gradient(135deg, #06b6d4 0%, #6366f1 100%)",
-        "grad-warm": "linear-gradient(135deg, #f59e0b 0%, #ec4899 100%)",
+        "grad-primary": "linear-gradient(135deg, #155d79 0%, #1f8fb8 58%, #14b8a6 100%)",
+        "grad-cool": "linear-gradient(135deg, #0f766e 0%, #1f8fb8 100%)",
+        "grad-warm": "linear-gradient(135deg, #d97706 0%, #0f766e 100%)",
         "grad-card": "linear-gradient(160deg, rgba(255,255,255,0.06), rgba(255,255,255,0.015))",
         "grad-mesh":
-          "radial-gradient(at 20% 20%, rgba(124,58,237,0.35) 0px, transparent 55%)," +
-          "radial-gradient(at 80% 0%, rgba(6,182,212,0.28) 0px, transparent 50%)," +
-          "radial-gradient(at 90% 80%, rgba(236,72,153,0.25) 0px, transparent 50%)," +
-          "radial-gradient(at 10% 90%, rgba(79,70,229,0.3) 0px, transparent 50%)",
+          "linear-gradient(180deg, rgba(7,16,24,0.98) 0%, rgba(5,9,14,1) 100%)," +
+          "radial-gradient(at 14% 8%, rgba(31,143,184,0.16) 0px, transparent 42%)," +
+          "radial-gradient(at 86% 4%, rgba(20,184,166,0.12) 0px, transparent 38%)",
       },
       boxShadow: {
-        glow: "0 0 40px -6px rgba(99,102,241,0.55)",
-        "glow-lg": "0 0 80px -10px rgba(124,58,237,0.45)",
+        glow: "0 0 32px -10px rgba(31,143,184,0.45)",
+        "glow-lg": "0 0 64px -18px rgba(20,184,166,0.35)",
         panel: "0 1px 0 0 rgba(255,255,255,0.06) inset, 0 20px 50px -20px rgba(0,0,0,0.6)",
         "panel-sm": "0 1px 0 0 rgba(255,255,255,0.06) inset, 0 10px 30px -12px rgba(0,0,0,0.5)",
       },
@@ -85,9 +84,9 @@ const config: Config = {
           to: { opacity: "1", transform: "scale(1)" },
         },
         "pulse-ring": {
-          "0%": { boxShadow: "0 0 0 0 rgba(99,102,241,0.55)" },
-          "70%": { boxShadow: "0 0 0 10px rgba(99,102,241,0)" },
-          "100%": { boxShadow: "0 0 0 0 rgba(99,102,241,0)" },
+          "0%": { boxShadow: "0 0 0 0 rgba(31,143,184,0.5)" },
+          "70%": { boxShadow: "0 0 0 10px rgba(31,143,184,0)" },
+          "100%": { boxShadow: "0 0 0 0 rgba(31,143,184,0)" },
         },
       },
     },

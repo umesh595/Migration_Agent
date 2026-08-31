@@ -5,11 +5,14 @@ reaches the model, regardless of how confidently the LLM phrased it."""
 
 from __future__ import annotations
 
+import re
+
 from app.schemas.architecture import ArchitectureModel, Environment
 from app.schemas.patches import (
     AddAssumptionPatch,
     AddComponentPatch,
     AddDependencyPatch,
+    AddOpenQuestionPatch,
     ConfirmAssumptionPatch,
     Patch,
     RemoveComponentPatch,
@@ -18,10 +21,63 @@ from app.schemas.patches import (
     UpdateComponentPatch,
 )
 
+_HIGH_IMPACT_TECH_TERMS = {
+    "fastapi",
+    "python",
+    "java",
+    "spring",
+    "spring boot",
+    "node",
+    "node.js",
+    "express",
+    ".net",
+    "dotnet",
+    "go",
+    "golang",
+    "ruby",
+    "rails",
+}
 
-def validate_patch(model: ArchitectureModel, patch: Patch) -> str | None:
+
+def _text_terms(text: str | None) -> set[str]:
+    lowered = (text or "").lower()
+    return {
+        term
+        for term in _HIGH_IMPACT_TECH_TERMS
+        if re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", lowered)
+    }
+
+
+def _is_high_impact_replatform(model: ArchitectureModel, patch: UpdateComponentPatch) -> bool:
+    component = model.get_component(patch.id)
+    if component is None:
+        return False
+
+    before_terms = _text_terms(" ".join([component.name, component.technology or "", component.description]))
+    after_terms = _text_terms(" ".join([patch.name or "", patch.technology or "", patch.description or ""]))
+    introduced_terms = after_terms - before_terms
+
+    return bool(before_terms and introduced_terms)
+
+
+_STRUCTURAL_PATCH_CLASSES = (AddComponentPatch, UpdateComponentPatch, RemoveComponentPatch, AddDependencyPatch, RemoveDependencyPatch)
+
+
+def validate_patch(
+    model: ArchitectureModel,
+    patch: Patch,
+    *,
+    allow_high_impact_changes: bool = False,
+    require_structural_confirmation: bool = False,
+) -> str | None:
     """Returns None if the patch is valid against `model`, otherwise a human-readable
     rejection reason (narrated back to the user verbatim)."""
+
+    if require_structural_confirmation and isinstance(patch, _STRUCTURAL_PATCH_CLASSES):
+        return (
+            "source architecture changes after Gate 1 require explicit discussion first; "
+            "ask whether to revise the accepted source model or treat this as a target-state planning change"
+        )
 
     match patch:
         case AddComponentPatch():
@@ -39,6 +95,11 @@ def validate_patch(model: ArchitectureModel, patch: Patch) -> str | None:
                 return f"no component with id '{patch.id}' exists"
             if not patch.updated_fields():
                 return "update_component patch sets no fields — nothing to change"
+            if not allow_high_impact_changes and _is_high_impact_replatform(model, patch):
+                return (
+                    "major technology/platform rewrite requires discussion first; "
+                    "ask whether this is a real target architecture decision or just an exploratory idea"
+                )
             if patch.environment is not None and patch.environment not in set(Environment):
                 return (
                     f"invalid environment '{patch.environment}'. "
@@ -108,6 +169,14 @@ def validate_patch(model: ArchitectureModel, patch: Patch) -> str | None:
                 return f"no open question with id '{patch.question_id}' exists"
             if question.resolved:
                 return f"open question '{patch.question_id}' is already resolved"
+            return None
+
+        case AddOpenQuestionPatch():
+            if not patch.text.strip():
+                return "open question text cannot be empty"
+            unknown = set(patch.related_component_ids) - model.component_ids()
+            if unknown:
+                return f"related component id(s) {sorted(unknown)} do not exist"
             return None
 
         case _:

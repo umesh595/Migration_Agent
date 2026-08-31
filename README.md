@@ -3,7 +3,8 @@
 A conversational planning system that (1) builds a validated model of an existing
 enterprise architecture through dialogue, (2) computes a dependency-aware migration
 strategy, and (3) reviews that strategy with an auditable rules engine before
-delivering the 10-deliverable migration package from the PoC brief.
+delivering the 11-deliverable migration package (the PoC brief's original 10, plus a
+real-pricing-backed cost estimate).
 
 **Governing principle:** the LLM *proposes and narrates*; deterministic code *decides
 and persists*. Every consequential artifact — the architecture model, the migration
@@ -125,7 +126,7 @@ the assembled plan. Dependency-order errors are prevented twice over.
 | PATCH | `/sessions/{id}/findings/{finding_id}` | Mark a finding resolved / accepted-as-risk / reopened |
 | GET | `/sessions/{id}/impact/{component_id}` | Upstream/downstream reachability analysis over the current model |
 | GET | `/sessions/{id}/audit` | Every patch proposed, applied or rejected |
-| GET | `/sessions/{id}/export?format=pdf\|docx` | The 10-deliverable package |
+| GET | `/sessions/{id}/export?format=pdf\|docx` | The 11-deliverable package |
 | GET | `/sessions/{id}/review-quality` | LLM-as-judge scores over the semantic critic's own findings |
 | GET | `/health` · `/health/ready` | Liveness / readiness (+ tracing status) |
 
@@ -148,10 +149,12 @@ text the user already saw. See DECISIONS.md.
 
 ---
 
-## The 10 deliverables
+## The 11 deliverables
 
 Every deliverable in the PoC brief maps to a typed field on `MigrationPlan`; the
-exporter renders those fields and never generates fresh prose.
+exporter renders those fields and never generates fresh prose. Deliverable 11
+(Cost Estimate) is computed by real cloud pricing lookups, never an LLM guess —
+see `app/core/cost_estimator.py`.
 
 | # | Deliverable | Field |
 |---|---|---|
@@ -165,6 +168,7 @@ exporter renders those fields and never generates fresh prose.
 | 8 | Cutover Strategy | `cutover_strategy` |
 | 9 | Rollback Strategy | `rollback_strategy` |
 | 10 | Migration Roadmap | `roadmap_items[]` |
+| 11 | Cost Estimate | `cost_summary` |
 
 Deliverables 7 and 10 had no home in the original data model — they were given real
 typed fields rather than being synthesized at export time (DECISIONS.md).

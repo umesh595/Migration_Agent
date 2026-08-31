@@ -21,10 +21,11 @@ from app.api.deps import CurrentUser, Db, SessionLock, enforce_message_rate_limi
 from app.config import get_settings
 from app.core.exporter import render_docx, render_pdf
 from app.core.graph_engine import compute_impact
+from app.core.request_intelligence import classify_user_request
 from app.db.models import SessionStatus
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.orchestration.checkpointer import get_checkpointer
-from app.orchestration.graph import build_discovery_graph, build_planning_graph
+from app.orchestration.graph import STRUCTURAL_PATCH_OPS, build_discovery_graph, build_planning_graph, build_review_discuss_graph
 from app.orchestration.state import Stage
 from app.security.session_lock import SessionBusyError
 from app.services import session_service
@@ -64,6 +65,37 @@ class MessageRequest(BaseModel):
 
 def _thread_config(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id}}
+
+
+def _patch_justification(patch: dict, outcome: str, reason: str | None) -> str:
+    op = patch.get("op", "unknown")
+    if outcome == "rejected":
+        return reason or "The patch was rejected because it did not pass deterministic validation."
+
+    match op:
+        case "add_component":
+            return "Recommended because the user's architecture description names this as a distinct deployable or managed component."
+        case "update_component":
+            return "Recommended because the user's latest message corrected or refined a known component attribute."
+        case "remove_component":
+            return "Recommended because the user's latest message removed this component from the architecture scope."
+        case "add_dependency":
+            source = patch.get("source_id", "source")
+            target = patch.get("target_id", "target")
+            kind = patch.get("kind", "dependency")
+            return f"Recommended because the described workflow implies {source} depends on {target} via {kind}."
+        case "remove_dependency":
+            return "Recommended because the user's latest message corrected the relationship between these components."
+        case "add_assumption":
+            return "Recorded as an assumption because the statement is a reasonable inference, but not yet a confirmed fact."
+        case "confirm_assumption":
+            return "Recommended because the user's latest message confirmed or corrected an existing assumption."
+        case "resolve_open_question":
+            return "Recommended because the user's latest message answered an open question."
+        case "add_open_question":
+            return "Recommended because the proposed change needs clarification before the architecture model should be changed."
+        case _:
+            return "Recommended based on the user's latest message and validated against the current architecture model."
 
 
 @router.post("", response_model=SessionResponse, status_code=status.HTTP_201_CREATED,
@@ -154,7 +186,7 @@ async def post_message(
     # trigger a lazy-reload that MissingGreenlet's outside a proper async context.
     session_id_str = str(session.id)
 
-    if session.status not in (SessionStatus.DISCOVERY, SessionStatus.PLANNING):
+    if session.status not in (SessionStatus.DISCOVERY, SessionStatus.PLANNING, SessionStatus.REVIEW):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"session is in '{session.status}' — no further messages accepted",
@@ -192,14 +224,17 @@ async def post_message(
         original_status = session.status
 
         if original_status == SessionStatus.DISCOVERY:
+            request_impact = classify_user_request(payload.message)
             graph = build_discovery_graph(gateway, meter).compile(checkpointer=checkpointer)
             initial = {
                 "session_id": str(session.id),
                 "stage": Stage.DISCOVERY,
                 "model": model_before,
                 "user_message": payload.message,
+                "request_impact": request_impact,
             }
-        else:
+        elif original_status == SessionStatus.PLANNING:
+            request_impact = classify_user_request(payload.message, after_gate_1=True)
             graph = build_planning_graph(gateway, meter).compile(checkpointer=checkpointer)
             accepted = await session_service.accepted_model(db, session.id)
             initial = {
@@ -207,10 +242,38 @@ async def post_message(
                 "stage": Stage.PLANNING,
                 "model": accepted,
                 "user_message": payload.message,
+                "request_impact": request_impact,
                 "migration_context": await session_service.get_migration_context(db, session.id),
                 "narration": "",
                 "pending_questions": [],
                 "context_clarifying_questions": [],
+                "error": None,
+            }
+        else:
+            # REVIEW: discuss over a plan that already exists. Judged the same way
+            # discovery judges a proposed addition; only cascades into a full
+            # replan (compute_sequence onward) when the model actually changed —
+            # see build_review_discuss_graph's docstring.
+            request_impact = classify_user_request(payload.message, after_gate_1=True, review_stage=True)
+            graph = build_review_discuss_graph(gateway, meter).compile(checkpointer=checkpointer)
+            accepted = await session_service.accepted_model(db, session.id)
+            initial = {
+                "session_id": str(session.id),
+                "stage": Stage.REVIEW,
+                "model": accepted,
+                "user_message": payload.message,
+                "request_impact": request_impact,
+                # Read for context only (what relevance gets judged against) — a
+                # discuss-only turn leaves this exact object in state untouched;
+                # assemble_plan replaces it outright if the turn cascades into a
+                # replan, so it's never mutated in place either way.
+                "plan": await session_service.latest_plan(db, session.id),
+                "migration_context": await session_service.get_migration_context(db, session.id),
+                "narration": "",
+                "pending_questions": [],
+                "findings": [],
+                "refine_iteration": 0,
+                "review_quality_history": [],
                 "error": None,
             }
 
@@ -250,7 +313,7 @@ async def post_message(
                 # Discovery narration/questions are genuinely per-turn LLM output.
                 narration = values.get("narration")
                 questions = values.get("pending_questions", [])
-            else:
+            elif original_status == SessionStatus.PLANNING:
                 # Planning shares this thread's checkpointed state with any earlier
                 # discovery turns, but no planning node ever sets `narration` or
                 # `pending_questions` — those keys would otherwise still hold stale
@@ -261,8 +324,18 @@ async def post_message(
                 # Architecture / Migration Plan sections the client re-fetches next.
                 plan = values.get("plan")
                 clarifying = values.get("context_clarifying_questions") or []
+                intake_questions = [
+                    str(r.patch.text)
+                    for r in (values.get("last_patch_results") or [])
+                    if str(getattr(r, "outcome", "")) == "applied"
+                    and str(getattr(r.patch, "op", "")) == "add_open_question"
+                    and getattr(r.patch, "text", None)
+                ]
+                intake_results = values.get("last_patch_results") or []
                 if values.get("error"):
                     narration = None
+                elif intake_questions:
+                    narration = values.get("narration")
                 elif clarifying:
                     narration = None
                 elif plan is not None:
@@ -271,8 +344,37 @@ async def post_message(
                         f"{len(plan.component_plans)} component(s), {len(plan.risks)} risk(s) flagged. "
                         "Review the target architecture and full migration plan below."
                     )
+                elif intake_results:
+                    narration = values.get("narration") or "Updated the accepted source model. Send the migration context when ready."
                 else:
                     narration = "Migration context captured."
+                questions = intake_questions
+            else:
+                # REVIEW discuss: a "just discussing" turn (no structural patch
+                # applied) behaves like discovery — the ingest node's own
+                # narration/pending_questions are genuine per-turn LLM output. A
+                # turn that DID change the model cascaded through a full replan
+                # (build_review_discuss_graph), so the plan itself is the result —
+                # synthesize a status message the same way planning does, never
+                # fresh LLM prose about a plan that's already fully typed data.
+                replanned = any(
+                    str(r.outcome) == "applied" and str(r.patch.op) in STRUCTURAL_PATCH_OPS
+                    for r in (values.get("last_patch_results") or [])
+                )
+                plan = values.get("plan")
+                if values.get("error"):
+                    narration = None
+                elif replanned and plan is not None:
+                    narration = (
+                        f"Updated the plan to reflect this change: {len(plan.waves)} wave(s) covering "
+                        f"{len(plan.component_plans)} component(s), {len(plan.risks)} risk(s) flagged. "
+                        "Review the updated plan below before approving."
+                    )
+                else:
+                    narration = values.get("narration")
+                # Review discussion must never surface stale Discovery questions.
+                # If a review turn needs user input, that belongs in the review
+                # narration/open finding itself, not in Discovery's gap loop.
                 questions = []
 
             # Mirrors exactly what ChatPanel synthesizes from this same payload
@@ -307,6 +409,11 @@ async def post_message(
                         "error": values.get("error"),
                         "model_version": getattr(values.get("model"), "version", None),
                         "tokens_used": meter.spent,
+                        "request_impact": (
+                            values.get("request_impact").model_dump(mode="json")
+                            if values.get("request_impact") is not None
+                            else None
+                        ),
                     }
                 ),
             }
@@ -491,6 +598,7 @@ async def get_patch_audit(session_id: uuid.UUID, user: CurrentUser, db: Db) -> d
                 "patch": r.patch_data,
                 "outcome": r.outcome,
                 "reason": r.reason,
+                "justification": _patch_justification(r.patch_data, r.outcome, r.reason),
                 "model_version_before": r.model_version_before,
                 "model_version_after": r.model_version_after,
             }

@@ -1,0 +1,31 @@
+{
+  "fetched_at": "2026-08-27",
+  "region": "us-east-1",
+  "prices": {
+    "compute_vm": {
+      "unit_price_usd": 0.0416,
+      "sku_description": "AWS EC2 t3.medium, Linux, On-Demand, Shared tenancy, us-east-1",
+      "aws_sku": "NN4EGUUQRWVYP98C"
+    },
+    "managed_database": {
+      "unit_price_usd": 0.068,
+      "sku_description": "AWS RDS db.t3.medium, MySQL, Single-AZ, On-Demand, us-east-1",
+      "aws_sku": "TSK7J2Y3CBVXPUQ2"
+    },
+    "object_storage": {
+      "unit_price_usd": 0.023,
+      "sku_description": "AWS S3 Standard storage, first 50TB/month tier, us-east-1",
+      "aws_sku": "WP9ANXZGBYYSGJEA"
+    },
+    "message_queue": {
+      "unit_price_usd": 4e-07,
+      "sku_description": "AWS SQS Standard queue requests, Tier1, us-east-1",
+      "aws_sku": "8RN6B8U4MERHRXP3"
+    },
+    "cache": {
+      "unit_price_usd": 0.017,
+      "sku_description": "AWS ElastiCache cache.t3.micro, Redis, On-Demand, us-east-1",
+      "aws_sku": "YJHUKPU3DN6YKD58"
+    }
+  }
+}

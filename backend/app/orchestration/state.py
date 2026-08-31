@@ -6,6 +6,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, TypedDict
 
+from app.core.request_intelligence import RequestImpact
 from app.schemas.architecture import ArchitectureModel
 from app.schemas.findings import Finding
 from app.schemas.migration_context import MigrationContext
@@ -33,6 +34,7 @@ class GraphState(TypedDict, total=False):
 
     # Discovery
     user_message: str
+    request_impact: RequestImpact
     model: Annotated[ArchitectureModel, _replace]
     last_patch_results: list[PatchResult]
     pending_questions: list[str]

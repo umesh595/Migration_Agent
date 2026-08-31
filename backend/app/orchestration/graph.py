@@ -47,18 +47,27 @@ def build_planning_graph(gateway: LLMGateway, meter: SessionTokenMeter):
 
     graph = StateGraph(GraphState)
 
+    graph.add_node("after_gate_intake", partial(planning.after_gate_intake_node, gateway=gateway, meter=meter))
+    graph.add_node("apply_patches", discovery.apply_patches_node)
     graph.add_node("elicit_context", partial(planning.elicit_context_node, gateway=gateway, meter=meter))
     graph.add_node("compute_sequence", planning.compute_sequence_node)
     graph.add_node("per_component_planning", partial(planning.per_component_planning_node, gateway=gateway, meter=meter))
     graph.add_node("strategy", partial(planning.strategy_node, gateway=gateway, meter=meter))
     graph.add_node("assemble_plan", planning.assemble_plan_node)
+    graph.add_node("estimate_cost", planning.estimate_cost_node)
     graph.add_node("rules_review", review.rules_review_node)
     graph.add_node("llm_review", partial(review.llm_review_node, gateway=gateway, meter=meter))
     graph.add_node("judge_review", partial(review.judge_review_node, gateway=gateway, meter=meter))
     graph.add_node("refine", partial(review.refine_node, gateway=gateway, meter=meter))
     graph.add_node("finalize_review", review.finalize_review_node)
 
-    graph.add_edge(START, "elicit_context")
+    graph.add_edge(START, "after_gate_intake")
+    graph.add_edge("after_gate_intake", "apply_patches")
+    graph.add_conditional_edges(
+        "apply_patches",
+        _planning_intake_ready,
+        {"continue": "elicit_context", "await_user": END, "halt": END},
+    )
     graph.add_conditional_edges(
         "elicit_context",
         _context_ready,
@@ -79,7 +88,77 @@ def build_planning_graph(gateway: LLMGateway, meter: SessionTokenMeter):
         _no_error,
         {"continue": "assemble_plan", "halt": END},
     )
-    graph.add_edge("assemble_plan", "rules_review")
+    graph.add_edge("assemble_plan", "estimate_cost")
+    graph.add_edge("estimate_cost", "rules_review")
+    graph.add_edge("rules_review", "llm_review")
+    graph.add_edge("llm_review", "judge_review")
+    graph.add_conditional_edges(
+        "judge_review",
+        review.should_continue_refining,
+        {"refine": "refine", "finalize": "finalize_review"},
+    )
+    graph.add_edge("refine", "rules_review")
+    graph.add_edge("finalize_review", END)
+
+    return graph
+
+
+def build_review_discuss_graph(gateway: LLMGateway, meter: SessionTokenMeter):
+    """Discuss, during REVIEW, over a plan that already exists (POST
+    /sessions/{id}/messages while status == review). One shared discuss brain
+    across both phases: review_discuss_ingest_node uses the exact same
+    ingest_patches prompt discovery's ingest_node does (never a second prompt to
+    keep in sync), just with the plan's content ALSO injected as context, so
+    relevance can be judged against a genuine gap in what's already been
+    generated, not only against the discovered architecture model. From there,
+    apply_patches -> gap_analysis -> generate_questions are discovery's own nodes,
+    reused verbatim. Only when the model was actually changed does this cascade
+    into the SAME planning+review nodes the original planning run used, so the
+    plan reflects the change holistically — correct sequencing/cutover/rollback,
+    not a patched-in row a real architect wouldn't trust. A discuss turn that
+    doesn't change anything (just a question, or an already-covered fact) stays
+    cheap and fast, same as discovery."""
+
+    graph = StateGraph(GraphState)
+
+    graph.add_node("ingest", partial(review.review_discuss_ingest_node, gateway=gateway, meter=meter))
+    graph.add_node("apply_patches", discovery.apply_patches_node)
+    graph.add_node("compute_sequence", planning.compute_sequence_node)
+    graph.add_node("per_component_planning", partial(planning.per_component_planning_node, gateway=gateway, meter=meter))
+    graph.add_node("strategy", partial(planning.strategy_node, gateway=gateway, meter=meter))
+    graph.add_node("assemble_plan", planning.assemble_plan_node)
+    graph.add_node("estimate_cost", planning.estimate_cost_node)
+    graph.add_node("rules_review", review.rules_review_node)
+    graph.add_node("llm_review", partial(review.llm_review_node, gateway=gateway, meter=meter))
+    graph.add_node("judge_review", partial(review.judge_review_node, gateway=gateway, meter=meter))
+    graph.add_node("refine", partial(review.refine_node, gateway=gateway, meter=meter))
+    graph.add_node("finalize_review", review.finalize_review_node)
+
+    graph.add_edge(START, "ingest")
+    graph.add_edge("ingest", "apply_patches")
+    graph.add_conditional_edges(
+        "apply_patches",
+        _model_materially_changed,
+        {"replan": "compute_sequence", "discuss_only": END},
+    )
+
+    graph.add_conditional_edges(
+        "compute_sequence",
+        _no_error,
+        {"continue": "per_component_planning", "halt": END},
+    )
+    graph.add_conditional_edges(
+        "per_component_planning",
+        _no_error,
+        {"continue": "strategy", "halt": END},
+    )
+    graph.add_conditional_edges(
+        "strategy",
+        _no_error,
+        {"continue": "assemble_plan", "halt": END},
+    )
+    graph.add_edge("assemble_plan", "estimate_cost")
+    graph.add_edge("estimate_cost", "rules_review")
     graph.add_edge("rules_review", "llm_review")
     graph.add_edge("llm_review", "judge_review")
     graph.add_conditional_edges(
@@ -101,3 +180,29 @@ def _context_ready(state: GraphState) -> str:
 
 def _no_error(state: GraphState) -> str:
     return "halt" if state.get("error") else "continue"
+
+
+def _planning_intake_ready(state: GraphState) -> str:
+    if state.get("error"):
+        return "halt"
+    results = state.get("last_patch_results") or []
+    if not results:
+        return "continue"
+    return "await_user"
+
+
+# Patch ops that change the ArchitectureMode's structure — anything else applied
+# during a review-discuss turn (add_open_question, add_assumption,
+# confirm_assumption, resolve_open_question on its own) is a conversational
+# move, not a reason to re-run the whole planning pipeline. Shared with the API
+# layer (app/api/routers/sessions.py) so the turn_complete narration agrees with
+# what the graph actually did.
+STRUCTURAL_PATCH_OPS = frozenset(
+    {"add_component", "update_component", "remove_component", "add_dependency", "remove_dependency"}
+)
+
+
+def _model_materially_changed(state: GraphState) -> str:
+    results = state.get("last_patch_results") or []
+    changed = any(str(r.outcome) == "applied" and str(r.patch.op) in STRUCTURAL_PATCH_OPS for r in results)
+    return "replan" if changed else "discuss_only"

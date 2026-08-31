@@ -1,4 +1,6 @@
 from app.core.gap_analyzer import GapCategory, analyze_gaps, top_gaps
+from app.core.request_intelligence import classify_user_request
+from app.orchestration.nodes.discovery import _adapt_gaps_to_latest_user_message
 from app.schemas.architecture import ArchitectureModel, Component, OpenQuestion
 
 
@@ -25,6 +27,55 @@ def test_single_component_is_not_flagged_as_orphan():
     )
     gaps = analyze_gaps(model)
     assert all(g.category != GapCategory.ORPHAN_COMPONENT for g in gaps)
+
+
+def test_single_component_without_architecture_details_gets_intake_gap():
+    model = ArchitectureModel(
+        components=[
+            Component(
+                id="employee_allocation_tracker",
+                name="Employee Allocation Tracker",
+                workload_type="other",
+                criticality="tier-1",
+                environment="cloud",
+            )
+        ]
+    )
+
+    gaps = analyze_gaps(model)
+    sparse_gaps = [g for g in gaps if g.category == GapCategory.SPARSE_ARCHITECTURE_CONTEXT]
+
+    assert len(sparse_gaps) == 1
+    assert "current major components" in sparse_gaps[0].description
+    assert "target cloud" in sparse_gaps[0].description
+
+
+def test_greenfield_answer_does_not_repeat_current_hosting_question():
+    model = ArchitectureModel(
+        components=[
+            Component(
+                id="employee_allocation_tracker",
+                name="Employee Allocation Tracker",
+                workload_type="other",
+                criticality="tier-1",
+            )
+        ]
+    )
+    user_message = "it is nothing for now needed to build and want to move to aws and for large scale users downtime is 4hrs"
+    gaps = analyze_gaps(model)
+
+    adapted = _adapt_gaps_to_latest_user_message(
+        gaps,
+        {
+            "user_message": user_message,
+            "request_impact": classify_user_request(user_message),
+        },
+    )
+
+    assert all(g.category != GapCategory.MISSING_ENVIRONMENT for g in adapted)
+    sparse_gap = next(g for g in adapted if g.category == GapCategory.SPARSE_ARCHITECTURE_CONTEXT)
+    assert "Do not ask where the current app is hosted" in sparse_gap.description
+    assert "core workflows" in sparse_gap.description
 
 
 def test_top_gaps_respects_limit():

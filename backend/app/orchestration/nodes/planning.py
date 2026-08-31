@@ -8,8 +8,10 @@ import asyncio
 import logging
 
 from app.config import get_settings
+from app.core.cost_estimator import estimate_plan_cost
 from app.core.graph_engine import CapacityExceededError, check_scale_envelope, compute_sequence
 from app.core.plan_assembler import assemble_plan
+from app.core.request_intelligence import RequestImpact, RequestIntent, render_request_impact_for_prompt
 from app.llm.base import ModelTier, StructuredOutputError
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.prompts.registry import get_prompt
@@ -26,9 +28,14 @@ from app.llm.state_injection import (
     render_model_for_prompt,
 )
 from app.observability.tracing import trace_node
+from app.orchestration.nodes.discovery import (
+    resolve_dependency_open_questions_from_short_answer,
+    resolve_environment_open_questions_from_short_answer,
+)
 from app.orchestration.state import GraphState, Stage
 from app.schemas.architecture import Environment
 from app.schemas.migration_context import DowntimeTolerance, MigrationContext
+from app.schemas.patches import AddOpenQuestionPatch, PatchSet
 
 logger = logging.getLogger(__name__)
 
@@ -47,14 +54,143 @@ def _coerce_downtime(value: str) -> DowntimeTolerance:
         return DowntimeTolerance.FLEXIBLE
 
 
+async def after_gate_intake_node(state: GraphState, gateway: LLMGateway, meter: SessionTokenMeter) -> dict:
+    """Before collecting migration context, catch post-Gate-1 architecture
+    corrections or target/source ambiguity. A message like "I forgot Redis in the
+    source" should discuss the accepted-model boundary before the context node
+    asks generic source/target/downtime questions."""
+
+    prompt = get_prompt("ingest_patches")
+    impact = state.get("request_impact")
+    impact_section = (
+        f"DETERMINISTIC REQUEST CLASSIFICATION:\n{render_request_impact_for_prompt(impact)}\n\n"
+        if impact is not None
+        else ""
+    )
+    user_prompt = (
+        "CURRENT_STAGE: AFTER_GATE_1\n"
+        "Gate 1 has already accepted the source architecture. If the user is correcting the accepted source "
+        "model, ask whether to revise that accepted source model or treat it as target-state planning input. "
+        "If the user is only giving migration context, emit no patches so context elicitation can continue.\n\n"
+        f"{impact_section}ACCEPTED ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}\n\n"
+        f"USER MESSAGE:\n{state.get('user_message', '')}"
+    )
+
+    try:
+        response = await gateway.complete(
+            tier=ModelTier.STRONG,
+            system_prompt=prompt.system,
+            user_prompt=user_prompt,
+            response_model=PatchSet,
+            meter=meter,
+            node_name="planning.after_gate_intake",
+        )
+    except StructuredOutputError as exc:
+        logger.error("planning after-gate intake failed: %s", exc)
+        return {
+            "error": "I couldn't process that message reliably. Could you rephrase it?",
+            "last_patch_results": [],
+        }
+
+    patch_set = resolve_dependency_open_questions_from_short_answer(
+        state["model"], state.get("user_message", ""), response.parsed
+    )
+    patch_set = resolve_environment_open_questions_from_short_answer(
+        state["model"], state.get("user_message", ""), patch_set
+    )
+    patch_set = drop_spurious_target_state_intake_questions(
+        state.get("user_message", ""), patch_set, state.get("request_impact")
+    )
+    return {"_patch_set": patch_set, "error": None}
+
+
+def drop_spurious_target_state_intake_questions(
+    user_message: str, patch_set: PatchSet, request_impact: RequestImpact | None = None
+) -> PatchSet:
+    """If the user is clearly providing migration context, don't let the
+    after-Gate-1 guard turn target-state details into a source-model confirmation
+    question. That guard is for source corrections, not normal planning input."""
+
+    if request_impact is not None and request_impact.intent == RequestIntent.TARGET_PLANNING:
+        is_migration_context = True
+    else:
+        is_migration_context = _looks_like_migration_context(user_message)
+
+    if not is_migration_context:
+        return patch_set
+
+    kept = [
+        patch
+        for patch in patch_set.patches
+        if not (
+            isinstance(patch, AddOpenQuestionPatch)
+            and _is_target_state_intake_question(patch.text)
+        )
+    ]
+    if len(kept) == len(patch_set.patches):
+        return patch_set
+    return PatchSet(patches=kept, narration="" if not kept else patch_set.narration)
+
+
+def _looks_like_migration_context(user_message: str) -> bool:
+    text = user_message.lower()
+    has_target_signal = any(
+        phrase in text
+        for phrase in (
+            "target is",
+            "target environment",
+            "target architecture",
+            "modernized",
+            "move to",
+            "migrate to",
+            "run ",
+            "host ",
+            "retain ",
+        )
+    )
+    has_planning_signal = any(
+        phrase in text
+        for phrase in (
+            "downtime",
+            "maintenance window",
+            "zero downtime",
+            "source is",
+            "source environment",
+            "ecs",
+            "fargate",
+            "eks",
+            "cloud run",
+            "kubernetes",
+            "rds",
+            "cloudfront",
+        )
+    )
+    return has_target_signal and has_planning_signal
+
+
+def _is_target_state_intake_question(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        "source" in lowered
+        and "target-state" in lowered
+        and ("revise" in lowered or "accepted" in lowered)
+    )
+
+
 async def elicit_context_node(state: GraphState, gateway: LLMGateway, meter: SessionTokenMeter) -> dict:
     """LLM + interrupt: free-text migration goal -> typed MigrationContext.
     If the model reports genuine ambiguity, we surface clarifying questions rather
     than guessing — a wrong value here corrupts every downstream decision."""
 
     prompt = get_prompt("elicit_migration_context")
+    impact = state.get("request_impact")
+    impact_section = (
+        f"DETERMINISTIC REQUEST CLASSIFICATION:\n{render_request_impact_for_prompt(impact)}\n\n"
+        if impact is not None
+        else ""
+    )
     user_prompt = (
-        f"ACCEPTED ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}\n\n"
+        f"{impact_section}ACCEPTED ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}\n\n"
         f"USER'S DESCRIPTION OF THE MIGRATION GOAL:\n{state.get('user_message', '')}"
     )
 
@@ -234,3 +370,22 @@ def assemble_plan_node(state: GraphState) -> dict:
         "_cutover": None,
         "_rollback": None,
     }
+
+
+async def estimate_cost_node(state: GraphState) -> dict:
+    """Deliverable 11 — Cost Estimate. Deterministic (real pricing-API lookups,
+    never an LLM call — see cost_estimator's module docstring); runs after the
+    plan exists since it needs component_mappings[].target_cloud_provider /
+    target_service_category, which per_component_planning just produced."""
+
+    plan = state["plan"]
+    summary = await estimate_plan_cost(state["model"], plan)
+    trace_node(
+        node_name="planning.estimate_cost",
+        session_id=state.get("session_id", ""),
+        metadata={
+            "total_monthly_usd": summary.total_monthly_usd,
+            "unestimated_count": len(summary.unestimated_component_ids),
+        },
+    )
+    return {"plan": plan.model_copy(update={"cost_summary": summary})}

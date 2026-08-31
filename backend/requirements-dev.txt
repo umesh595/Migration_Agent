@@ -7,3 +7,6 @@ pytest-cov==7.1.0
 asgi-lifespan==2.1.0
 ruff==0.16.2
 pypdf==6.16.2
+
+# scripts/refresh_aws_pricing.py only — not imported by the app itself.
+ijson==3.5.1

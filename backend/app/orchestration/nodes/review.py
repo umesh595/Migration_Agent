@@ -12,23 +12,143 @@ import logging
 
 from app.config import get_settings
 from app.core.plan_assembler import unresolved_findings_to_risks
+from app.core.request_intelligence import RequestIntent, render_request_impact_for_prompt
 from app.core.review_rules_engine import run_rules
 from app.llm.base import ModelTier, StructuredOutputError
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.prompts.registry import get_prompt
-from app.llm.schemas import ComponentPlanLLMOutput, SemanticReviewJudgeOutput, SemanticReviewOutput
+from app.llm.schemas import ComponentPlanLLMOutput, ReviewDiscussionOutput, SemanticReviewJudgeOutput, SemanticReviewOutput
 from app.llm.state_injection import (
     render_component_planning_context,
+    render_model_for_prompt,
     render_plan_for_review,
     render_review_for_judge,
 )
 from app.observability.tracing import trace_node
+from app.orchestration.nodes.discovery import (
+    resolve_dependency_open_questions_from_short_answer,
+    resolve_environment_open_questions_from_short_answer,
+)
 from app.orchestration.state import GraphState, Stage
 from app.schemas.findings import Finding, FindingSeverity, FindingSource, ResolutionStatus
 from app.schemas.migration_plan import PlanStatus
+from app.schemas.patches import PatchSet
 from app.schemas.review_quality import ReviewQualityScore
 
 logger = logging.getLogger(__name__)
+
+
+async def review_discuss_ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionTokenMeter) -> dict:
+    """The review-phase half of the shared discuss brain: SAME ingest_patches
+    prompt discovery uses (one shared reasoning behavior, two moments — not two
+    prompts to keep in sync), but the injected context also includes what's
+    already been GENERATED (the plan: target architecture, waves, cutover/
+    rollback, risks) — so relevance can be judged against a genuine gap in the
+    plan too, not only against the discovered architecture model. Without this,
+    a request that closes an obvious gap in the plan (e.g. a risk already flags
+    'no caching strategy') would look unjustified even though the plan itself
+    already establishes the need."""
+
+    plan = state.get("plan")
+    context = state.get("migration_context")
+    impact = state.get("request_impact")
+    impact_section = (
+        f"DETERMINISTIC REQUEST CLASSIFICATION:\n{render_request_impact_for_prompt(impact)}\n\n"
+        if impact is not None
+        else ""
+    )
+    plan_section = (
+        "\n\nALREADY-GENERATED MIGRATION PLAN (what exists so far — a request that closes a gap here "
+        "is justified even if the architecture model alone doesn't show it):\n"
+        f"{render_plan_for_review(state['model'], plan, context)}"
+        if plan is not None and context is not None
+        else ""
+    )
+    if _is_review_explanation_request(state.get("user_message", ""), impact) and plan is not None and context is not None:
+        prompt = get_prompt("review_discussion")
+        user_prompt = (
+            f"{impact_section}CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}"
+            f"{plan_section}\n\nUSER REVIEW QUESTION:\n{state['user_message']}"
+        )
+
+        try:
+            response = await gateway.complete(
+                tier=ModelTier.STRONG,
+                system_prompt=prompt.system,
+                user_prompt=user_prompt,
+                response_model=ReviewDiscussionOutput,
+                meter=meter,
+                node_name="review.discuss_answer",
+            )
+        except StructuredOutputError as exc:
+            logger.error("review discussion answer failed for session %s: %s", state.get("session_id"), exc)
+            return {
+                "error": "I couldn't answer that review question reliably. Could you rephrase it?",
+                "last_patch_results": [],
+            }
+
+        return {"_patch_set": PatchSet(patches=[], narration=response.parsed.answer), "error": None}
+
+    prompt = get_prompt("ingest_patches")
+    user_prompt = (
+        "CURRENT_STAGE: AFTER_GATE_1\n"
+        "Gate 1 has already accepted the source architecture; treat new source-model changes as requiring "
+        "explicit confirmation unless they resolve an existing open question.\n\n"
+        f"{impact_section}CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}"
+        f"{plan_section}\n\nUSER MESSAGE:\n{state['user_message']}"
+    )
+
+    try:
+        response = await gateway.complete(
+            tier=ModelTier.STRONG,
+            system_prompt=prompt.system,
+            user_prompt=user_prompt,
+            response_model=PatchSet,
+            meter=meter,
+            node_name="review.discuss_ingest",
+        )
+    except StructuredOutputError as exc:
+        logger.error("review discuss ingest failed for session %s: %s", state.get("session_id"), exc)
+        return {
+            "error": "I couldn't process that message reliably. Could you rephrase it?",
+            "last_patch_results": [],
+        }
+
+    patch_set = resolve_dependency_open_questions_from_short_answer(
+        state["model"], state.get("user_message", ""), response.parsed
+    )
+    patch_set = resolve_environment_open_questions_from_short_answer(
+        state["model"], state.get("user_message", ""), patch_set
+    )
+    return {"_patch_set": patch_set, "error": None}
+
+
+def _is_review_explanation_request(user_message: str, impact=None) -> bool:
+    if getattr(impact, "intent", None) == RequestIntent.REVIEW_EXPLANATION:
+        return True
+    text = user_message.lower()
+    change_verbs = ("add ", "remove ", "delete ", "change ", "replace ", "switch ", "use ", "move ")
+    explanation_markers = (
+        "why",
+        "explain",
+        "compare",
+        "instead of",
+        "better than",
+        "review the",
+        "check the",
+        "is this",
+        "are these",
+        "tell me if",
+        "effort",
+        "cost",
+        "efficiency",
+        "risk",
+        "rollback",
+        "validation",
+    )
+    has_explanation_marker = any(marker in text for marker in explanation_markers) or "?" in text
+    has_change_intent = any(verb in text for verb in change_verbs) and "instead of" not in text
+    return has_explanation_marker and not has_change_intent
 
 
 def rules_review_node(state: GraphState) -> dict:
@@ -209,6 +329,8 @@ async def refine_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
         component_plan.rollback_notes = update.rollback_notes
         component_plan.disposition = update.disposition
         component_plan.estimated_effort = update.estimated_effort
+        component_plan.effort_breakdown = update.effort_breakdown
+        component_plan.efficiency_breakdown = update.efficiency_breakdown
         # wave_index deliberately not touched.
 
     for mapping in refreshed.component_mappings:

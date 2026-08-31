@@ -1,19 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 
-import { acceptModel, ApiError, approvePlan, getAudit, getFindings, getReviewQuality, getSessionState } from "@/lib/api";
+import { acceptModel, ApiError, approvePlan, getAudit, getFindings, getSessionState } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
-import type { Finding, PatchAuditEntry, ReviewQualityScore, SessionState } from "@/lib/types";
-import { ArchitectureCanvas } from "@/components/ArchitectureCanvas";
+import type { Finding, PatchAuditEntry, SessionState } from "@/lib/types";
 import { AuditTrailPanel } from "@/components/AuditTrailPanel";
-import { ChatPanel } from "@/components/ChatPanel";
+import { ChatPanel, type ChatDraft } from "@/components/ChatPanel";
 import { ExportButtons } from "@/components/ExportButtons";
-import { FindingsPanel } from "@/components/FindingsPanel";
 import { NavBar } from "@/components/NavBar";
-import { PlanViewer } from "@/components/PlanViewer";
-import { ReviewQualityPanel } from "@/components/ReviewQualityPanel";
 import { StatusBadge } from "@/components/StatusBadge";
 
 export default function SessionWorkspacePage() {
@@ -23,8 +20,8 @@ export default function SessionWorkspacePage() {
 
   const [state, setState] = useState<SessionState | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
-  const [reviewQuality, setReviewQuality] = useState<ReviewQualityScore[]>([]);
   const [auditRecords, setAuditRecords] = useState<PatchAuditEntry[]>([]);
+  const [chatDraft, setChatDraft] = useState<ChatDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gateBusy, setGateBusy] = useState(false);
   const needsMigrationContext = state?.session.status === "planning" && !state.migration_context && !state.plan;
@@ -36,12 +33,8 @@ export default function SessionWorkspacePage() {
       const { records } = await getAudit(sessionId);
       setAuditRecords(records);
       if (nextState.plan) {
-        const [{ findings: f }, { scores }] = await Promise.all([
-          getFindings(sessionId),
-          getReviewQuality(sessionId),
-        ]);
+        const { findings: f } = await getFindings(sessionId);
         setFindings(f);
-        setReviewQuality(scores);
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "Could not load this session.");
@@ -79,6 +72,13 @@ export default function SessionWorkspacePage() {
     }
   }
 
+  function handleReviewPatch(draft: string) {
+    setChatDraft({ id: crypto.randomUUID(), text: draft });
+    window.requestAnimationFrame(() => {
+      document.getElementById("conversation-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   if (authLoading || !user) return null;
 
   const status = state?.session.status;
@@ -86,13 +86,37 @@ export default function SessionWorkspacePage() {
     (f) => f.severity === "error" && f.resolution_status === "open"
   );
 
-  const STAGES: { key: string; label: string; icon: string }[] = [
-    { key: "discovery", label: "Discovery", icon: "🔍" },
-    { key: "planning", label: "Planning", icon: "🧭" },
-    { key: "review", label: "Review", icon: "🛡️" },
-    { key: "exported", label: "Exported", icon: "📦" },
+  const STAGES: { key: string; label: string; step: string }[] = [
+    { key: "discovery", label: "Discovery", step: "1" },
+    { key: "planning", label: "Planning", step: "2" },
+    { key: "review", label: "Review", step: "3" },
+    { key: "exported", label: "Exported", step: "4" },
   ];
   const currentStageIndex = STAGES.findIndex((s) => s.key === status);
+  const stageGuide = status
+    ? {
+        discovery: {
+          title: "Current task: build the source architecture model",
+          body: "The agent extracts components, dependencies, criticality, assumptions, and open questions from your input. Suggested patches explain what changed and why before the model is accepted.",
+          review: "Check that the current-state model matches reality. Fix missing components or wrong dependencies before Gate 1.",
+        },
+        planning: {
+          title: "Current task: create the target plan",
+          body: "The agent captures migration context, computes dependency waves, drafts component plans, estimates effort and cost, and prepares validation, cutover, and rollback strategy.",
+          review: "Answer only material questions. The app should avoid asking form-fill questions when it can infer safely.",
+        },
+        review: {
+          title: "Current task: challenge and finalize the plan",
+          body: "Deterministic rules and semantic review inspect dependency risks, coexistence, rollback, cost, efficiency, and missing justifications.",
+          review: "Review open findings, target architecture, effort/cost assumptions, and patch reasoning before approving Gate 2.",
+        },
+        exported: {
+          title: "Current task: download the approved package",
+          body: "The architecture model and migration plan are finalized. Exports reflect the approved plan and documented residual risks.",
+          review: "Use the export package for handoff. New changes should start a new study or revision flow.",
+        },
+      }[status]
+    : null;
 
   return (
     <div className="min-h-screen">
@@ -107,7 +131,24 @@ export default function SessionWorkspacePage() {
               Model v{state?.model.version} · {state?.model.components.length ?? 0} components
             </p>
           </div>
-          {status && <StatusBadge status={status} pulse />}
+          <div className="flex flex-wrap items-center gap-2">
+            {state && (
+              <Link href={`/sessions/${sessionId}/architecture`} className="btn-secondary !py-2 text-xs">
+                Current architecture
+              </Link>
+            )}
+            {state && (
+              <Link href={`/sessions/${sessionId}/review-findings`} className="btn-secondary !py-2 text-xs">
+                View Review Findings
+              </Link>
+            )}
+            {state && (
+              <Link href={`/sessions/${sessionId}/migration-plan`} className="btn-secondary !py-2 text-xs">
+                Migration Plan
+              </Link>
+            )}
+            {status && <StatusBadge status={status} pulse />}
+          </div>
         </div>
 
         {/* Stage stepper — a visual spine showing where this study is in the pipeline */}
@@ -129,7 +170,7 @@ export default function SessionWorkspacePage() {
                               : "border border-white/15 bg-white/[0.03] text-slate-500"
                         }`}
                       >
-                        {isDone ? "✓" : stage.icon}
+                        {isDone ? "OK" : stage.step}
                       </div>
                       <span
                         className={`text-[11px] font-medium ${isActive ? "text-white" : isDone ? "text-slate-300" : "text-slate-500"}`}
@@ -140,7 +181,7 @@ export default function SessionWorkspacePage() {
                     {i < STAGES.length - 1 && (
                       <div
                         className={`mx-2 h-0.5 flex-1 rounded-full transition-colors duration-300 ${
-                          isDone ? "bg-gradient-to-r from-brand-500 to-brand-400" : "bg-white/10"
+                          isDone ? "bg-gradient-to-r from-brand-500 to-teal-400" : "bg-white/10"
                         }`}
                       />
                     )}
@@ -148,6 +189,18 @@ export default function SessionWorkspacePage() {
                 );
               })}
             </div>
+            {stageGuide && (
+              <div className="mt-4 grid gap-3 border-t border-white/[0.06] pt-4 md:grid-cols-[1.25fr_1fr]">
+                <div>
+                  <p className="text-sm font-semibold text-slate-100">{stageGuide.title}</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-400">{stageGuide.body}</p>
+                </div>
+                <div className="rounded-lg border border-brand-400/15 bg-brand-400/[0.045] p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-brand-200">What to review now</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">{stageGuide.review}</p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -158,27 +211,25 @@ export default function SessionWorkspacePage() {
         )}
 
         {!state ? (
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <div className="card h-72 shimmer" />
-            <div className="card h-72 shimmer" />
+          <div className="w-full">
+            <div className="card min-h-[62vh] shimmer" />
           </div>
         ) : (
           <>
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <div className="space-y-4">
+          <div className="w-full space-y-4">
               {needsMigrationContext && (
                 <div className="card-glow border-sky-400/25 bg-sky-500/[0.06] animate-fade-up">
                   <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-sky-200">
-                    <span className="text-base">🧭</span> Gate 1 passed — migration context needed
+                    Gate 1 passed — migration context needed
                   </h3>
-                  <p className="mb-3 text-xs text-sky-300/80">
+                  <p className="mb-3 text-xs leading-5 text-sky-300/80">
                     The architecture model is frozen. Send the migration goal so the Planning Agent can build the
                     target architecture, sequence, cutover, rollback, and review package.
                   </p>
-                  <p className="mb-3 text-xs text-sky-300/80">
+                  <p className="mb-3 text-xs leading-5 text-sky-300/80">
                     After you send the goal, larger models can take a few minutes while planning and review run.
                   </p>
-                  <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-300">
+                  <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-300">
                     <div className="font-medium text-slate-200">Include these details:</div>
                     <ul className="mt-1 list-disc space-y-1 pl-5">
                       <li>source environment and target environment</li>
@@ -212,30 +263,37 @@ export default function SessionWorkspacePage() {
                   </div>
                 </div>
               ) : (
+                <div id="conversation-panel">
                 <ChatPanel
                   sessionId={sessionId}
                   onTurnComplete={refresh}
                   workflowStatus={status}
                   componentCount={state.model.components.length}
+                  draft={chatDraft}
                   placeholder={
                     status === "discovery"
                       ? "Describe your existing system, e.g. \"We have a customer portal, backend APIs, PostgreSQL, event streaming, and a data warehouse.\""
                       : status === "planning"
                         ? "Describe your migration goal, e.g. \"Move everything from on-prem to AWS, 4-hour maintenance window is acceptable.\""
-                        : "Planning is complete. Review the plan and findings, then approve when ready."
+                        : "Discuss the plan, e.g. \"Also add Kafka for event streaming\" — I'll ask before adding anything not grounded in what's already here."
                   }
                 />
+                </div>
               )}
 
               {status === "discovery" && (
                 <div className="card-glow animate-fade-up">
                   <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-slate-200">
-                    <span className="text-base">🔍</span> Gate 1 — Accept the architecture
+                    Gate 1 — Accept the architecture
                   </h3>
                   <p className="mb-3 text-xs text-slate-500">
                     Migration planning is unreachable until you accept this model — this is a structural gate,
                     not a suggestion.
                   </p>
+                  <div className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.025] p-3 text-xs leading-5 text-slate-400">
+                    Approval means the discovered source architecture is good enough for planning. Later source changes
+                    should be treated as explicit revisions because they can change sequencing, risk, effort, and rollback.
+                  </div>
                   <button
                     type="button"
                     className="btn-primary"
@@ -250,7 +308,7 @@ export default function SessionWorkspacePage() {
               {status === "review" && (
                 <div className="card-glow animate-fade-up">
                   <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-slate-200">
-                    <span className="text-base">🛡️</span> Gate 2 — Approve the plan
+                    Gate 2 — Approve the plan
                   </h3>
                   {hasBlockingFindings ? (
                     <p className="mb-3 text-xs text-amber-300">
@@ -261,39 +319,19 @@ export default function SessionWorkspacePage() {
                   ) : (
                     <p className="mb-3 text-xs text-slate-500">Review is complete with no open blocking findings.</p>
                   )}
+                  <div className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.025] p-3 text-xs leading-5 text-slate-400">
+                    Approval means you accept the target architecture, migration waves, effort and cost assumptions,
+                    validation plan, cutover strategy, rollback approach, and any documented residual risks.
+                  </div>
                   <button type="button" className="btn-primary" disabled={gateBusy} onClick={handleApprovePlan}>
                     {gateBusy ? "Approving…" : "Approve final plan"}
                   </button>
                 </div>
               )}
-
-            </div>
-
-            <div className="space-y-4">
-              <ArchitectureCanvas model={state.model} waves={state.plan?.waves} sessionId={sessionId} />
-
-              {state.model.open_questions.some((q) => !q.resolved) && (
-                <div className="card">
-                  <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
-                    <span className="text-base">❓</span> Open questions
-                  </h3>
-                  <ul className="space-y-1.5 text-sm text-slate-300">
-                    {state.model.open_questions
-                      .filter((q) => !q.resolved)
-                      .map((q) => (
-                        <li key={q.id} className="flex gap-2">
-                          <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
-                          {q.text}
-                        </li>
-                      ))}
-                  </ul>
-                </div>
-              )}
-
               {state.migration_context && (
                 <div className="card">
                   <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-200">
-                    <span className="text-base">🌐</span> Migration context
+                    Migration context
                   </h3>
                   <dl className="grid grid-cols-2 gap-y-2 text-sm">
                     <dt className="text-slate-500">Source</dt>
@@ -316,36 +354,14 @@ export default function SessionWorkspacePage() {
                   )}
                 </div>
               )}
-
-              {findings.length > 0 && (
-                <div>
-                  <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
-                    <span className="text-base">⚠️</span> Review findings
-                  </h3>
-                  <FindingsPanel findings={findings} sessionId={sessionId} onChanged={refresh} />
-                </div>
-              )}
-
-              <ReviewQualityPanel scores={reviewQuality} />
-
-            </div>
           </div>
           <div className="mt-6 animate-fade-up">
             <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
-              <span className="text-base">📜</span> Patch audit trail
+              Patch audit trail
             </h3>
-            <AuditTrailPanel records={auditRecords} />
+            <AuditTrailPanel records={auditRecords} onReviewPatch={status === "exported" ? undefined : handleReviewPatch} />
           </div>
           </>
-        )}
-
-        {state?.plan && (
-          <div className="mt-8 animate-fade-up">
-            <h2 className="mb-4 font-display text-xl font-bold text-white">
-              Migration <span className="text-gradient">plan</span>
-            </h2>
-            <PlanViewer plan={state.plan} model={state.model} />
-          </div>
         )}
       </main>
     </div>

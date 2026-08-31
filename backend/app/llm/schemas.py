@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from app.schemas.migration_plan import SevenR, ValidationCheck
+from app.schemas.cost import CloudProvider, ServiceCategory
+from app.schemas.migration_plan import EfficiencyBreakdown, EffortBreakdown, SevenR, ValidationCheck
 
 
 class GeneratedQuestion(BaseModel):
@@ -50,15 +51,26 @@ class ComponentPlanLLMOutput(BaseModel):
     component_id: str
     target_description: str = Field(description="What this component looks like/becomes in the target environment.")
     disposition: SevenR
+    target_cloud_provider: CloudProvider = Field(
+        description="The cloud provider target_description actually names — classify what you just wrote, "
+        "don't leave it unknown when target_description names a concrete AWS/Azure/GCP service."
+    )
+    target_service_category: ServiceCategory = Field(
+        description="The category of the SPECIFIC service named in target_description, e.g. a managed "
+        "Postgres/MySQL service is managed_database, an object store is object_storage."
+    )
     steps: list[str]
     validation_checks: list[ValidationCheck]
     rollback_notes: str
     estimated_effort: str | None = None
+    effort_breakdown: EffortBreakdown | None = None
+    efficiency_breakdown: EfficiencyBreakdown | None = None
     dependencies_considered: list[str] = Field(default_factory=list)
 
 
 class CutoverReviewOutput(BaseModel):
     approach: str
+    rationale: str | None = None
     steps: list[str]
     go_no_go_criteria: list[str]
     communication_plan: str
@@ -66,6 +78,7 @@ class CutoverReviewOutput(BaseModel):
 
 class RollbackPlanOutput(BaseModel):
     approach: str
+    rationale: str | None = None
     triggers: list[str]
     steps: list[str]
     data_reconciliation_notes: str | None = None
@@ -73,6 +86,18 @@ class RollbackPlanOutput(BaseModel):
 
 class TargetArchitectureOutput(BaseModel):
     description: str = Field(description="Narrative description of the target architecture as a whole.")
+
+
+class ReviewDiscussionOutput(BaseModel):
+    """Grounded answer for review-stage questions that discuss the generated plan
+    without asking to mutate the architecture model."""
+
+    answer: str = Field(
+        description=(
+            "Answer shown to the user. It must cite concrete plan facts, affected components, tradeoffs, "
+            "validation, and rollback where relevant."
+        )
+    )
 
 
 class LLMFindingOutput(BaseModel):
