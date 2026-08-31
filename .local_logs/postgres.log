@@ -276,3 +276,20 @@
 	
 2026-08-31 20:33:49.160 IST [38984] FATAL:  could not open shared memory segment "Global/PostgreSQL.4084878306": No such file or directory
 2026-08-31 20:33:49.161 IST [16980] FATAL:  could not open shared memory segment "Global/PostgreSQL.4084878306": No such file or directory
+2026-08-31 20:33:52.376 IST [2420] LOG:  starting PostgreSQL 18.1 on x86_64-windows, compiled by msvc-19.44.35222, 64-bit
+2026-08-31 20:33:52.417 IST [2420] LOG:  listening on IPv6 address "::1", port 55432
+2026-08-31 20:33:52.417 IST [2420] LOG:  listening on IPv4 address "127.0.0.1", port 55432
+2026-08-31 20:33:52.967 IST [34424] LOG:  database system was interrupted; last known up at 2026-08-31 20:23:27 IST
+2026-08-31 20:33:57.874 IST [34424] LOG:  database system was not properly shut down; automatic recovery in progress
+2026-08-31 20:33:57.903 IST [34424] LOG:  redo starts at 0/36DD5F8
+2026-08-31 20:33:57.903 IST [34424] LOG:  invalid record length at 0/36DD738: expected at least 24, got 0
+2026-08-31 20:33:57.904 IST [34424] LOG:  redo done at 0/36DD700 system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-08-31 20:33:57.943 IST [39304] LOG:  checkpoint starting: end-of-recovery immediate wait
+2026-08-31 20:33:58.038 IST [39304] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.018 s, sync=0.022 s, total=0.108 s; sync files=2, longest=0.013 s, average=0.011 s; distance=0 kB, estimate=0 kB; lsn=0/36DD738, redo lsn=0/36DD738
+2026-08-31 20:33:58.065 IST [2420] LOG:  database system is ready to accept connections
+2026-08-31 21:33:46.650 IST [39304] LOG:  checkpoint starting: time
+2026-08-31 21:33:47.035 IST [39304] LOG:  checkpoint complete: wrote 3 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.323 s, sync=0.015 s, total=0.385 s; sync files=3, longest=0.010 s, average=0.005 s; distance=12 kB, estimate=12 kB; lsn=0/36E07D0, redo lsn=0/36E0778
+2026-08-31 21:43:46.054 IST [39304] LOG:  checkpoint starting: time
+2026-08-31 21:43:54.619 IST [39304] LOG:  checkpoint complete: wrote 77 buffers (0.5%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=8.490 s, sync=0.045 s, total=8.566 s; sync files=38, longest=0.004 s, average=0.002 s; distance=449 kB, estimate=449 kB; lsn=0/3750FA0, redo lsn=0/3750F10
+2026-08-31 22:08:46.652 IST [39304] LOG:  checkpoint starting: time
+2026-08-31 22:08:46.809 IST [39304] LOG:  checkpoint complete: wrote 1 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.120 s, sync=0.004 s, total=0.158 s; sync files=1, longest=0.004 s, average=0.004 s; distance=7 kB, estimate=405 kB; lsn=0/3752EB8, redo lsn=0/3752E60

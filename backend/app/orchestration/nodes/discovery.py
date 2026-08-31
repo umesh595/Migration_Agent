@@ -90,7 +90,100 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
     patch_set = draft_minimal_architecture_when_user_says_proceed(
         state["model"], state.get("request_impact"), patch_set
     )
+    patch_set = capture_unpatched_factual_answer_as_assumption(
+        state["model"], state.get("user_message", ""), state.get("request_impact"), patch_set
+    )
+    patch_set = auto_confirm_directly_stated_assumptions(state["model"], state.get("request_impact"), patch_set)
     return {"_patch_set": patch_set, "error": None}
+
+
+def auto_confirm_directly_stated_assumptions(
+    model: ArchitectureModel, request_impact: object, patch_set: PatchSet
+) -> PatchSet:
+    """Generalizes the auto-confirm pattern already used for target-context
+    answers to every CURRENT_FACT turn (the classification for "the message
+    describes/refines architecture facts" — i.e. the user directly telling us
+    about their own system, not a target-state preference or a terse
+    confirmation of something else). The ingest prompt separately routes
+    genuine LLM guesses (like a role-based criticality default) around
+    add_assumption entirely — narrated and self-standing, never a pending
+    question — so by the time add_assumption is used on a CURRENT_FACT turn,
+    it is almost always the LLM paraphrasing something the user just said
+    back, not an open guess. Leaving that unconfirmed turns it into a
+    recurring UNCONFIRMED_ASSUMPTION gap that asks the user to confirm their
+    own direct statement, verbatim, on every later turn regardless of topic —
+    exactly the "why is it asking the same thing again" complaint. Auto-
+    confirming closes that gap the same turn it was opened.
+    """
+
+    if getattr(request_impact, "intent", None) != RequestIntent.CURRENT_FACT:
+        return patch_set
+
+    already_confirmed_ids = {
+        patch.assumption_id for patch in patch_set.patches if isinstance(patch, ConfirmAssumptionPatch)
+    }
+    base_count = len(model.assumptions)
+    confirms: list[ConfirmAssumptionPatch] = []
+    seen_adds = 0
+    for patch in patch_set.patches:
+        if not isinstance(patch, AddAssumptionPatch):
+            continue
+        seen_adds += 1
+        predicted_id = f"A{base_count + seen_adds}"
+        if predicted_id not in already_confirmed_ids:
+            confirms.append(ConfirmAssumptionPatch(assumption_id=predicted_id))
+
+    if not confirms:
+        return patch_set
+    return PatchSet(patches=[*patch_set.patches, *confirms], narration=patch_set.narration)
+
+
+def capture_unpatched_factual_answer_as_assumption(
+    model: ArchitectureModel, user_message: str, request_impact: object, patch_set: PatchSet
+) -> PatchSet:
+    """Safety net for the most common cause of a repeated BASIC_APP_REQUIREMENTS
+    question: the LLM narrates a fact (PII fields, async behavior, scale,
+    compliance posture) — narration reads as if the answer was captured — but
+    never emits a patch recording it. gap_analyzer only scans actual model
+    data (components/dependencies/assumptions/resolved questions), never
+    narration text, so an unpatched answer leaves the same gap looking
+    unanswered and the identical question repeats next turn. If a substantive
+    factual message produced literally no model-affecting patch, record it
+    verbatim as an assumption rather than let it evaporate with the turn.
+    """
+
+    if getattr(request_impact, "intent", None) not in (RequestIntent.CURRENT_FACT, None):
+        return patch_set
+    if "?" in user_message or len(user_message.split()) < 6:
+        return patch_set
+
+    has_model_patch = any(
+        isinstance(
+            patch,
+            (
+                AddComponentPatch,
+                UpdateComponentPatch,
+                AddDependencyPatch,
+                AddAssumptionPatch,
+                ConfirmAssumptionPatch,
+                ResolveOpenQuestionPatch,
+            ),
+        )
+        for patch in patch_set.patches
+    )
+    if has_model_patch:
+        return patch_set
+
+    return PatchSet(
+        patches=[
+            *patch_set.patches,
+            AddAssumptionPatch(
+                text=f"User-provided detail not otherwise captured: {user_message.strip()}",
+                related_component_ids=[component.id for component in model.components],
+            ),
+        ],
+        narration=patch_set.narration,
+    )
 
 
 def draft_minimal_architecture_when_user_says_proceed(
@@ -413,6 +506,19 @@ def resolve_environment_open_questions_from_short_answer(
         return patch_set
 
     normalized = " ".join(user_message.lower().replace("-", " ").split())
+    # "it's on a normal server right now, just want to move it to GCP" doesn't
+    # trip the TARGET_PLANNING classifier (no recognized migration-context
+    # term alongside the target phrase), so the guard above alone lets this
+    # slip through and stamp the TARGET provider as the CURRENT environment —
+    # the same class of bug the TARGET_PLANNING guard exists to prevent, just
+    # for a phrasing that classifier doesn't catch. A provider name preceded
+    # by "move/moving/migrate/migrating to" is describing where it's going,
+    # never where it is now.
+    if any(
+        phrase in normalized
+        for phrase in ("move to", "moving to", "migrate to", "migrating to", "want to move", "plan to move")
+    ):
+        return patch_set
     detected = _detect_environment_answer(normalized)
     if detected is None and normalized in {"yes", "y", "yeah", "yep", "correct", "yes correct", "that's correct"}:
         context_text = " ".join(

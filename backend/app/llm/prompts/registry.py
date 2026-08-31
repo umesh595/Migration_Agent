@@ -30,7 +30,7 @@ Critical operating rules:
 
 INGEST_PATCHES = Prompt(
     id="ingest_patches",
-    version="v14",
+    version="v15",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: convert the user's message into a set of PATCHES against the current architecture model.
@@ -222,11 +222,27 @@ Rules:
   say "without context" when the previous agent message is present. If the previous agent message proposed
   a specific dependency hypothesis and the user says yes, emit the corresponding add_dependency patches.
   If they answer a hosting/environment question, emit update_component environment patches as appropriate.
-- If the previous agent message asked about basic application requirements and the user says an area is
-  absent/not applicable (for example "no payments", "no notifications", "no reporting", "no integrations",
-  "no special compliance"), emit add_assumption patches recording those negative facts. A requirement area
-  counts as answered when the user confirms it exists OR explicitly says it does not apply; do not keep
-  asking for an absent capability.
+- IF THE PREVIOUS AGENT MESSAGE ASKED ABOUT BASIC APPLICATION REQUIREMENTS (auth/roles, async messaging/
+  events/jobs, reporting/analytics, security/audit/monitoring/compliance/retention/PII, integrations,
+  scale/traffic/data volume, user access channel, notifications, files/storage), the user's answer to EACH
+  topic MUST become an add_assumption patch (or add_component/update_component when it names a real new
+  part) — for BOTH directions, not just the negative one:
+    - NEGATIVE/absent ("no payments", "no job queue", "nothing fancy for compliance", "no real monitoring"):
+      emit add_assumption recording that fact, e.g. "No dedicated job queue; the booking confirmation email
+      is sent asynchronously with no advanced monitoring in place."
+    - POSITIVE/factual detail ("PII is just name/email/phone", "roughly 50k users", "sends an email after
+      booking"): emit add_assumption recording that fact too, e.g. "PII stored is limited to name, email,
+      and phone; no special compliance framework (SOC2/HIPAA/GDPR) is in scope." Do NOT just restate this in
+      narration and skip the patch — narration is shown to the user once and then discarded; it is NOT part
+      of the model gap-analysis reads. If you narrate a fact about scale, PII, compliance, monitoring, or
+      async/messaging behavior without ALSO emitting an add_assumption patch containing that same fact, the
+      app will conclude that topic is still unanswered and ask the identical question again next turn — this
+      is the single most common cause of a repeated question, so treat it as a hard requirement, not a
+      style preference. When one message answers several topics, emit one add_assumption per topic (or one
+      combined assumption that plainly names each topic) so every one of them is durably captured.
+  A requirement area counts as answered when the user confirms it exists (with an assumption capturing what
+  it is) OR explicitly says it does not apply (with an assumption recording that); do not keep asking about a
+  topic the user has already answered either way.
 - If the user states how business-critical a component is (e.g. "tier-1", "business-critical",
   "best-effort", "not critical"), emit update_component with that component's `criticality` field set —
   a criticality gap only clears once the field is actually set, restating the answer in narration alone

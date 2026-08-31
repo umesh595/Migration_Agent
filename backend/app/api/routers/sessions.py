@@ -290,7 +290,15 @@ async def post_message(
         try:
             try:
                 graph_started = False
-                for attempt in range(2):
+                # Up to 3 attempts: a checkpoint written under an older code
+                # version (a schema field/enum that changed shape since it was
+                # written) can fail to decode even immediately after a reset,
+                # since the reset only guarantees an EMPTY thread for THIS
+                # retry — it does not guarantee the retry itself won't hit some
+                # other stale row. One retry wasn't always enough in practice;
+                # bail out for real (rather than silently loop) once nothing
+                # has streamed after 3 fresh-thread attempts.
+                for attempt in range(3):
                     try:
                         async for chunk in graph.astream(
                             initial, config=_thread_config(session.langgraph_thread_id), stream_mode="updates"
@@ -308,12 +316,14 @@ async def post_message(
                                     ),
                                 }
                         break
-                    except UnicodeDecodeError:
-                        if attempt > 0 or graph_started:
+                    except (UnicodeDecodeError, UnicodeError):
+                        if graph_started or attempt == 2:
                             raise
                         logger.warning(
-                            "checkpoint decode failed for session %s; resetting LangGraph thread and retrying",
+                            "checkpoint decode failed for session %s (attempt %d); resetting LangGraph "
+                            "thread and retrying",
                             session.id,
+                            attempt,
                         )
                         await session_service.reset_langgraph_thread(db, session)
                         final_state = None

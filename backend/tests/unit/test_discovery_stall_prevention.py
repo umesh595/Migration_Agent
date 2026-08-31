@@ -8,13 +8,15 @@ from app.core.patch_applier import apply_patch_set
 from app.core.request_intelligence import RequestIntent, classify_user_request
 from app.orchestration.nodes.discovery import (
     _adapt_gaps_to_latest_user_message,
+    auto_confirm_directly_stated_assumptions,
+    capture_unpatched_factual_answer_as_assumption,
     draft_minimal_architecture_when_user_says_proceed,
     model_has_confirmed_greenfield_fact,
     resolve_environment_open_questions_from_short_answer,
     resolve_sparse_intake_open_question_from_target_context_answer,
 )
 from app.schemas.architecture import ArchitectureModel, Assumption, Component, OpenQuestion, WorkloadType
-from app.schemas.patches import AddComponentPatch, PatchOp, PatchSet
+from app.schemas.patches import AddAssumptionPatch, AddComponentPatch, PatchOp, PatchSet
 
 
 def test_target_context_answer_is_classified_as_target_planning_not_current_fact():
@@ -164,6 +166,99 @@ def test_confirmed_greenfield_fact_suppresses_current_hosting_question_on_a_late
     assert GapCategory.MISSING_ENVIRONMENT not in {g.category for g in adapted}
 
 
+def test_unpatched_factual_answer_gets_captured_as_an_assumption():
+    """Regression for the live-reported repeat: the LLM narrated the user's
+    async/PII/compliance/scale answer but emitted zero patches for it, so
+    gap_analyzer's keyword scan over the model found nothing there and asked
+    the identical basic-app-requirements question again next turn."""
+
+    model = ArchitectureModel(
+        components=[Component(id="database", name="Database", workload_type=WorkloadType.DATABASE)]
+    )
+    message = (
+        "booking confirmation email goes out kinda async i think, no big job queue as far as i know, "
+        "no real monitoring right now, PII is just name/email/phone stored in db, nothing fancy for compliance"
+    )
+    impact = classify_user_request(message)
+
+    result = capture_unpatched_factual_answer_as_assumption(model, message, impact, PatchSet(patches=[], narration="noted"))
+
+    assumption_patches = [p for p in result.patches if p.op == PatchOp.ADD_ASSUMPTION]
+    assert len(assumption_patches) == 1
+    assert "async" in assumption_patches[0].text.lower()
+    assert "compliance" in assumption_patches[0].text.lower()
+
+
+def test_unpatched_factual_answer_backup_is_a_noop_when_the_llm_already_patched_something():
+    model = ArchitectureModel()
+    message = "the booking confirmation email is sent asynchronously with no job queue"
+    impact = classify_user_request(message)
+    llm_patch_set = PatchSet(
+        patches=[AddComponentPatch(id="email_service", name="Email Service", workload_type=WorkloadType.OTHER)],
+        narration="Added the email service.",
+    )
+
+    result = capture_unpatched_factual_answer_as_assumption(model, message, impact, llm_patch_set)
+
+    assert result is llm_patch_set
+
+
+def test_unpatched_factual_answer_backup_ignores_short_or_question_messages():
+    model = ArchitectureModel()
+    empty = PatchSet(patches=[], narration="")
+
+    short_impact = classify_user_request("none")
+    assert capture_unpatched_factual_answer_as_assumption(model, "none", short_impact, empty) is empty
+
+    question_impact = classify_user_request("what information do you need from me?")
+    assert (
+        capture_unpatched_factual_answer_as_assumption(
+            model, "what information do you need from me?", question_impact, empty
+        )
+        is empty
+    )
+
+
+def test_auto_confirm_closes_a_current_fact_turns_own_assumptions():
+    """Regression for a 3-turn verbatim repeat: the LLM captured the user's
+    directly-stated facts (login/roles/email/scale) as add_assumption, left
+    them unconfirmed, and the app then asked the user to "confirm" their own
+    statement on every subsequent turn regardless of topic."""
+
+    model = ArchitectureModel(components=[Component(id="app", name="App", workload_type=WorkloadType.WEB_SERVICE)])
+    impact = classify_user_request(
+        "yeah login's there, admin and normal users, sends an email after booking, admin has a dashboard, "
+        "not sure about compliance stuff, like 50k users roughly"
+    )
+    llm_patch_set = PatchSet(
+        patches=[
+            AddAssumptionPatch(
+                text="Login with admin/normal roles; email after booking; ~50k users.",
+                related_component_ids=["app"],
+            )
+        ],
+        narration="Captured as assumptions.",
+    )
+
+    result = auto_confirm_directly_stated_assumptions(model, impact, llm_patch_set)
+
+    confirm_patches = [p for p in result.patches if p.op == PatchOp.CONFIRM_ASSUMPTION]
+    assert len(confirm_patches) == 1
+    assert confirm_patches[0].assumption_id == "A1"
+
+
+def test_auto_confirm_does_not_fire_outside_current_fact_intent():
+    model = ArchitectureModel()
+    impact = classify_user_request("just give it, proceed with a draft")
+    llm_patch_set = PatchSet(
+        patches=[AddAssumptionPatch(text="Some assumption.", related_component_ids=[])], narration=""
+    )
+
+    result = auto_confirm_directly_stated_assumptions(model, impact, llm_patch_set)
+
+    assert result is llm_patch_set
+
+
 def test_environment_synonym_backup_does_not_fire_on_a_target_planning_message():
     """A bare "aws" answering "what's your CURRENT hosting?" should still set
     the environment (covered elsewhere) — but "want to move to aws" for a
@@ -181,6 +276,25 @@ def test_environment_synonym_backup_does_not_fire_on_a_target_planning_message()
 
     assert result.patches == []
     assert result.narration == ""
+
+
+def test_environment_synonym_backup_does_not_fire_on_move_to_phrasing_outside_target_planning_classifier():
+    """"it's on a normal server right now, just want to move it to GCP" isn't
+    caught by the TARGET_PLANNING classifier (no recognized migration-context
+    term), so the intent-only guard alone missed it — regression for GCP
+    getting stamped as the CURRENT environment for a system explicitly
+    described as still on a normal server."""
+
+    model = ArchitectureModel(
+        components=[Component(id="db", name="Database", workload_type=WorkloadType.DATABASE)]
+    )
+    message = "it's on a normal server right now, just want to move it to GCP"
+    impact = classify_user_request(message)
+    assert impact.intent != RequestIntent.TARGET_PLANNING  # confirms the classifier really does miss this phrasing
+
+    result = resolve_environment_open_questions_from_short_answer(model, message, PatchSet(patches=[], narration=""), impact)
+
+    assert result.patches == []
 
 
 def test_environment_synonym_backup_still_fires_on_a_plain_current_hosting_answer():
