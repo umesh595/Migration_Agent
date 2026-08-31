@@ -60,7 +60,13 @@ def _is_high_impact_replatform(model: ArchitectureModel, patch: UpdateComponentP
     return bool(before_terms and introduced_terms)
 
 
-_STRUCTURAL_PATCH_CLASSES = (AddComponentPatch, UpdateComponentPatch, RemoveComponentPatch, AddDependencyPatch, RemoveDependencyPatch)
+_STRUCTURAL_PATCH_CLASSES = (
+    AddComponentPatch,
+    UpdateComponentPatch,
+    RemoveComponentPatch,
+    AddDependencyPatch,
+    RemoveDependencyPatch,
+)
 
 
 def validate_patch(

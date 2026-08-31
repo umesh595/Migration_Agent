@@ -87,9 +87,13 @@ def test_full_pipeline_produces_a_plan_with_no_rule_violations():
     assert len(plan.roadmap_items) == 3
     assert plan.validation_summary is not None
     assert plan.cutover_strategy is not None
-    assert plan.cutover_strategy.rationale == "Phased cutover fits the dependency waves and keeps rollback bounded per wave."
+    assert plan.cutover_strategy.rationale == (
+        "Phased cutover fits the dependency waves and keeps rollback bounded per wave."
+    )
     assert plan.rollback_strategy is not None
-    assert plan.rollback_strategy.rationale == "Reverse-wave rollback preserves the source fallback while stateful checks are reconciled."
+    assert plan.rollback_strategy.rationale == (
+        "Reverse-wave rollback preserves the source fallback while stateful checks are reconciled."
+    )
 
     findings = run_rules(model, plan)
     errors = [f for f in findings if f.severity == "error"]

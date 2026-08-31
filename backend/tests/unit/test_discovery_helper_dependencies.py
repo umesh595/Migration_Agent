@@ -84,6 +84,8 @@ def test_discovery_infers_obvious_docx_and_cloudwatch_helper_dependencies():
     assert ("diagram_rendering_toolchain", "cloudwatch", DependencyKind.EVENT_PUBLISH) in dependencies
 
     inferred_results = [
-        result for result in result["last_patch_results"] if result.reason == "high-confidence helper dependency inferred from discovered component roles"
+        result
+        for result in result["last_patch_results"]
+        if result.reason == "high-confidence helper dependency inferred from discovered component roles"
     ]
     assert inferred_results

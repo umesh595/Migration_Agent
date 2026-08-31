@@ -1,7 +1,7 @@
 from app.core.gap_analyzer import GapCategory, analyze_gaps, top_gaps
 from app.core.request_intelligence import classify_user_request
 from app.orchestration.nodes.discovery import _adapt_gaps_to_latest_user_message
-from app.schemas.architecture import ArchitectureModel, Component, OpenQuestion
+from app.schemas.architecture import ArchitectureModel, Assumption, Component, Dependency, OpenQuestion
 
 
 def test_open_questions_always_outrank_other_gap_categories():
@@ -46,7 +46,8 @@ def test_single_component_without_architecture_details_gets_intake_gap():
     sparse_gaps = [g for g in gaps if g.category == GapCategory.SPARSE_ARCHITECTURE_CONTEXT]
 
     assert len(sparse_gaps) == 1
-    assert "current major components" in sparse_gaps[0].description
+    assert "user access channel" in sparse_gaps[0].description
+    assert "authentication/roles" in sparse_gaps[0].description
     assert "target cloud" in sparse_gaps[0].description
 
 
@@ -76,6 +77,109 @@ def test_greenfield_answer_does_not_repeat_current_hosting_question():
     sparse_gap = next(g for g in adapted if g.category == GapCategory.SPARSE_ARCHITECTURE_CONTEXT)
     assert "Do not ask where the current app is hosted" in sparse_gap.description
     assert "core workflows" in sparse_gap.description
+
+
+def test_discovery_keeps_asking_until_basic_application_requirements_are_covered():
+    model = ArchitectureModel(
+        components=[
+            Component(
+                id="iot_platform",
+                name="IoT Platform",
+                workload_type="data_pipeline",
+                description="Ingests MQTT telemetry",
+                environment="cloud",
+                criticality="tier-1",
+            ),
+            Component(
+                id="fastapi_backend",
+                name="FastAPI Backend",
+                workload_type="api_service",
+                environment="cloud",
+                criticality="tier-1",
+            ),
+            Component(
+                id="postgres_database",
+                name="Postgres Database",
+                workload_type="database",
+                environment="cloud",
+                criticality="tier-1",
+            ),
+        ],
+        dependencies=[
+            Dependency(
+                id="iot_platform->fastapi_backend:async_call",
+                source_id="iot_platform",
+                target_id="fastapi_backend",
+                kind="async_call",
+            )
+        ],
+    )
+
+    gaps = analyze_gaps(model)
+    basic_gaps = [g for g in gaps if g.category == GapCategory.BASIC_APP_REQUIREMENTS]
+
+    assert len(basic_gaps) == 1
+    assert "authentication" in basic_gaps[0].description
+    assert "reporting" in basic_gaps[0].description
+
+
+def test_basic_application_requirements_clear_when_positive_or_negative_facts_are_known():
+    model = ArchitectureModel(
+        components=[
+            Component(
+                id="web_frontend",
+                name="Web Frontend",
+                workload_type="web_service",
+                description="Users access the application through a web UI",
+                environment="cloud",
+                criticality="tier-1",
+            ),
+            Component(
+                id="backend_api",
+                name="Backend API",
+                workload_type="api_service",
+                environment="cloud",
+                criticality="tier-1",
+            ),
+            Component(
+                id="postgres_database",
+                name="Postgres Database",
+                workload_type="database",
+                environment="cloud",
+                criticality="tier-1",
+            ),
+        ],
+        dependencies=[
+            Dependency(
+                id="web_frontend->backend_api:sync_call",
+                source_id="web_frontend",
+                target_id="backend_api",
+                kind="sync_call",
+            ),
+            Dependency(
+                id="backend_api->postgres_database:data_write",
+                source_id="backend_api",
+                target_id="postgres_database",
+                kind="data_write",
+            ),
+        ],
+        assumptions=[
+            Assumption(
+                id="A1",
+                text=(
+                    "Users log in with SSO roles. No external integrations or payments. No async jobs or "
+                    "event queues. No reporting exports. Monitoring logs, audit logging, encryption, PII "
+                    "controls, 7 years retention, 50k users and millions of records are required."
+                ),
+                raised_by="user",
+                resolved=True,
+            )
+        ],
+    )
+
+    gaps = analyze_gaps(model)
+
+    assert all(g.category != GapCategory.BASIC_APP_REQUIREMENTS for g in gaps)
 
 
 def test_top_gaps_respects_limit():

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/lib/auth";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export function NavBar() {
   const { user, logout } = useAuth();
@@ -28,6 +29,7 @@ export function NavBar() {
           </span>
         </Link>
         <div className="flex items-center gap-1.5 text-sm">
+          <ThemeToggle />
           {user?.is_admin && (
             <Link
               href="/admin"

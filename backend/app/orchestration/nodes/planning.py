@@ -73,6 +73,7 @@ async def after_gate_intake_node(state: GraphState, gateway: LLMGateway, meter: 
         "model, ask whether to revise that accepted source model or treat it as target-state planning input. "
         "If the user is only giving migration context, emit no patches so context elicitation can continue.\n\n"
         f"{impact_section}ACCEPTED ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}\n\n"
+        f"PREVIOUS AGENT MESSAGE, IF THE USER IS ANSWERING IT:\n{state.get('previous_agent_message') or '(none)'}\n\n"
         f"USER MESSAGE:\n{state.get('user_message', '')}"
     )
 
@@ -93,10 +94,13 @@ async def after_gate_intake_node(state: GraphState, gateway: LLMGateway, meter: 
         }
 
     patch_set = resolve_dependency_open_questions_from_short_answer(
-        state["model"], state.get("user_message", ""), response.parsed
+        state["model"],
+        state.get("user_message", ""),
+        response.parsed,
+        previous_agent_message=state.get("previous_agent_message"),
     )
     patch_set = resolve_environment_open_questions_from_short_answer(
-        state["model"], state.get("user_message", ""), patch_set
+        state["model"], state.get("user_message", ""), patch_set, state.get("request_impact")
     )
     patch_set = drop_spurious_target_state_intake_questions(
         state.get("user_message", ""), patch_set, state.get("request_impact")

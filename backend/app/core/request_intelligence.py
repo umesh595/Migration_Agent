@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 
 class RequestIntent(StrEnum):
+    SPARSE_INTAKE = "sparse_intake"
     CURRENT_FACT = "current_fact"
     SOURCE_CORRECTION = "source_correction"
     TARGET_PLANNING = "target_planning"
@@ -21,6 +22,7 @@ class RequestIntent(StrEnum):
     UNSCOPED_CAPABILITY = "unscoped_capability"
     REVIEW_EXPLANATION = "review_explanation"
     TERSE_CONFIRMATION = "terse_confirmation"
+    PROCEED_WITH_ASSUMPTIONS = "proceed_with_assumptions"
     UNKNOWN = "unknown"
 
 
@@ -124,6 +126,93 @@ _CONFIRMATION_TERMS = (
     "exploratory",
 )
 
+_PROCEED_TERMS = (
+    "just give it",
+    "give it",
+    "just proceed",
+    "proceed with a draft",
+    "proceed with the draft",
+    "proceed with draft",
+    "just draft it",
+    "draft it anyway",
+    "just go ahead",
+    "go ahead and",
+    "use your best judg",
+    "your best guess",
+    "make reasonable assumptions",
+    "make assumptions",
+    "i don't have more details",
+    "i dont have more details",
+    "don't have more details",
+    "no more details",
+    "figure it out",
+    "you decide",
+    "whatever you think",
+    "best guess",
+    "do migration plan",
+    "do the migration plan",
+    "just do it",
+)
+
+_ARCHITECTURE_SIGNAL_TERMS = (
+    "frontend",
+    "front end",
+    "ui",
+    "mobile",
+    "backend",
+    "back end",
+    "api",
+    "service",
+    "worker",
+    "database",
+    "db",
+    "postgres",
+    "mysql",
+    "sql server",
+    "oracle",
+    "mongodb",
+    "redis",
+    "cache",
+    "queue",
+    "kafka",
+    "sqs",
+    "pubsub",
+    "pub/sub",
+    "mqtt",
+    "datalake",
+    "data lake",
+    "warehouse",
+    "s3",
+    "gcs",
+    "cloud storage",
+    "payment gateway",
+    "auth",
+    "sso",
+    "identity",
+    "notification",
+    "email",
+    "scheduler",
+    "cron",
+    "etl",
+    "looker",
+)
+
+_BUSINESS_APP_TERMS = (
+    "app",
+    "application",
+    "system",
+    "platform",
+    "website",
+    "portal",
+    "tracker",
+    "booking",
+    "accepting",
+    "tracks",
+    "track",
+    "manage",
+    "manages",
+)
+
 
 def classify_user_request(user_message: str, *, after_gate_1: bool = False, review_stage: bool = False) -> RequestImpact:
     text = " ".join(user_message.lower().split())
@@ -144,8 +233,32 @@ def classify_user_request(user_message: str, *, after_gate_1: bool = False, revi
             confidence="high",
             should_mutate_source=False,
             requires_confirmation=True,
-            rationale="The user is correcting the accepted source architecture after Gate 1, so the app must confirm whether to revise the baseline.",
+            rationale=(
+                "The user is correcting the accepted source architecture after Gate 1, so the "
+                "app must confirm whether to revise the baseline."
+            ),
             impact_dimensions=["effort", "cost", "sequencing", "validation", "rollback"],
+        )
+
+    if not after_gate_1 and _looks_like_sparse_intake(text):
+        return RequestImpact(
+            intent=RequestIntent.SPARSE_INTAKE,
+            confidence="high",
+            should_mutate_source=False,
+            requires_confirmation=False,
+            rationale=(
+                "The user gave a thin business/application description, not enough deployable architecture "
+                "detail to safely create components and dependencies."
+            ),
+            impact_dimensions=[
+                "source_architecture",
+                "tech_stack",
+                "data",
+                "auth",
+                "integrations",
+                "scale",
+                "target",
+            ],
         )
 
     if _contains_any(text, _TARGET_TERMS) and (_contains_any(text, _MIGRATION_CONTEXT_TERMS) or "target" in text):
@@ -174,8 +287,24 @@ def classify_user_request(user_message: str, *, after_gate_1: bool = False, revi
             confidence="medium",
             should_mutate_source=False,
             requires_confirmation=True,
-            rationale="The user may be proposing a new business capability that needs justification before it becomes architecture.",
+            rationale=(
+                "The user may be proposing a new business capability that needs justification "
+                "before it becomes architecture."
+            ),
             impact_dimensions=["scope", "cost", "security", "compliance", "integration"],
+        )
+
+    if _contains_any(text, _PROCEED_TERMS):
+        return RequestImpact(
+            intent=RequestIntent.PROCEED_WITH_ASSUMPTIONS,
+            confidence="high",
+            should_mutate_source=True,
+            requires_confirmation=False,
+            rationale=(
+                "The user explicitly asked to proceed despite incomplete information, so the app should "
+                "draft with clearly labeled assumptions instead of asking another clarifying question."
+            ),
+            impact_dimensions=["completeness", "assumptions"],
         )
 
     if len(text.split()) <= 12 and _contains_any(text, _CONFIRMATION_TERMS):
@@ -208,3 +337,27 @@ def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
 
 def _starts_with_change(text: str) -> bool:
     return text.startswith(("add ", "remove ", "delete ", "change ", "replace ", "switch ", "use ", "move "))
+
+
+def _looks_like_sparse_intake(text: str) -> bool:
+    words = text.split()
+    if len(words) > 24:
+        return False
+    if not _contains_any(text, _BUSINESS_APP_TERMS):
+        return False
+
+    architecture_signal_count = sum(1 for term in _ARCHITECTURE_SIGNAL_TERMS if term in text)
+    provider_only_signal = any(provider in text for provider in ("gcp", "aws", "azure", "cloud"))
+
+    # A provider name alone ("on GCP") says where something runs, not what the
+    # architecture is. One vague term like "system" or "booking" is still intake.
+    if architecture_signal_count == 0:
+        return True
+    if architecture_signal_count == 1 and provider_only_signal:
+        non_provider_signals = [
+            term
+            for term in _ARCHITECTURE_SIGNAL_TERMS
+            if term in text and term not in {"gcp", "aws", "azure", "cloud"}
+        ]
+        return len(non_provider_signals) <= 1
+    return architecture_signal_count <= 1 and len(words) <= 12

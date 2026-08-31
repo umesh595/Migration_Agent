@@ -114,6 +114,19 @@ async def get_session_for_user(db: AsyncSession, session_id: uuid.UUID, user_id:
     return session
 
 
+async def reset_langgraph_thread(db: AsyncSession, session: MigrationSession) -> MigrationSession:
+    """Moves a session onto a fresh LangGraph checkpoint thread.
+
+    The persisted model/plan/audit tables remain the source of truth. This is a
+    recovery path for unreadable checkpoint rows, not a gate bypass.
+    """
+
+    session.langgraph_thread_id = str(uuid.uuid4())
+    await db.commit()
+    await db.refresh(session)
+    return session
+
+
 async def latest_model(db: AsyncSession, session_id: uuid.UUID) -> ArchitectureModel:
     result = await db.execute(
         select(ModelVersion).where(ModelVersion.session_id == session_id).order_by(ModelVersion.version.desc()).limit(1)
@@ -351,3 +364,13 @@ async def list_conversation_turns(db: AsyncSession, session_id: uuid.UUID) -> li
         select(ConversationTurn).where(ConversationTurn.session_id == session_id).order_by(ConversationTurn.created_at)
     )
     return list(result.scalars().all())
+
+
+async def latest_conversation_turn(
+    db: AsyncSession, session_id: uuid.UUID, role: str | None = None
+) -> ConversationTurn | None:
+    query = select(ConversationTurn).where(ConversationTurn.session_id == session_id)
+    if role is not None:
+        query = query.where(ConversationTurn.role == role)
+    result = await db.execute(query.order_by(ConversationTurn.created_at.desc()).limit(1))
+    return result.scalar_one_or_none()

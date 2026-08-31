@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 
 import { acceptModel, ApiError, approvePlan, getAudit, getFindings, getSessionState } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
-import type { Finding, PatchAuditEntry, SessionState } from "@/lib/types";
+import type { ArchitectureModel, Finding, PatchAuditEntry, SessionState } from "@/lib/types";
 import { AuditTrailPanel } from "@/components/AuditTrailPanel";
 import { ChatPanel, type ChatDraft } from "@/components/ChatPanel";
 import { ExportButtons } from "@/components/ExportButtons";
@@ -24,6 +24,7 @@ export default function SessionWorkspacePage() {
   const [chatDraft, setChatDraft] = useState<ChatDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gateBusy, setGateBusy] = useState(false);
+  const [showGate1Confirm, setShowGate1Confirm] = useState(false);
   const needsMigrationContext = state?.session.status === "planning" && !state.migration_context && !state.plan;
 
   const refresh = useCallback(async () => {
@@ -51,6 +52,7 @@ export default function SessionWorkspacePage() {
     setError(null);
     try {
       await acceptModel(sessionId);
+      setShowGate1Confirm(false);
       await refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "Could not accept the model.");
@@ -85,6 +87,7 @@ export default function SessionWorkspacePage() {
   const hasBlockingFindings = findings.some(
     (f) => f.severity === "error" && f.resolution_status === "open"
   );
+  const gate1Summary = state ? buildGate1Summary(state.model) : null;
 
   const STAGES: { key: string; label: string; step: string }[] = [
     { key: "discovery", label: "Discovery", step: "1" },
@@ -294,11 +297,27 @@ export default function SessionWorkspacePage() {
                     Approval means the discovered source architecture is good enough for planning. Later source changes
                     should be treated as explicit revisions because they can change sequencing, risk, effort, and rollback.
                   </div>
+                  {gate1Summary && (
+                    <div className="mb-3 rounded-lg border border-sky-400/20 bg-sky-500/[0.05] p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-sky-200">
+                        Understanding before Gate 1
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-slate-300">{gate1Summary.headline}</p>
+                      <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+                        {gate1Summary.items.map((item) => (
+                          <div key={item.label} className="rounded-md border border-white/[0.06] bg-white/[0.025] p-2">
+                            <dt className="font-medium text-slate-200">{item.label}</dt>
+                            <dd className="mt-1 leading-5 text-slate-400">{item.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </div>
+                  )}
                   <button
                     type="button"
                     className="btn-primary"
                     disabled={gateBusy || state.model.components.length === 0}
-                    onClick={handleAcceptModel}
+                    onClick={() => setShowGate1Confirm(true)}
                   >
                     {gateBusy ? "Accepting…" : "Accept architecture model"}
                   </button>
@@ -363,7 +382,145 @@ export default function SessionWorkspacePage() {
           </div>
           </>
         )}
+        {showGate1Confirm && state && gate1Summary && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-4 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="gate1-confirm-title"
+          >
+            <div className="w-full max-w-2xl rounded-lg border border-white/10 bg-slate-950 p-5 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 id="gate1-confirm-title" className="text-base font-semibold text-white">
+                    Confirm Gate 1 acceptance
+                  </h2>
+                  <p className="mt-1 text-sm leading-6 text-slate-400">
+                    Accepting freezes this source architecture for planning. Review this summary once before
+                    moving forward.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-md border border-white/10 px-2 py-1 text-sm text-slate-400 hover:text-white"
+                  onClick={() => setShowGate1Confirm(false)}
+                  disabled={gateBusy}
+                  aria-label="Close confirmation"
+                >
+                  x
+                </button>
+              </div>
+
+              <div className="mt-4 rounded-lg border border-sky-400/20 bg-sky-500/[0.05] p-3">
+                <p className="text-sm leading-6 text-slate-300">{gate1Summary.headline}</p>
+                <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+                  {gate1Summary.items.map((item) => (
+                    <div key={item.label} className="rounded-md border border-white/[0.06] bg-white/[0.025] p-2">
+                      <dt className="font-medium text-slate-200">{item.label}</dt>
+                      <dd className="mt-1 leading-5 text-slate-400">{item.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+
+              {state.model.open_questions.some((question) => !question.resolved) && (
+                <p className="mt-3 rounded-md border border-amber-400/20 bg-amber-500/[0.06] p-3 text-xs leading-5 text-amber-200">
+                  There are still unresolved open questions. Accept only if this source model is good enough
+                  for a first planning pass.
+                </p>
+              )}
+
+              <div className="mt-5 flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setShowGate1Confirm(false)}
+                  disabled={gateBusy}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={handleAcceptModel}
+                  disabled={gateBusy || state.model.components.length === 0}
+                >
+                  {gateBusy ? "Accepting..." : "Confirm and accept Gate 1"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
+}
+
+function buildGate1Summary(model: ArchitectureModel): {
+  headline: string;
+  items: { label: string; value: string }[];
+} {
+  const components = model.components;
+  const dependencies = model.dependencies;
+  const unresolvedQuestions = model.open_questions.filter((question) => !question.resolved);
+  const componentNames = components.map((component) => component.name);
+  const criticalityCounts = components.reduce<Record<string, number>>((counts, component) => {
+    const key = component.criticality || "unclassified";
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
+  const environments = Array.from(new Set(components.map((component) => component.environment))).filter(Boolean);
+  const tierSummary = Object.entries(criticalityCounts)
+    .map(([tier, count]) => `${count} ${tier}`)
+    .join(", ");
+
+  return {
+    headline:
+      components.length === 0
+        ? "No source architecture components have been captured yet."
+        : `The source model currently has ${components.length} component${components.length === 1 ? "" : "s"} and ${dependencies.length} dependenc${dependencies.length === 1 ? "y" : "ies"}.`,
+    items: [
+      {
+        label: "Components",
+        value: componentNames.length > 0 ? formatList(componentNames, 6) : "None captured yet",
+      },
+      {
+        label: "Dependencies",
+        value:
+          dependencies.length > 0
+            ? `${dependencies.length} relationship${dependencies.length === 1 ? "" : "s"} captured for planning waves and risk review`
+            : "No dependencies captured yet",
+      },
+      {
+        label: "Environment",
+        value:
+          environments.length > 0
+            ? environments.map((environment) => environment.replace(/_/g, " ")).join(", ")
+            : "Unknown",
+      },
+      {
+        label: "Criticality",
+        value: tierSummary || "No criticality classifications captured yet",
+      },
+      {
+        label: "Open Questions",
+        value:
+          unresolvedQuestions.length > 0
+            ? `${unresolvedQuestions.length} unresolved question${unresolvedQuestions.length === 1 ? "" : "s"} remain`
+            : "No unresolved discovery questions",
+      },
+      {
+        label: "Assumptions",
+        value:
+          model.assumptions.length > 0
+            ? `${model.assumptions.length} assumption${model.assumptions.length === 1 ? "" : "s"} recorded`
+            : "No assumptions recorded",
+      },
+    ],
+  };
+}
+
+function formatList(values: string[], limit: number): string {
+  if (values.length <= limit) return values.join(", ");
+  return `${values.slice(0, limit).join(", ")} and ${values.length - limit} more`;
 }

@@ -209,13 +209,15 @@ class TestSeniorArchitectPromptBehavior:
     def test_ingest_prompt_requires_intent_classification_before_patching(self):
         prompt = get_prompt("ingest_patches")
 
-        assert prompt.version == "v12"
+        assert prompt.version == "v14"
         assert "FIRST, CLASSIFY THE USER'S INTENT BEFORE PATCHING" in prompt.system
         assert "HIGH-IMPACT ARCHITECTURE DECISION" in prompt.system
         assert "NEW UNSCOPED BUSINESS CAPABILITY" in prompt.system
         assert "Do not treat every imperative from the user as permission to mutate" in prompt.system
         assert "DETERMINISTIC REQUEST CLASSIFICATION" in prompt.system
         assert "intent=target_planning" in prompt.system
+        assert "intent=proceed_with_assumptions" in prompt.system
+        assert "ARCHITECTURAL STYLE, PATTERN, OR PROTOCOL NAME IS NEVER A COMPONENT" in prompt.system
 
     def test_ingest_prompt_protects_accepted_source_model_after_gate_1(self):
         prompt = get_prompt("ingest_patches")

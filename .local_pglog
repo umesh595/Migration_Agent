@@ -229,3 +229,34 @@
 2026-08-31 16:26:26.372 IST [33268] LOG:  checkpoint complete: wrote 115 buffers (0.7%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=12.977 s, sync=0.158 s, total=13.255 s; sync files=39, longest=0.050 s, average=0.005 s; distance=682 kB, estimate=682 kB; lsn=0/2A45510, redo lsn=0/2A45480
 2026-08-31 16:56:13.435 IST [33268] LOG:  checkpoint starting: time
 2026-08-31 16:56:20.001 IST [33268] LOG:  checkpoint complete: wrote 59 buffers (0.4%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=6.467 s, sync=0.060 s, total=6.566 s; sync files=37, longest=0.007 s, average=0.002 s; distance=289 kB, estimate=642 kB; lsn=0/2A8DBA0, redo lsn=0/2A8DB48
+2026-08-31 17:01:13.015 IST [33268] LOG:  checkpoint starting: time
+2026-08-31 17:01:20.007 IST [33268] LOG:  checkpoint complete: wrote 62 buffers (0.4%), wrote 2 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=6.873 s, sync=0.077 s, total=6.992 s; sync files=40, longest=0.010 s, average=0.002 s; distance=300 kB, estimate=608 kB; lsn=0/2AD8E28, redo lsn=0/2AD8DD0
+2026-08-31 17:06:13.020 IST [33268] LOG:  checkpoint starting: time
+2026-08-31 17:06:17.135 IST [33268] LOG:  checkpoint complete: wrote 37 buffers (0.2%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=4.067 s, sync=0.013 s, total=4.116 s; sync files=7, longest=0.003 s, average=0.002 s; distance=233 kB, estimate=571 kB; lsn=0/2B13538, redo lsn=0/2B134E0
+2026-08-31 17:16:13.266 IST [33268] LOG:  checkpoint starting: time
+2026-08-31 17:16:18.826 IST [33268] LOG:  checkpoint complete: wrote 49 buffers (0.3%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=5.480 s, sync=0.048 s, total=5.560 s; sync files=35, longest=0.007 s, average=0.002 s; distance=249 kB, estimate=539 kB; lsn=0/2B51B28, redo lsn=0/2B51A98
+2026-08-31 17:21:13.840 IST [33268] LOG:  checkpoint starting: time
+2026-08-31 17:21:13.990 IST [33268] LOG:  checkpoint complete: wrote 1 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.111 s, sync=0.004 s, total=0.150 s; sync files=1, longest=0.004 s, average=0.004 s; distance=7 kB, estimate=485 kB; lsn=0/2B53878, redo lsn=0/2B53820
+2026-08-31 17:28:38.585 IST [33268] LOG:  shutting down
+2026-08-31 17:28:38.587 IST [33232] LOG:  received fast shutdown request
+2026-08-31 17:28:38.588 IST [28396] ERROR:  canceling statement due to user request
+2026-08-31 17:28:38.611 IST [33268] LOG:  checkpoint starting: shutdown immediate
+2026-08-31 17:28:38.615 IST [33232] LOG:  aborting any active transactions
+2026-08-31 17:28:38.617 IST [9988] FATAL:  terminating connection due to administrator command
+2026-08-31 17:28:38.618 IST [34572] FATAL:  terminating connection due to administrator command
+2026-08-31 17:28:38.618 IST [27404] FATAL:  terminating connection due to administrator command
+2026-08-31 17:28:38.618 IST [38720] FATAL:  terminating connection due to administrator command
+2026-08-31 17:28:38.618 IST [28900] FATAL:  terminating connection due to administrator command
+2026-08-31 17:28:38.619 IST [1696] FATAL:  terminating connection due to administrator command
+2026-08-31 17:28:38.620 IST [33960] FATAL:  terminating connection due to administrator command
+2026-08-31 17:28:38.620 IST [33232] LOG:  background worker "logical replication launcher" (PID 28396) exited with exit code 1
+2026-08-31 17:28:38.822 IST [33268] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.238 s; sync files=0, longest=0.000 s, average=0.000 s; distance=0 kB, estimate=437 kB; lsn=0/2B53928, redo lsn=0/2B53928
+2026-08-31 17:28:38.980 IST [33232] LOG:  database system is shut down
+2026-08-31 17:28:48.459 IST [35228] LOG:  starting PostgreSQL 18.1 on x86_64-windows, compiled by msvc-19.44.35222, 64-bit
+2026-08-31 17:28:48.475 IST [35228] LOG:  listening on IPv6 address "::1", port 55432
+2026-08-31 17:28:48.475 IST [35228] LOG:  listening on IPv4 address "127.0.0.1", port 55432
+2026-08-31 17:28:48.744 IST [24612] LOG:  database system was shut down at 2026-08-31 17:28:38 IST
+2026-08-31 17:28:48.780 IST [35228] LOG:  database system is ready to accept connections
+2026-08-31 17:33:48.725 IST [5180] LOG:  checkpoint starting: time
+2026-08-31 17:34:05.375 IST [5180] LOG:  checkpoint complete: wrote 151 buffers (0.9%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=16.561 s, sync=0.057 s, total=16.651 s; sync files=44, longest=0.007 s, average=0.002 s; distance=1018 kB, estimate=1018 kB; lsn=0/2D39050, redo lsn=0/2C524E8
+2026-08-31 17:34:43.139 IST [5180] FATAL:  could not open shared memory segment "Global/PostgreSQL.1906841560": No such file or directory

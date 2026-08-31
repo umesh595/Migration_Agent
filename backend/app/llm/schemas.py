@@ -24,6 +24,33 @@ class QuestionGenerationOutput(BaseModel):
     narration: str = Field(description="One or two sentences framing why these questions matter, shown before the questions.")
 
 
+class ArchitectureSufficiencyOutput(BaseModel):
+    """Output of the discovery-loop 'have we asked enough yet' judgment call.
+
+    GapAnalyzer's fixed categories (open questions, orphan components, missing
+    environment/criticality) are deliberately narrow and mechanical — they go
+    silent as soon as those specific checks are satisfied, even when the
+    described system is still far too thin for a credible migration plan (e.g.
+    two connected components with a protocol name and nothing else: no real
+    tech stack, no scale, no data model, no auth story). This call is the
+    senior-architect judgment layer that decides whether discovery should keep
+    probing when the mechanical checklist has nothing left to flag.
+    """
+
+    sufficient_for_planning: bool = Field(
+        description="True only if a senior migration architect would consider this enough real detail "
+        "(not just component names) to produce a credible, defensible migration plan."
+    )
+    rationale: str = Field(description="One or two sentences: what's known, and if insufficient, what's genuinely still missing.")
+    next_question: str | None = Field(
+        default=None,
+        description="Required when sufficient_for_planning is false. ONE specific, senior-architect-quality "
+        "question about what's still missing for THIS system — never a generic 'tell me more', and never "
+        "repeating anything already captured in the injected model (components, dependencies, assumptions, "
+        "resolved open questions). Omit when sufficient_for_planning is true.",
+    )
+
+
 class MigrationContextElicitationOutput(BaseModel):
     """Output of the LLM call that turns free-text context answers into a structured
     MigrationContext during the interrupt at Planning start. Fields mirror

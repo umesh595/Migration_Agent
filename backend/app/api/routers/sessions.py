@@ -74,7 +74,10 @@ def _patch_justification(patch: dict, outcome: str, reason: str | None) -> str:
 
     match op:
         case "add_component":
-            return "Recommended because the user's architecture description names this as a distinct deployable or managed component."
+            return (
+                "Recommended because the user's architecture description names this as a "
+                "distinct deployable or managed component."
+            )
         case "update_component":
             return "Recommended because the user's latest message corrected or refined a known component attribute."
         case "remove_component":
@@ -215,6 +218,8 @@ async def post_message(
     settings = get_settings()
     meter = SessionTokenMeter(settings.session_token_budget, already_spent=session.token_usage or 0)
     model_before = await session_service.latest_model(db, session.id)
+    previous_agent_turn = await session_service.latest_conversation_turn(db, session.id, role="agent")
+    previous_agent_message = previous_agent_turn.text if previous_agent_turn is not None else None
 
     async def event_stream():
         checkpointer = get_checkpointer()
@@ -231,6 +236,7 @@ async def post_message(
                 "stage": Stage.DISCOVERY,
                 "model": model_before,
                 "user_message": payload.message,
+                "previous_agent_message": previous_agent_message,
                 "request_impact": request_impact,
             }
         elif original_status == SessionStatus.PLANNING:
@@ -242,6 +248,7 @@ async def post_message(
                 "stage": Stage.PLANNING,
                 "model": accepted,
                 "user_message": payload.message,
+                "previous_agent_message": previous_agent_message,
                 "request_impact": request_impact,
                 "migration_context": await session_service.get_migration_context(db, session.id),
                 "narration": "",
@@ -262,6 +269,7 @@ async def post_message(
                 "stage": Stage.REVIEW,
                 "model": accepted,
                 "user_message": payload.message,
+                "previous_agent_message": previous_agent_message,
                 "request_impact": request_impact,
                 # Read for context only (what relevance gets judged against) — a
                 # discuss-only turn leaves this exact object in state untouched;
@@ -278,20 +286,38 @@ async def post_message(
             }
 
         final_state = None
+        accumulated_values = dict(initial)
         try:
             try:
-                async for chunk in graph.astream(
-                    initial, config=_thread_config(session.langgraph_thread_id), stream_mode="updates"
-                ):
-                    for node_name, node_output in chunk.items():
-                        final_state = node_output
-                        yield {
-                            "id": node_name,
-                            "event": "node_complete",
-                            "data": json.dumps(
-                                {"node": node_name, "narration": (node_output or {}).get("narration")}
-                            ),
-                        }
+                graph_started = False
+                for attempt in range(2):
+                    try:
+                        async for chunk in graph.astream(
+                            initial, config=_thread_config(session.langgraph_thread_id), stream_mode="updates"
+                        ):
+                            graph_started = True
+                            for node_name, node_output in chunk.items():
+                                final_state = node_output
+                                if isinstance(node_output, dict):
+                                    accumulated_values.update(node_output)
+                                yield {
+                                    "id": node_name,
+                                    "event": "node_complete",
+                                    "data": json.dumps(
+                                        {"node": node_name, "narration": (node_output or {}).get("narration")}
+                                    ),
+                                }
+                        break
+                    except UnicodeDecodeError:
+                        if attempt > 0 or graph_started:
+                            raise
+                        logger.warning(
+                            "checkpoint decode failed for session %s; resetting LangGraph thread and retrying",
+                            session.id,
+                        )
+                        await session_service.reset_langgraph_thread(db, session)
+                        final_state = None
+                        accumulated_values = dict(initial)
             except Exception as exc:
                 logger.exception("graph run failed for session %s", session.id)
                 # Nothing was persisted for this turn — release the message_id
@@ -304,10 +330,8 @@ async def post_message(
                 yield {"event": "error", "data": json.dumps({"detail": "planning run failed", "error": str(exc)})}
                 return
 
-            await _persist_turn(db, session, meter, model_before)
-
-            state_snapshot = await graph.aget_state(_thread_config(session.langgraph_thread_id))
-            values = state_snapshot.values if state_snapshot else (final_state or {})
+            values = accumulated_values or (final_state or {})
+            await _persist_turn(db, session, meter, model_before, values)
 
             if original_status == SessionStatus.DISCOVERY:
                 # Discovery narration/questions are genuinely per-turn LLM output.
@@ -345,7 +369,9 @@ async def post_message(
                         "Review the target architecture and full migration plan below."
                     )
                 elif intake_results:
-                    narration = values.get("narration") or "Updated the accepted source model. Send the migration context when ready."
+                    narration = values.get("narration") or (
+                        "Updated the accepted source model. Send the migration context when ready."
+                    )
                 else:
                     narration = "Migration context captured."
                 questions = intake_questions
@@ -423,17 +449,9 @@ async def post_message(
     return EventSourceResponse(event_stream())
 
 
-async def _persist_turn(db, session, meter: SessionTokenMeter, model_before) -> None:
+async def _persist_turn(db, session, meter: SessionTokenMeter, model_before, values: dict) -> None:
     """Writes the turn's artifacts. Runs after the graph completes so a mid-turn
     disconnect leaves the checkpoint (resumable) without half-written audit rows."""
-
-    checkpointer = get_checkpointer()
-    config = _thread_config(session.langgraph_thread_id)
-    snapshot = await checkpointer.aget_tuple(config)
-    if snapshot is None:
-        return
-
-    values = snapshot.checkpoint.get("channel_values", {})
     model = values.get("model")
     if model is not None and getattr(model, "version", 0) > model_before.version:
         await session_service.save_model_version(db, session.id, model)

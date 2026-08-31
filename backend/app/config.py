@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     # --- LLM gateway (OpenAI only per DECISIONS.md Q1) ---
     openai_api_key: SecretStr = Field(alias="OPENAI_API_KEY")
-    llm_cheap_model: str = Field(default="gpt-4o-mini", alias="LLM_CHEAP_MODEL")
+    llm_cheap_model: str = Field(default="gpt-4o", alias="LLM_CHEAP_MODEL")
     llm_strong_model: str = Field(default="gpt-4o", alias="LLM_STRONG_MODEL")
     llm_cheap_tier_max_retries: int = Field(default=1, alias="LLM_CHEAP_TIER_MAX_RETRIES")
     llm_strong_tier_max_retries: int = Field(default=3, alias="LLM_STRONG_TIER_MAX_RETRIES")

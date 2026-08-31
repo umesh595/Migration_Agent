@@ -258,7 +258,10 @@ def test_update_component_allows_high_impact_replatform_after_discussion_confirm
         PatchSet(
             patches=[
                 AddOpenQuestionPatch(
-                    text="Changing the backend from FastAPI/Python to Java/Spring changes delivery scope. Is this a firm decision?",
+                    text=(
+                        "Changing the backend from FastAPI/Python to Java/Spring changes delivery "
+                        "scope. Is this a firm decision?"
+                    ),
                     related_component_ids=["fastapi_backend"],
                 )
             ],

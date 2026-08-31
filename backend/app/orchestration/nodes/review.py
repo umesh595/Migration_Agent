@@ -95,7 +95,8 @@ async def review_discuss_ingest_node(state: GraphState, gateway: LLMGateway, met
         "Gate 1 has already accepted the source architecture; treat new source-model changes as requiring "
         "explicit confirmation unless they resolve an existing open question.\n\n"
         f"{impact_section}CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}"
-        f"{plan_section}\n\nUSER MESSAGE:\n{state['user_message']}"
+        f"{plan_section}\n\nPREVIOUS AGENT MESSAGE, IF THE USER IS ANSWERING IT:\n"
+        f"{state.get('previous_agent_message') or '(none)'}\n\nUSER MESSAGE:\n{state['user_message']}"
     )
 
     try:
@@ -115,10 +116,13 @@ async def review_discuss_ingest_node(state: GraphState, gateway: LLMGateway, met
         }
 
     patch_set = resolve_dependency_open_questions_from_short_answer(
-        state["model"], state.get("user_message", ""), response.parsed
+        state["model"],
+        state.get("user_message", ""),
+        response.parsed,
+        previous_agent_message=state.get("previous_agent_message"),
     )
     patch_set = resolve_environment_open_questions_from_short_answer(
-        state["model"], state.get("user_message", ""), patch_set
+        state["model"], state.get("user_message", ""), patch_set, state.get("request_impact")
     )
     return {"_patch_set": patch_set, "error": None}
 

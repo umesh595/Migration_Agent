@@ -1,6 +1,28 @@
 from app.core.request_intelligence import RequestIntent, classify_user_request
 
 
+def test_classifies_thin_business_description_as_sparse_intake():
+    impact = classify_user_request("My applicstion tracks employee allocations")
+
+    assert impact.intent == RequestIntent.SPARSE_INTAKE
+    assert impact.should_mutate_source is False
+    assert "tech_stack" in impact.impact_dimensions
+
+
+def test_provider_name_alone_does_not_make_vague_app_description_architecture():
+    impact = classify_user_request("I have a simple system accepting user data and accepting booking of movie shows on gcp")
+
+    assert impact.intent == RequestIntent.SPARSE_INTAKE
+    assert impact.should_mutate_source is False
+
+
+def test_detailed_component_sentence_is_still_current_fact():
+    impact = classify_user_request("We have a React frontend, FastAPI backend, PostgreSQL database, Redis cache, and SQS worker.")
+
+    assert impact.intent == RequestIntent.CURRENT_FACT
+    assert impact.should_mutate_source is True
+
+
 def test_classifies_post_gate_source_correction_as_confirmation_required():
     impact = classify_user_request(
         "Wait, I forgot Redis in the source architecture. Add Redis cache.",

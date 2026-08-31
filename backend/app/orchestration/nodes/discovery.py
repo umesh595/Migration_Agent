@@ -7,6 +7,7 @@ Flow (Doc 3 §3.1):
 from __future__ import annotations
 
 import logging
+import re
 
 from app.core.gap_analyzer import Gap, GapCategory, top_gaps
 from app.core.patch_applier import apply_patch_set
@@ -18,9 +19,10 @@ from app.llm.schemas import QuestionGenerationOutput
 from app.llm.state_injection import render_gaps_for_prompt, render_model_for_prompt
 from app.observability.tracing import trace_node
 from app.orchestration.state import GraphState, Stage
-from app.schemas.architecture import ArchitectureModel, DependencyKind, Environment
+from app.schemas.architecture import ArchitectureModel, DependencyKind, Environment, WorkloadType
 from app.schemas.patches import (
     AddAssumptionPatch,
+    AddComponentPatch,
     AddDependencyPatch,
     ConfirmAssumptionPatch,
     PatchOutcome,
@@ -45,6 +47,7 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
     )
     user_prompt = (
         f"{impact_section}CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}\n\n"
+        f"PREVIOUS AGENT MESSAGE, IF THE USER IS ANSWERING IT:\n{state.get('previous_agent_message') or '(none)'}\n\n"
         f"USER MESSAGE:\n{state['user_message']}"
     )
 
@@ -73,16 +76,193 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
         }
 
     patch_set = resolve_dependency_open_questions_from_short_answer(
-        state["model"], state.get("user_message", ""), response.parsed
+        state["model"],
+        state.get("user_message", ""),
+        response.parsed,
+        previous_agent_message=state.get("previous_agent_message"),
     )
     patch_set = resolve_environment_open_questions_from_short_answer(
-        state["model"], state.get("user_message", ""), patch_set
+        state["model"], state.get("user_message", ""), patch_set, state.get("request_impact")
+    )
+    patch_set = resolve_sparse_intake_open_question_from_target_context_answer(
+        state["model"], state.get("user_message", ""), state.get("request_impact"), patch_set
+    )
+    patch_set = draft_minimal_architecture_when_user_says_proceed(
+        state["model"], state.get("request_impact"), patch_set
     )
     return {"_patch_set": patch_set, "error": None}
 
 
+def draft_minimal_architecture_when_user_says_proceed(
+    model: ArchitectureModel, request_impact: object, patch_set: PatchSet
+) -> PatchSet:
+    """Deterministic floor for "just give it" / "proceed with a draft" / "I don't
+    have more details" commands.
+
+    request_impact.should_mutate_source is True for PROCEED_WITH_ASSUMPTIONS
+    specifically so the ingest prompt is free to draft standard components under
+    assumptions instead of asking yet another clarifying question. But if the LLM
+    still doesn't add anything — the same failure mode that produced an endless
+    question loop for TARGET_PLANNING/TERSE_CONFIRMATION answers before this —
+    this guarantees forward progress instead of leaving the user stuck on the
+    exact question they just told the app to stop asking.
+    """
+
+    if getattr(request_impact, "intent", None) != RequestIntent.PROCEED_WITH_ASSUMPTIONS:
+        return patch_set
+    if len(model.components) > 1 or model.dependencies:
+        return patch_set
+    if any(isinstance(patch, AddComponentPatch) for patch in patch_set.patches):
+        return patch_set
+
+    additions: list = []
+    app_id = model.components[0].id if model.components else "application"
+    if not model.components:
+        additions.append(
+            AddComponentPatch(
+                id=app_id,
+                name="Application",
+                workload_type=WorkloadType.WEB_SERVICE,
+                description="Placeholder for the application described so far — split into real "
+                "components once more detail is known.",
+            )
+        )
+    additions.append(
+        AddComponentPatch(
+            id="primary_database",
+            name="Primary Database",
+            workload_type=WorkloadType.DATABASE,
+            description="Assumed primary data store, not yet confirmed by the user.",
+        )
+    )
+    additions.append(
+        AddDependencyPatch(source_id=app_id, target_id="primary_database", kind=DependencyKind.DATA_READ)
+    )
+    additions.append(
+        AddAssumptionPatch(
+            text="Drafted a minimal placeholder architecture (application + primary database) at the "
+            "user's explicit request to proceed without full details. Replace with real components as "
+            "soon as they're known.",
+            related_component_ids=[app_id, "primary_database"],
+        )
+    )
+    narration = patch_set.narration or (
+        "Drafted a minimal starting architecture since you asked to proceed. The components below are "
+        "placeholders — refine them once more detail is available."
+    )
+    return PatchSet(patches=[*patch_set.patches, *additions], narration=narration)
+
+
+_GREENFIELD_ASSUMPTION_MARKER = "greenfield build with no existing deployed system yet"
+
+
+def resolve_sparse_intake_open_question_from_target_context_answer(
+    model: ArchitectureModel, user_message: str, request_impact: object, patch_set: PatchSet
+) -> PatchSet:
+    """Deterministic backup for target/downtime/scale answers given while the
+    model is still sparse (pre-detail, <=1 component, no dependencies).
+
+    Two distinct problems, both stemming from the same root cause (the ingest
+    prompt is told should_mutate_source=False for TARGET_PLANNING messages so it
+    can't hallucinate source components out of target-state chatter, but that
+    hint alone routinely makes the LLM withhold everything else too):
+      1. If the model happens to already have a persisted OpenQuestion, it never
+         gets resolve_open_question'd even though this message answers it.
+      2. The greenfield/target facts this message gives are never recorded
+         DURABLY on the model — so as soon as the conversation moves on to
+         unrelated topics (workflows, dependencies), the current-hosting
+         question resurfaces on every later turn, because
+         _adapt_gaps_to_latest_user_message only ever looks at the LATEST
+         message, with no memory that greenfield was already established.
+    This records the target/greenfield summary as an auto-confirmed assumption
+    (not just add_assumption, which would leave it sitting unconfirmed and
+    itself become a new repeated "is that correct?" question) so later turns
+    can recognize the fact is already settled via model_has_confirmed_greenfield_fact.
+    """
+
+    if getattr(request_impact, "intent", None) != RequestIntent.TARGET_PLANNING:
+        return patch_set
+    if len(model.components) > 1 or model.dependencies:
+        return patch_set
+    if model_has_confirmed_greenfield_fact(model):
+        return patch_set
+
+    summary = _summarize_target_context_answer(user_message)
+    if summary is None:
+        return patch_set
+
+    already_resolved = {
+        patch.question_id for patch in patch_set.patches if isinstance(patch, ResolveOpenQuestionPatch)
+    }
+    resolve_patches = [
+        ResolveOpenQuestionPatch(question_id=question.id, resolution_text=summary)
+        for question in model.open_questions
+        if not question.resolved and question.id not in already_resolved
+    ]
+
+    # Predict the id add_assumption will be given so confirm_assumption in the
+    # SAME patch set can reference it — apply_patch_set applies patches in
+    # order against a running model snapshot, so this is valid as long as the
+    # count accounts for every add_assumption patch already queued this turn
+    # (the LLM's own output plus any earlier deterministic backup).
+    pending_assumption_adds = sum(1 for patch in patch_set.patches if isinstance(patch, AddAssumptionPatch))
+    predicted_id = f"A{len(model.assumptions) + pending_assumption_adds + 1}"
+    assumption_patches = [
+        AddAssumptionPatch(text=summary, related_component_ids=[component.id for component in model.components]),
+        ConfirmAssumptionPatch(assumption_id=predicted_id),
+    ]
+
+    narration = (
+        patch_set.narration
+        or "Recorded the migration target context you gave; the source model itself stays unchanged."
+    )
+    return PatchSet(patches=[*patch_set.patches, *resolve_patches, *assumption_patches], narration=narration)
+
+
+def model_has_confirmed_greenfield_fact(model: ArchitectureModel) -> bool:
+    return any(
+        assumption.resolved and _GREENFIELD_ASSUMPTION_MARKER in assumption.text
+        for assumption in model.assumptions
+    )
+
+
+def _summarize_target_context_answer(user_message: str) -> str | None:
+    text = " ".join(user_message.lower().split())
+    facts: list[str] = []
+
+    if any(term in text for term in ("aws", "amazon web services")):
+        facts.append("target platform is AWS")
+    elif "azure" in text:
+        facts.append("target platform is Azure")
+    elif any(term in text for term in ("gcp", "google cloud")):
+        facts.append("target platform is GCP")
+
+    if "zero downtime" in text or "no downtime" in text:
+        facts.append("downtime tolerance is zero/near-zero")
+    else:
+        downtime_match = re.search(r"\d+\s*(?:hour|hr|min|minute)s?", text)
+        if downtime_match and "downtime" in text:
+            facts.append(f"downtime tolerance is about {downtime_match.group(0)}")
+
+    if any(term in text for term in ("large scale", "large-scale", "high scale", "high traffic")):
+        facts.append("expected scale is large")
+    elif any(term in text for term in ("small scale", "small-scale", "low traffic")):
+        facts.append("expected scale is small")
+
+    if _looks_like_greenfield_build_context(user_message):
+        facts.append("this is a greenfield build with no existing deployed system yet")
+
+    if not facts:
+        return None
+    return "User-provided migration context: " + "; ".join(facts) + "."
+
+
 def resolve_dependency_open_questions_from_short_answer(
-    model: ArchitectureModel, user_message: str, patch_set: PatchSet
+    model: ArchitectureModel,
+    user_message: str,
+    patch_set: PatchSet,
+    *,
+    previous_agent_message: str | None = None,
 ) -> PatchSet:
     """Deterministic backup for terse answers like "standalone" or "no
     connections" to a dependency/open-question prompt. LLMs sometimes narrate
@@ -90,6 +270,10 @@ def resolve_dependency_open_questions_from_short_answer(
     the app ask the same question again."""
 
     normalized = " ".join(user_message.lower().split())
+    affirmative_answer = normalized in {"yes", "y", "yeah", "yep", "correct", "yes correct", "that's correct"}
+    if affirmative_answer and previous_agent_message:
+        patch_set = _resolve_affirmed_dependency_hypothesis(model, previous_agent_message, patch_set)
+
     clear_standalone_answer = (
         normalized in {"no", "none", "nope", "standalone", "no connections", "no dependencies"}
         or "no connections" in normalized
@@ -130,8 +314,83 @@ def resolve_dependency_open_questions_from_short_answer(
     return PatchSet(patches=[*patch_set.patches, *additions], narration=narration)
 
 
+def _resolve_affirmed_dependency_hypothesis(
+    model: ArchitectureModel, previous_agent_message: str, patch_set: PatchSet
+) -> PatchSet:
+    previous = " ".join(previous_agent_message.lower().split())
+    if not any(term in previous for term in ("expect", "confirm", "connection", "dependencies", "interact")):
+        return patch_set
+
+    existing = {
+        (dependency.source_id, dependency.target_id, dependency.kind)
+        for dependency in model.dependencies
+    }
+    already_in_patch_set = {
+        (patch.source_id, patch.target_id, patch.kind)
+        for patch in patch_set.patches
+        if isinstance(patch, AddDependencyPatch)
+    }
+
+    def find_component(*needles: str) -> str | None:
+        for component in model.components:
+            text = f"{component.id} {component.name} {component.description} {component.technology or ''}".lower()
+            if all(needle in text for needle in needles):
+                return component.id
+        return None
+
+    desired: list[AddDependencyPatch] = []
+    iot = find_component("iot") or find_component("telemetry")
+    backend = find_component("fastapi") or find_component("backend") or find_component("api")
+    database = find_component("postgres") or find_component("database") or find_component("db")
+
+    if iot and backend and iot != backend and any(term in previous for term in ("iot", "telemetry", "mqtt")):
+        desired.append(
+            AddDependencyPatch(
+                source_id=iot,
+                target_id=backend,
+                kind=DependencyKind.ASYNC_CALL,
+                description="User confirmed the IoT telemetry path sends MQTT/events to the backend for processing.",
+            )
+        )
+
+    if (
+        backend
+        and database
+        and backend != database
+        and any(term in previous for term in ("postgres", "database", "data storage", "store"))
+    ):
+        desired.extend(
+            [
+                AddDependencyPatch(
+                    source_id=backend,
+                    target_id=database,
+                    kind=DependencyKind.DATA_WRITE,
+                    description="User confirmed the backend writes processed/application data to the database.",
+                ),
+                AddDependencyPatch(
+                    source_id=backend,
+                    target_id=database,
+                    kind=DependencyKind.DATA_READ,
+                    description="User confirmed the backend reads application data from the database.",
+                ),
+            ]
+        )
+
+    missing = [
+        patch
+        for patch in desired
+        if (patch.source_id, patch.target_id, patch.kind) not in existing
+        and (patch.source_id, patch.target_id, patch.kind) not in already_in_patch_set
+    ]
+    if not missing:
+        return patch_set
+
+    narration = patch_set.narration or "Confirmed the previously suggested dependency flow and captured those connections."
+    return PatchSet(patches=[*patch_set.patches, *missing], narration=narration)
+
+
 def resolve_environment_open_questions_from_short_answer(
-    model: ArchitectureModel, user_message: str, patch_set: PatchSet
+    model: ArchitectureModel, user_message: str, patch_set: PatchSet, request_impact: object = None
 ) -> PatchSet:
     """Deterministic backup for terse environment answers.
 
@@ -140,7 +399,18 @@ def resolve_environment_open_questions_from_short_answer(
     environment=unknown. That makes the gap analyzer ask the same hosting question
     again. This helper converts those provider answers into the canonical
     environment enum and resolves the matching question/assumption.
+
+    Must NOT fire on a TARGET_PLANNING message ("want to move to AWS"): a bare
+    provider-name mention there describes the TARGET, not the current/source
+    hosting, and this function has no way to tell those apart from the word
+    alone. Firing anyway previously stamped a wrong "the current hosting
+    environment is AWS" assumption onto a greenfield build whose real answer was
+    "nothing exists yet" — resolve_sparse_intake_open_question_from_target_context_answer
+    is the function that correctly handles target-context answers instead.
     """
+
+    if getattr(request_impact, "intent", None) == RequestIntent.TARGET_PLANNING:
+        return patch_set
 
     normalized = " ".join(user_message.lower().replace("-", " ").split())
     detected = _detect_environment_answer(normalized)
@@ -419,12 +689,20 @@ def _adapt_gaps_to_latest_user_message(gaps: list[Gap], state: GraphState) -> li
     target cloud, the app should not ask where the current app is hosted. There
     is no current hosting. The useful next question is product architecture
     intake: workflows, data, auth, integrations, reporting, compliance, scale.
+
+    Checks the model's own confirmed assumptions in addition to the latest
+    message: greenfield status stated once (e.g. turn 2) must keep suppressing
+    the current-hosting question on turn 5 even though turn 5's own message has
+    moved on to unrelated topics (dependencies, workflows) and says nothing
+    about greenfield itself — a per-message-only check re-asks "what's your
+    current hosting?" the moment the conversation looks away from that fact.
     """
 
-    if not _looks_like_greenfield_build_context(
+    is_greenfield = _looks_like_greenfield_build_context(
         state.get("user_message", ""),
         getattr(state.get("request_impact"), "intent", None),
-    ):
+    ) or model_has_confirmed_greenfield_fact(state["model"])
+    if not is_greenfield:
         return gaps
 
     adapted: list[Gap] = []

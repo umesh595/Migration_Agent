@@ -8,7 +8,7 @@ from app.orchestration.nodes.discovery import (
     resolve_dependency_open_questions_from_short_answer,
     resolve_environment_open_questions_from_short_answer,
 )
-from app.schemas.architecture import ArchitectureModel, Assumption, Component, Environment, OpenQuestion
+from app.schemas.architecture import ArchitectureModel, Assumption, Component, DependencyKind, Environment, OpenQuestion
 from app.schemas.patches import (
     AddAssumptionPatch,
     AddOpenQuestionPatch,
@@ -108,6 +108,67 @@ def test_standalone_short_answer_does_not_resolve_unrelated_open_question():
     )
 
     assert patch_set.patches == []
+
+
+def test_yes_to_previous_dependency_hypothesis_adds_iot_backend_database_edges():
+    model = ArchitectureModel(
+        components=[
+            Component(
+                id="iot_platform",
+                name="IoT Platform",
+                workload_type="data_pipeline",
+                description="Ingests MQTT telemetry",
+                environment="cloud",
+                criticality="tier-1",
+            ),
+            Component(
+                id="fastapi_backend",
+                name="FastAPI Backend",
+                workload_type="api_service",
+                environment="cloud",
+                criticality="tier-1",
+            ),
+            Component(
+                id="postgres_database",
+                name="Postgres Database",
+                workload_type="database",
+                environment="cloud",
+                criticality="tier-1",
+            ),
+        ]
+    )
+    previous = (
+        "I'd expect the IoT Platform to send telemetry data to the FastAPI Backend for processing, "
+        "and the FastAPI Backend to interact with the Postgres Database for data storage. Can you confirm?"
+    )
+
+    patch_set = resolve_dependency_open_questions_from_short_answer(
+        model,
+        "YES",
+        PatchSet(patches=[], narration=""),
+        previous_agent_message=previous,
+    )
+    new_model, results = apply_patch_set(model, patch_set)
+
+    assert all(result.outcome == PatchOutcome.APPLIED for result in results)
+    assert any(
+        dependency.source_id == "iot_platform"
+        and dependency.target_id == "fastapi_backend"
+        and dependency.kind == DependencyKind.ASYNC_CALL
+        for dependency in new_model.dependencies
+    )
+    assert any(
+        dependency.source_id == "fastapi_backend"
+        and dependency.target_id == "postgres_database"
+        and dependency.kind == DependencyKind.DATA_WRITE
+        for dependency in new_model.dependencies
+    )
+    assert any(
+        dependency.source_id == "fastapi_backend"
+        and dependency.target_id == "postgres_database"
+        and dependency.kind == DependencyKind.DATA_READ
+        for dependency in new_model.dependencies
+    )
 
 
 def test_gcp_short_answer_resolves_environment_question_and_updates_components():
