@@ -139,6 +139,7 @@ def apply_patch_set(
     patch_set: PatchSet,
     *,
     require_structural_confirmation: bool = False,
+    bypass_confirmation: bool = False,
 ) -> tuple[ArchitectureModel, list[PatchResult]]:
     """Returns the final model after applying every valid patch in order, plus one
     PatchResult per patch (applied or rejected) for the audit log."""
@@ -162,6 +163,7 @@ def apply_patch_set(
             patch,
             allow_high_impact_changes=confirmation_reason is not None,
             require_structural_confirmation=require_structural_confirmation and confirmation_reason is None,
+            bypass_confirmation=bypass_confirmation,
         )
         if rejection_reason is not None:
             results.append(PatchResult(patch=patch, outcome=PatchOutcome.REJECTED, reason=rejection_reason))

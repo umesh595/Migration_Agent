@@ -35,7 +35,12 @@ def _passthrough_critic(verdicts: list[RequirementCoverageVerdict]) -> Requireme
 
 
 @pytest.mark.asyncio
-async def test_unknown_verdicts_become_one_grouped_basic_app_requirements_gap():
+async def test_unknown_verdicts_become_separate_gaps_never_merged():
+    """Technique: 'one question per gap, never merged across categories' — a
+    single BASIC_APP_REQUIREMENTS gap whose description concatenated every
+    concerning category into one string produced a wall-of-text single
+    question. Each concerning topic must be its own separate Gap instead."""
+
     verdicts = [
         RequirementCoverageVerdict(category="authentication/roles", status="unknown", high_impact=True),
         RequirementCoverageVerdict(category="seat locking during checkout", status="unknown", high_impact=True),
@@ -54,11 +59,15 @@ async def test_unknown_verdicts_become_one_grouped_basic_app_requirements_gap():
 
     gaps, model = await assess_dynamic_requirement_coverage(_model_with_components(), gateway, meter)
 
-    assert len(gaps) == 1
-    assert gaps[0].category == "basic_app_requirements"
-    assert "authentication/roles" in gaps[0].description
-    assert "seat locking during checkout" in gaps[0].description
-    assert "external integrations" not in gaps[0].description
+    assert len(gaps) == 2
+    assert all(g.category == "basic_app_requirements" for g in gaps)
+    descriptions = [g.description for g in gaps]
+    assert any("authentication/roles" in d for d in descriptions)
+    assert any("seat locking during checkout" in d for d in descriptions)
+    # Each gap names exactly its own topic, never both in the same description.
+    for d in descriptions:
+        assert not ("authentication/roles" in d and "seat locking during checkout" in d)
+    assert not any("external integrations" in d for d in descriptions)
     assert model.assumptions == []
 
 
@@ -181,9 +190,15 @@ async def test_critic_can_downgrade_a_generator_verdict_and_add_a_missed_categor
 
     gaps, _ = await assess_dynamic_requirement_coverage(_model_with_components(), gateway, meter)
 
-    assert len(gaps) == 1
-    assert "seat locking during checkout" in gaps[0].description
-    assert "payment idempotency" in gaps[0].description
+    assert len(gaps) == 2
+    descriptions = [g.description for g in gaps]
+    assert any("seat locking during checkout" in d for d in descriptions)
+    assert any("payment idempotency" in d for d in descriptions)
+    # The hedged, high-impact topic outranks the merely-unknown one — impact-
+    # weighted priority, not a flat per-category constant.
+    hedged_gap = next(g for g in gaps if "seat locking during checkout" in g.description)
+    unknown_gap = next(g for g in gaps if "payment idempotency" in g.description)
+    assert hedged_gap.priority > unknown_gap.priority
 
 
 @pytest.mark.asyncio

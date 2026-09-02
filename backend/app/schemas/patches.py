@@ -164,6 +164,12 @@ class PatchSet(BaseModel):
 
     patches: list[Patch] = Field(default_factory=list)
     narration: str = Field(description="Plain-language summary of what was understood, for the reply.")
+    user_technical_signal: Literal["technical", "non_technical", "unknown"] = Field(
+        default="unknown",
+        description="Inferred from THIS message's own vocabulary/specificity/hedging — never a fixed keyword "
+        "classifier, never asked as a question. Applied as a one-way upgrade to the model's "
+        "user_technical_level by apply_patches_node (see ArchitectureModel), not a per-turn overwrite.",
+    )
 
 
 class PatchOutcome(StrEnum):

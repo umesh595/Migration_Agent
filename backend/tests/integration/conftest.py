@@ -76,7 +76,7 @@ async def app_client():
     provider = MockProvider()
 
     async with LifespanManager(app, startup_timeout=60, shutdown_timeout=30):
-        # Replace the real OpenAI-backed gateway after startup built it.
+        # Replace the real LLM-backed gateway after startup built it.
         app.state.gateway = LLMGateway(provider, cheap_tier_max_retries=1, strong_tier_max_retries=3)
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             yield client, provider

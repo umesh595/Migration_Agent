@@ -13,10 +13,29 @@ psycopg[binary,pool]==3.3.4
 langgraph==1.2.11
 langgraph-checkpoint-postgres==3.1.2
 
+# AG-UI protocol: exposes the discovery graph over the standard Agent-User
+# Interaction event schema so a CopilotKit frontend can render generative UI
+# and pause on LangGraph interrupt() calls for human-in-the-loop approval —
+# see app/main.py and app/orchestration/graph.py. Pulls in langchain/
+# langchain-core as transitive deps (ag-ui-langgraph wraps a LangGraph graph
+# object directly, not a LangChain agent — those are dependencies of the
+# wrapper package itself, not something this codebase calls into).
+ag-ui-langgraph[fastapi]==0.0.44
+ag-ui-protocol==0.1.22
+copilotkit==0.1.96
+
 openai==3.0.0
+anthropic==0.75.0
 networkx==3.6.1
 python-docx==1.2.0
 reportlab==4.4.4
+# PDF/DOCX architecture-document import (see DECISIONS.md's "PRD-bump
+# override" entry) — python-docx above already covers .docx reading, pypdf
+# adds .pdf; both were previously export-only/test-only respectively.
+pypdf==6.16.2
+# AWS read-only resource-inventory import (same DECISIONS.md entry) — session-
+# scoped credentials only, see app/integrations/aws_provider.py.
+boto3==1.43.86
 
 bcrypt==5.0.0
 pyjwt==2.13.0

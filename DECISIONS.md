@@ -349,3 +349,38 @@ user request; nothing writes to `ArchitectureModel` directly.
   `mapper.external_component_id()` derives a stable `ext:{external_id}` id, and
   `validate_patch`'s existing "component id already exists" rejection handles
   the rest — no separate idempotency-key table needed for this endpoint.
+
+## PRD-bump override: architecture import from an uploaded document or a live cloud account
+
+The two entries above ("Conversational config paste-in", "Enterprise catalog
+import") were both deliberately scoped to stay *inside* the PRD's Non-Goal ("No
+automated discovery from cloud accounts, IaC repositories, diagrams, or
+monitoring systems in v1 — roadmapped for v2"). This entry is different: it's an
+explicit override of that Non-Goal, triggered by a direct instruction to enable
+it now rather than in v2, following the same PRD-bump process the Q7
+(LLM-as-judge) override above already used — cited here rather than silently
+crossed, for the same reason that override gave for writing itself down.
+
+What's now in scope, both strictly opt-in and never persisted:
+
+- **Uploaded architecture documents** (PDF/DOCX/text) — the user attaches a
+  file describing an existing system; its extracted text is fed through the
+  *existing* `ingest_patches` conversational pipeline exactly like a large
+  pasted message. No new LLM prompt, no new extraction logic — this reuses
+  100% of the dynamic, non-hardcoded ingestion already built.
+- **A live cloud provider connection** (AWS first; GCP/Azure/Oracle/Salesforce/
+  codebase-connect are the same pattern, deliberately deferred as separate,
+  later work rather than attempted all at once) — the user supplies
+  credentials in the request itself; they are used once for a read-only
+  inventory call and never written to the database. No new secrets-management
+  subsystem, no encryption-at-rest table, no credential rotation/revocation
+  surface — the explicit trade this session made to keep the override bounded.
+
+What stays true to the Non-Goal's *spirit* even while its letter is now
+crossed: nothing here is automatic or background. Both paths are a single,
+user-initiated action per session (`POST /sessions/{id}/integrations/
+document/import`, `POST /sessions/{id}/integrations/cloud/aws/import`) — the
+app never reaches out to a cloud account, a repo, or a monitoring system on
+its own, and a deployment that never uses either endpoint behaves exactly as
+it did before this entry, same as every other optional integration in this
+document.

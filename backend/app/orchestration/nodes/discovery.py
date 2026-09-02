@@ -10,8 +10,11 @@ import json
 import logging
 import re
 
-from app.core.gap_analyzer import _PRIORITY, Gap, GapCategory, analyze_gaps
+from langgraph.types import interrupt
+
+from app.core.gap_analyzer import Gap, GapCategory, analyze_gaps
 from app.core.patch_applier import apply_patch_set
+from app.core.patch_validator import patches_requiring_confirmation
 from app.core.request_intelligence import RequestIntent, render_request_impact_for_prompt
 from app.llm.base import ModelTier, StructuredOutputError
 from app.llm.gateway import LLMGateway, SessionTokenMeter
@@ -39,6 +42,15 @@ from app.schemas.patches import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Per-topic requirement-coverage gap priorities (see assess_dynamic_requirement_
+# coverage) — sit just below gap_analyzer._PRIORITY's SPARSE_ARCHITECTURE_CONTEXT
+# (95) and above ORPHAN_COMPONENT (80), so a genuinely high-impact hedge can
+# outrank a merely-unknown, low-stakes topic without either ever burying the
+# other inside one merged BASIC_APP_REQUIREMENTS gap (technique: impact-
+# weighted priority, not a flat per-category constant).
+_HIGH_IMPACT_HEDGE_GAP_PRIORITY = 92
+_OTHER_REQUIREMENT_GAP_PRIORITY = 88
 
 
 async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionTokenMeter) -> dict:
@@ -205,8 +217,15 @@ async def critique_ingest_completeness(
     )
 
     try:
+        # CHEAP tier, not STRONG: this is a bounded verification pass over
+        # structured input (does the patch set cover what the message said?),
+        # not open-ended synthesis — the same reliability/cost tradeoff as
+        # requirement_coverage_critic below. Keeps the primary reasoning calls
+        # (ingest itself, the requirement-coverage generator, question
+        # generation) on the strong tier for maximum intelligence while
+        # cutting real per-turn latency on the two check-only passes.
         response = await gateway.complete(
-            tier=ModelTier.STRONG,
+            tier=ModelTier.CHEAP,
             system_prompt=prompt.system,
             user_prompt=user_prompt,
             response_model=IngestCompletenessCriticOutput,
@@ -798,6 +817,23 @@ def _detect_environment_answer(normalized: str) -> tuple[Environment, str] | Non
     return None
 
 
+def _upgrade_user_technical_level(model: ArchitectureModel, signal: str) -> ArchitectureModel:
+    """One-way upgrade only (see ArchitectureModel.user_technical_level's own
+    docstring for why): once "technical" is detected it never reverts, and a
+    single "unknown" turn (e.g. a terse "yes") never downgrades an
+    already-established level. Mirrors the spec's "mixed/uncertain defaults to
+    non-technical, since asking an unanswerable technical question is more
+    costly than briefly under-asking a technical user" — non_technical is a
+    real, sticky floor too, only overridden by a later technical signal."""
+
+    current = model.user_technical_level
+    if signal == "unknown" or signal == current:
+        return model
+    if current == "technical":
+        return model
+    return model.model_copy(update={"user_technical_level": signal})
+
+
 def apply_patches_node(state: GraphState) -> dict:
     """Deterministic: validate, apply, audit, version++."""
 
@@ -812,11 +848,55 @@ def apply_patches_node(state: GraphState) -> dict:
         # repeated with no indication anything had gone wrong.
         return {"last_patch_results": [], "error": state.get("error")}
 
+    require_structural_confirmation = state.get("stage") == Stage.REVIEW
+    # Mirrors apply_patch_set's own confirmation_reason computation exactly — a
+    # patch set that resolves an open question in the SAME turn has already been
+    # explicitly discussed, so it must not also trigger a redundant interrupt.
+    already_confirmed_this_turn = any(isinstance(p, ResolveOpenQuestionPatch) for p in patch_set.patches)
+    pending = patches_requiring_confirmation(
+        state["model"],
+        patch_set.patches,
+        require_structural_confirmation=require_structural_confirmation,
+        allow_high_impact_changes=already_confirmed_this_turn,
+    )
+    bypass_confirmation = False
+    if pending:
+        # AG-UI human-in-the-loop pause (see app/api/routers/ag_ui.py): the first
+        # time this node runs for this turn, interrupt() raises and the graph run
+        # ends here — the frontend renders an approve/edit/reject card from the
+        # payload below. On resume, LangGraph re-runs this node from the top
+        # (everything above is a pure re-computation of the same `pending` list,
+        # so that's safe) and interrupt() returns the recorded decision instead
+        # of pausing again.
+        decision = interrupt(
+            {
+                # "reason" and "message" are ag-ui-langgraph's own field names
+                # (see lg_interrupt_to_agui) — promoted to top-level fields on
+                # the AG-UI Interrupt the frontend receives. Everything else
+                # (patches) is still delivered, just nested under
+                # interrupt.metadata.langgraph.raw on the frontend rather than
+                # a top-level field, since AG-UI's Interrupt schema doesn't
+                # define an app-specific payload field.
+                "reason": "structural_confirmation",
+                "message": (
+                    "These architecture changes need your explicit confirmation before "
+                    "they're applied — reply to approve, edit, or reject them."
+                ),
+                "patches": [
+                    {"op": str(p.op), "summary": patch_set.narration, "detail": p.model_dump(mode="json")}
+                    for p in pending
+                ],
+            }
+        )
+        bypass_confirmation = bool(isinstance(decision, dict) and decision.get("approved"))
+
     new_model, results = apply_patch_set(
         state["model"],
         patch_set,
-        require_structural_confirmation=state.get("stage") == Stage.REVIEW,
+        require_structural_confirmation=require_structural_confirmation,
+        bypass_confirmation=bypass_confirmation,
     )
+    new_model = _upgrade_user_technical_level(new_model, patch_set.user_technical_signal)
     if state.get("stage") == Stage.DISCOVERY:
         new_model, inferred_results = _apply_obvious_helper_dependencies(new_model)
         results = [*results, *inferred_results]
@@ -953,7 +1033,14 @@ async def gap_analysis_node(state: GraphState, gateway: LLMGateway, meter: Sessi
         conversation_context=state.get("conversation_context") or "",
         session_id=state.get("session_id", ""),
     )
-    gaps = sorted([*deterministic_gaps, *requirement_gaps], key=lambda g: g.priority, reverse=True)[:3]
+    # 5, not 3: requirement-coverage gaps are now one-per-topic (see
+    # assess_dynamic_requirement_coverage) rather than one merged bundle, so a
+    # system with several genuinely distinct high-impact unknowns needs more
+    # than 3 total slots to avoid re-merging them back together downstream —
+    # generate_questions_node's own significance filter is still what keeps
+    # the actual question count from ballooning, this cap just stops the
+    # gap list itself from growing unbounded.
+    gaps = sorted([*deterministic_gaps, *requirement_gaps], key=lambda g: g.priority, reverse=True)[:5]
     gaps = _adapt_gaps_to_latest_user_message(gaps, state)
     trace_node(
         node_name="discovery.gap_analysis",
@@ -1052,34 +1139,39 @@ async def assess_dynamic_requirement_coverage(
     if not concerning:
         return [], model
 
-    high_impact_hedged = [v for v in concerning if v.high_impact and v.status == "hedged_or_uncertain"]
-    other = [v for v in concerning if v not in high_impact_hedged]
-
-    parts = []
-    if high_impact_hedged:
-        callouts = "; ".join(
-            f'{v.category} (you said: "{v.evidence}")' if v.evidence else v.category for v in high_impact_hedged
+    # One Gap PER CONCERNING TOPIC, never one merged gap bundling several
+    # (technique: "one question per gap, never merged across categories" —
+    # the previous version built a single BASIC_APP_REQUIREMENTS gap whose
+    # description concatenated every concerning category into one string,
+    # which is exactly what produced a wall-of-text single question covering
+    # access control, payments, compliance, and volume all at once). Priority
+    # is impact-weighted per topic (a high-impact hedge outranks a merely
+    # unknown, low-stakes one) rather than a single flat category constant —
+    # a genuinely high-impact + still-hedged fact should compete for a
+    # question slot on its own merits, not be hidden inside a bundle.
+    gaps: list[Gap] = []
+    for verdict in concerning:
+        is_high_impact_hedge = verdict.high_impact and verdict.status == "hedged_or_uncertain"
+        if is_high_impact_hedge:
+            description = (
+                f"IMPORTANT — \"{verdict.category}\" was answered with a hedge, but getting it wrong would "
+                f"cause a real production problem for this system"
+                + (f' (you said: "{verdict.evidence}")' if verdict.evidence else "")
+                + " — ask for a confident, concrete answer rather than accepting the hedge."
+            )
+        else:
+            description = (
+                f"\"{verdict.category}\" is still unknown for this specific system. The user can answer with "
+                "details or explicitly say none/not applicable."
+            )
+        gaps.append(
+            Gap(
+                category=GapCategory.BASIC_APP_REQUIREMENTS,
+                description=description,
+                related_component_ids=[component.id for component in model.components],
+                priority=_HIGH_IMPACT_HEDGE_GAP_PRIORITY if is_high_impact_hedge else _OTHER_REQUIREMENT_GAP_PRIORITY,
+            )
         )
-        parts.append(
-            "IMPORTANT — these were answered with a hedge, but getting them wrong would cause a real "
-            "production problem for this system, so ask for a confident, concrete answer rather than "
-            "accepting the hedge: " + callouts + "."
-        )
-    if other:
-        parts.append(
-            "Also ask one grouped follow-up covering these still-unknown requirement areas for this specific "
-            "system: " + "; ".join(v.category for v in other) + ". The user can answer with details or "
-            "explicitly say none/not applicable for any item."
-        )
-
-    gaps = [
-        Gap(
-            category=GapCategory.BASIC_APP_REQUIREMENTS,
-            description=" ".join(parts),
-            related_component_ids=[component.id for component in model.components],
-            priority=_PRIORITY[GapCategory.BASIC_APP_REQUIREMENTS],
-        )
-    ]
     return gaps, model
 
 
@@ -1141,8 +1233,12 @@ async def _critique_requirement_coverage(
     )
 
     try:
+        # CHEAP tier — see ingest_completeness_critic's identical comment: a
+        # bounded second-opinion check over the generator's own structured
+        # verdicts, not open-ended synthesis, with automatic escalation to
+        # STRONG built into LLMGateway.complete() if it ever fails.
         response = await gateway.complete(
-            tier=ModelTier.STRONG,
+            tier=ModelTier.CHEAP,
             system_prompt=prompt.system,
             user_prompt=user_prompt,
             response_model=RequirementCoverageCriticOutput,
@@ -1244,8 +1340,23 @@ async def generate_questions_node(state: GraphState, gateway: LLMGateway, meter:
 
     gaps = state.get("_gaps", [])
     if not gaps:
+        # Never end a turn with silence (technique: explicit terminal handling,
+        # not an implicit dead end) — a user who just answered a real question
+        # and gets an empty response back cannot tell "discovery is genuinely
+        # done" from "the app is broken." This is a deterministic fallback, not
+        # an LLM call: it fires only once real gaps have run out, so there is
+        # nothing left to reason about dynamically — the message is structural
+        # ("you're done, here's the next step"), not domain content.
+        closing = (
+            "I believe I now have enough of a picture of your architecture to move "
+            "forward — I don't have any more open questions right now. Take a look at "
+            "the model summary above; if it looks complete and accurate, accept it to "
+            "move into migration planning. If anything's missing, wrong, or you think "
+            "of more detail, just tell me and I'll fold it in."
+        )
         return {
             "pending_questions": [],
+            "narration": f"{state.get('narration', '')}\n\n{closing}".strip(),
             "stage": Stage.DISCOVERY,
             "_gaps": None,
             "error": None,

@@ -13,20 +13,46 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
-from app.api.deps import CatalogProviderDep, CurrentUser, Db, SessionLock, enforce_rate_limit
+from app.api.deps import (
+    CatalogProviderDep,
+    CurrentUser,
+    Db,
+    SessionLock,
+    enforce_message_rate_limit,
+    enforce_rate_limit,
+    get_gateway,
+)
+
+# Reused rather than re-derived — see sessions.py for why each exists.
+from app.api.routers.sessions import _persist_turn, _render_user_message_history, _thread_config
+from app.config import get_settings
 from app.core.patch_applier import apply_patch_set
+from app.core.request_intelligence import classify_user_request
 from app.db.models import SessionStatus
+from app.integrations.aws_provider import AWSCredentials, AWSProviderError, fetch_aws_inventory, map_aws_inventory_to_patch_set
 from app.integrations.catalog_provider import CatalogProviderError
+from app.integrations.document_extractor import DocumentExtractionError, extract_text
 from app.integrations.mapper import map_catalog_result_to_patch_set
+from app.llm.gateway import LLMGateway, SessionTokenMeter
+from app.orchestration.checkpointer import get_checkpointer
+from app.orchestration.graph import build_discovery_graph
+from app.orchestration.state import Stage
 from app.security.session_lock import SessionBusyError
 from app.services import session_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sessions", tags=["integrations"])
+
+# Matches MessageRequest.message's cap (sessions.py) — an uploaded document is
+# fed through the identical conversational ingest pipeline, so the same limit
+# applies for the same reason (a single ingest_patches call has a real prompt-
+# size ceiling regardless of where the text came from).
+_MAX_DOCUMENT_TEXT_LENGTH = 50_000
 
 
 class CatalogImportRequest(BaseModel):
@@ -113,6 +139,196 @@ async def import_from_catalog(
         rejected = len(results) - applied
 
         return CatalogImportResponse(
+            narration=patch_set.narration,
+            model_version=new_model.version,
+            applied=applied,
+            rejected=rejected,
+            patch_results=[r.model_dump(mode="json") for r in results],
+        )
+    finally:
+        await session_lock.release(session_id_str, lock_token)
+
+
+class DocumentImportResponse(BaseModel):
+    narration: str | None
+    questions: list[str]
+    model_version: int
+    error: str | None = None
+
+
+@router.post(
+    "/{session_id}/integrations/document/import",
+    response_model=DocumentImportResponse,
+    dependencies=[Depends(enforce_rate_limit)],
+)
+async def import_from_document(
+    session_id: uuid.UUID,
+    user: CurrentUser,
+    db: Db,
+    session_lock: SessionLock,
+    gateway: Annotated[LLMGateway, Depends(get_gateway)],
+    _rate_limit: Annotated[None, Depends(enforce_message_rate_limit)],
+    file: Annotated[UploadFile, File(description="A PDF, DOCX, or plain-text architecture document.")],
+) -> DocumentImportResponse:
+    """Extracts text from an uploaded architecture document and runs it through
+    the SAME discovery graph a typed chat message uses — no new LLM prompt, no
+    new extraction logic (see DECISIONS.md's "PRD-bump override" entry). The
+    only new code here is turning the file into plain text; everything after
+    that is the existing, already-verified conversational ingestion pipeline."""
+
+    try:
+        session = await session_service.get_session_for_user(db, session_id, user.id)
+    except LookupError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found") from None
+
+    if session.status != SessionStatus.DISCOVERY:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"document import is only available during discovery — session is in '{session.status}'",
+        )
+
+    content = await file.read()
+    try:
+        text = extract_text(file.filename or "upload", content)
+    except DocumentExtractionError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+    if len(text) > _MAX_DOCUMENT_TEXT_LENGTH:
+        text = text[:_MAX_DOCUMENT_TEXT_LENGTH]
+
+    session_id_str = str(session.id)
+    try:
+        lock_token = await session_lock.acquire(session_id_str)
+    except SessionBusyError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="another turn is already in progress for this session — wait for it to complete",
+        ) from None
+
+    try:
+        model_before = await session_service.latest_model(db, session.id)
+        conversation_turns = await session_service.list_conversation_turns(db, session.id)
+        previous_agent_turn = await session_service.latest_conversation_turn(db, session.id, role="agent")
+        request_impact = classify_user_request(text)
+
+        await session_service.save_conversation_turn(
+            db, session.id, "user", f"[Uploaded document: {file.filename}]\n\n{text}"
+        )
+
+        meter = SessionTokenMeter(get_settings().session_token_budget, already_spent=session.token_usage or 0)
+        graph = build_discovery_graph(gateway, meter).compile(checkpointer=get_checkpointer())
+        initial = {
+            "session_id": session_id_str,
+            "stage": Stage.DISCOVERY,
+            "model": model_before,
+            "user_message": text,
+            "conversation_context": _render_user_message_history(conversation_turns),
+            "previous_agent_message": previous_agent_turn.text if previous_agent_turn is not None else None,
+            "request_impact": request_impact,
+        }
+        values = await graph.ainvoke(initial, config=_thread_config(session.langgraph_thread_id))
+
+        await _persist_turn(db, session, meter, model_before, values)
+
+        return DocumentImportResponse(
+            narration=values.get("narration"),
+            questions=values.get("pending_questions") or [],
+            model_version=(values.get("model") or model_before).version,
+            error=values.get("error"),
+        )
+    finally:
+        await session_lock.release(session_id_str, lock_token)
+
+
+class AWSImportRequest(BaseModel):
+    access_key_id: str = Field(min_length=1)
+    secret_access_key: str = Field(min_length=1)
+    session_token: str | None = None
+    region: str = Field(default="us-east-1", min_length=1, max_length=32)
+
+
+class AWSImportResponse(BaseModel):
+    narration: str
+    model_version: int
+    applied: int
+    rejected: int
+    patch_results: list[dict]
+
+
+@router.post(
+    "/{session_id}/integrations/cloud/aws/import",
+    response_model=AWSImportResponse,
+    dependencies=[Depends(enforce_rate_limit)],
+)
+async def import_from_aws(
+    session_id: uuid.UUID,
+    payload: AWSImportRequest,
+    user: CurrentUser,
+    db: Db,
+    session_lock: SessionLock,
+) -> AWSImportResponse:
+    """Read-only AWS resource-inventory import (see DECISIONS.md's "PRD-bump
+    override" entry). Credentials are used once, for this call only, and are
+    never written to the database — `payload` goes out of scope when this
+    function returns, and nothing about it is logged."""
+
+    try:
+        session = await session_service.get_session_for_user(db, session_id, user.id)
+    except LookupError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found") from None
+
+    if session.status != SessionStatus.DISCOVERY:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"AWS import is only available during discovery — session is in '{session.status}'",
+        )
+
+    session_id_str = str(session.id)
+    try:
+        lock_token = await session_lock.acquire(session_id_str)
+    except SessionBusyError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="another turn is already in progress for this session — wait for it to complete",
+        ) from None
+
+    try:
+        credentials = AWSCredentials(
+            access_key_id=payload.access_key_id,
+            secret_access_key=payload.secret_access_key,
+            session_token=payload.session_token,
+            region=payload.region,
+        )
+        try:
+            fetch_result = await fetch_aws_inventory(credentials)
+        except AWSProviderError as exc:
+            # Never log `exc` at a level/sink that could echo the credentials
+            # back — AWSProviderError wraps botocore's own exception message,
+            # which for an auth failure names the rejected access key id but
+            # never the secret; still, this stays at warning-with-session-id
+            # only, matching the catalog import's own logging shape.
+            logger.warning("AWS import failed for session %s", session_id)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"AWS API error: {exc}",
+            ) from exc
+        finally:
+            del credentials
+
+        patch_set = map_aws_inventory_to_patch_set(fetch_result)
+
+        model_before = await session_service.latest_model(db, session.id)
+        new_model, results = apply_patch_set(model_before, patch_set)
+
+        if new_model.version > model_before.version:
+            await session_service.save_model_version(db, session.id, new_model)
+            await session_service.save_patch_audit(db, session.id, results, model_before.version)
+            await db.commit()
+
+        applied = sum(1 for r in results if r.outcome == "applied")
+        rejected = len(results) - applied
+
+        return AWSImportResponse(
             narration=patch_set.narration,
             model_version=new_model.version,
             applied=applied,

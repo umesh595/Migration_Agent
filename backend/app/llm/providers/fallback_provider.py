@@ -3,9 +3,9 @@ exhaustion on the primary switches to the secondary — without the gateway,
 graph nodes, or any prompt ever knowing a fallback exists (matches the
 extensibility boundary LLMProvider's own docstring already commits to).
 
-OpenAI stays the primary per DECISIONS.md Q1; this exists only to keep the
-app usable when its account runs out of credits, not to run a multi-provider
-strategy. The switch is sticky and permanent for this process's lifetime —
+Anthropic stays the primary; this exists only to keep the app usable when its
+account runs out of credits, not to run a multi-provider strategy. The switch
+is sticky and permanent for this process's lifetime —
 once the primary has proven it can't serve a request, there's no value in
 re-trying it on the next call only to pay the same failure again.
 """

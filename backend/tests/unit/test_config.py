@@ -14,7 +14,7 @@ from app.config import Settings
 
 _BASE = {
     "DATABASE_URL": "postgresql+psycopg://u:p@localhost:5432/db",
-    "OPENAI_API_KEY": "sk-test",
+    "ANTHROPIC_API_KEY": "sk-ant-test",
 }
 
 

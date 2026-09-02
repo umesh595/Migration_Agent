@@ -23,7 +23,7 @@ written, and why each was answered the way it was.
 cp .env.example .env
 ```
 
-Set `OPENAI_API_KEY` and `BOOTSTRAP_ADMIN_EMAIL`/`BOOTSTRAP_ADMIN_PASSWORD` in `.env`
+Set `ANTHROPIC_API_KEY` and `BOOTSTRAP_ADMIN_EMAIL`/`BOOTSTRAP_ADMIN_PASSWORD` in `.env`
 (there is no self-service sign-up — see FR-A5 below — so the bootstrap admin is how
 you get your first login), then:
 
@@ -229,9 +229,23 @@ over `POST` (so it can carry a body and an `Authorization` header), which
 The chat panel's **Attach** button lets you paste or upload a text file
 (`docker-compose.yml`, a Terraform summary, a README architecture section)
 straight into a discovery turn — it's read into the message box and sent through
-the exact same conversational ingestion path as anything typed by hand. This is
-not an IaC parser or a cloud-account scanner (those remain explicit v1 Non-Goals
-per the PRD); see DECISIONS.md.
+the exact same conversational ingestion path as anything typed by hand.
+
+Two further import paths exist, both strictly opt-in, single-action, and never
+persisting anything you supply for them:
+
+- `POST /sessions/{id}/integrations/document/import` — upload a PDF/DOCX/text
+  architecture document; its extracted text goes through the same
+  conversational ingestion pipeline as the Attach button above.
+- `POST /sessions/{id}/integrations/cloud/aws/import` — connect a live AWS
+  account (credentials supplied in the request, used once, never stored) for a
+  read-only resource-inventory import. GCP/Azure/Oracle/Salesforce/
+  codebase-connect follow the same pattern as later, separate work.
+
+The original PRD Non-Goal ("no automated discovery from cloud accounts, IaC
+repos, or monitoring systems in v1") is amended, not silently ignored, to allow
+this — see DECISIONS.md's "PRD-bump override" entry for what's in scope and why
+it's still bounded (opt-in only, nothing automatic or background).
 
 ## Testing
 
@@ -279,8 +293,8 @@ Key settings:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `LLM_CHEAP_MODEL` | `gpt-4o-mini` | Ingestion, question generation |
-| `LLM_STRONG_MODEL` | `gpt-4o` | Planning, review, strategy |
+| `ANTHROPIC_CHEAP_MODEL` | `claude-sonnet-5` | Ingestion, question generation |
+| `ANTHROPIC_STRONG_MODEL` | `claude-opus-5` | Planning, review, strategy |
 | `LLM_CHEAP_TIER_MAX_RETRIES` | `1` | Then escalates to the strong tier |
 | `SESSION_TOKEN_BUDGET` | `1000000` | Hard per-session cap |
 | `MAX_COMPONENTS` / `MAX_DEPENDENCIES` | `50` / `200` | v1 scale envelope |
@@ -288,10 +302,10 @@ Key settings:
 | `RATE_LIMIT_RPM` / `RATE_LIMIT_MESSAGES_RPM` | `30` / `10` | Per user, shared via Redis |
 | `RATE_LIMIT_FAIL_OPEN` | `false` | Fails closed by default — set true to allow requests through if Redis is unreachable |
 
-**Provider portability.** OpenAI is the only wired provider (per project decision),
-but the gateway is provider-agnostic: adding Groq or Anthropic means writing one class
-implementing `LLMProvider` in `app/llm/providers/` — no changes to the gateway, graph
-nodes, or prompts.
+**Provider portability.** Anthropic is the primary wired provider, with Groq kept as
+an optional quota/credits fallback. The gateway remains provider-agnostic: each
+provider implements `LLMProvider` in `app/llm/providers/`, with no changes needed in
+the graph nodes or prompts.
 
 **Observability.** Langfuse tracing activates when `LANGFUSE_PUBLIC_KEY` and
 `LANGFUSE_SECRET_KEY` are set, and is a silent no-op otherwise. If it's configured but

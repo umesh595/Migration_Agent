@@ -1,7 +1,12 @@
-"""Regression coverage for two live-reported stalls: a target/downtime answer
-that should close the sparse-architecture intake question but didn't, and a
+"""Regression coverage for three live-reported stalls: a target/downtime answer
+that should close the sparse-architecture intake question but didn't, a
 "just give it, proceed with a draft" command that got misclassified as a terse
-confirmation and produced the exact same question again instead of drafting."""
+confirmation and produced the exact same question again instead of drafting,
+and a turn that reaches zero remaining gaps producing a completely silent
+response instead of an explicit "you're done, here's the next step" message
+(discovery_agent_dynamic_spec.md §7 — "never end a turn with silence")."""
+
+import pytest
 
 from app.core.gap_analyzer import GapCategory, top_gaps
 from app.core.patch_applier import apply_patch_set
@@ -11,10 +16,12 @@ from app.orchestration.nodes.discovery import (
     auto_confirm_directly_stated_assumptions,
     capture_unpatched_factual_answer_as_assumption,
     draft_minimal_architecture_when_user_says_proceed,
+    generate_questions_node,
     model_has_confirmed_greenfield_fact,
     resolve_environment_open_questions_from_short_answer,
     resolve_sparse_intake_open_question_from_target_context_answer,
 )
+from app.orchestration.state import Stage
 from app.schemas.architecture import ArchitectureModel, Assumption, Component, OpenQuestion, WorkloadType
 from app.schemas.patches import AddAssumptionPatch, AddComponentPatch, PatchOp, PatchSet
 
@@ -319,3 +326,33 @@ def test_proceed_command_is_a_noop_once_the_llm_already_drafted_something():
     result = draft_minimal_architecture_when_user_says_proceed(model, impact, llm_patch_set)
 
     assert result is llm_patch_set
+
+
+@pytest.mark.asyncio
+async def test_zero_gaps_produces_an_explicit_closing_message_not_silence():
+    """Live-reported: after dozens of turns of good-faith answers, gaps
+    reaching zero produced no closing message and no next step — from the
+    user's perspective, indistinguishable from the app being broken. The
+    zero-gaps branch is pure deterministic code (no LLM call), so gateway/
+    meter are never touched — asserted here by passing None for both."""
+
+    state = {
+        "_gaps": [],
+        "model": ArchitectureModel(),
+        "narration": "Previous turn's narration.",
+        "user_message": "yes that's everything",
+        "previous_agent_message": None,
+    }
+
+    result = await generate_questions_node(state, gateway=None, meter=None)
+
+    assert result["pending_questions"] == []
+    assert result["stage"] == Stage.DISCOVERY
+    assert result["error"] is None
+    # The prior turn's narration must survive (never overwritten), and a real,
+    # non-empty closing message must be appended — not blank, not just
+    # whitespace, and substantive enough to tell the user what to do next.
+    assert "Previous turn's narration." in result["narration"]
+    closing = result["narration"].replace("Previous turn's narration.", "").strip()
+    assert len(closing) > 20
+    assert "accept" in closing.lower() or "planning" in closing.lower()

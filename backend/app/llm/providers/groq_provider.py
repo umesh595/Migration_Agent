@@ -1,5 +1,5 @@
-"""Groq adapter — used only as a fallback when OpenAI (the primary, per
-DECISIONS.md Q1) has no quota/credits left, via FallbackLLMProvider. Groq's
+"""Groq adapter — used only as a fallback when Anthropic (the primary)
+has no quota/credits left, via FallbackLLMProvider. Groq's
 chat completions endpoint is OpenAI-compatible, so this reuses the `openai`
 SDK client pointed at Groq's base URL rather than adding a new dependency.
 

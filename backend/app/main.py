@@ -7,14 +7,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
-from app.api.routers import admin, auth, integrations, sessions
+from app.api.routers import admin, ag_ui, auth, integrations, sessions
 from app.config import get_settings
 from app.db.session import AsyncSessionLocal
 from app.integrations.rest_catalog_provider import RestCatalogProvider
 from app.llm.gateway import LLMGateway
+from app.llm.providers.anthropic_provider import AnthropicProvider
 from app.llm.providers.fallback_provider import FallbackLLMProvider
 from app.llm.providers.groq_provider import GroqProvider
-from app.llm.providers.openai_provider import OpenAIProvider
 from app.observability.tracing import flush as tracing_flush
 from app.observability.tracing import tracing_status
 from app.orchestration.checkpointer import close_checkpointer, init_checkpointer
@@ -51,15 +51,16 @@ async def lifespan(app: FastAPI):
     else:
         app.state.catalog_provider = None
 
-    openai_provider = OpenAIProvider(
-        api_key=settings.openai_api_key.get_secret_value(),
-        cheap_model=settings.llm_cheap_model,
-        strong_model=settings.llm_strong_model,
+    anthropic_provider = AnthropicProvider(
+        api_key=settings.anthropic_api_key.get_secret_value(),
+        cheap_model=settings.anthropic_cheap_model,
+        strong_model=settings.anthropic_strong_model,
         timeout_s=settings.llm_request_timeout_s,
+        workspace_id=settings.anthropic_workspace_id,
     )
     # Groq is a fallback only (see FallbackLLMProvider) — activated automatically
-    # if OpenAI's account runs out of quota/credits, never otherwise. Unset
-    # GROQ_API_KEY to run OpenAI-only, exactly as before.
+    # if Anthropic's account runs out of quota/credits. Unset GROQ_API_KEY to
+    # run Anthropic-only.
     groq_provider = (
         GroqProvider(
             api_key=settings.groq_api_key.get_secret_value(),
@@ -70,7 +71,7 @@ async def lifespan(app: FastAPI):
         if settings.groq_api_key
         else None
     )
-    provider = FallbackLLMProvider(primary=openai_provider, fallback=groq_provider)
+    provider = FallbackLLMProvider(primary=anthropic_provider, fallback=groq_provider)
     app.state.gateway = LLMGateway(
         provider,
         cheap_tier_max_retries=settings.llm_cheap_tier_max_retries,
@@ -129,6 +130,7 @@ app.include_router(auth.router)
 app.include_router(sessions.router)
 app.include_router(admin.router)
 app.include_router(integrations.router)
+app.include_router(ag_ui.router)
 
 
 @app.get("/health", tags=["ops"])

@@ -42,6 +42,7 @@ def render_model_for_prompt(model: ArchitectureModel) -> str:
             for a in model.assumptions
         ],
         "open_questions": [{"id": q.id, "text": q.text} for q in model.open_questions if not q.resolved],
+        "user_technical_level": model.user_technical_level,
     }
     return json.dumps(payload, indent=2)
 

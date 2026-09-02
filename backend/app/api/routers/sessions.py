@@ -14,6 +14,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from langgraph.types import Command
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -329,11 +330,23 @@ async def post_message(
                 # has streamed after 3 fresh-thread attempts.
                 for attempt in range(3):
                     try:
-                        async for chunk in graph.astream(
-                            initial, config=_thread_config(session.langgraph_thread_id), stream_mode="updates"
-                        ):
+                        interrupted = False
+                        thread_config = _thread_config(session.langgraph_thread_id)
+                        async for chunk in graph.astream(initial, config=thread_config, stream_mode="updates"):
                             graph_started = True
                             for node_name, node_output in chunk.items():
+                                if node_name == "__interrupt__":
+                                    # A structural/high-impact patch paused this turn
+                                    # for human-in-the-loop approval (see
+                                    # apply_patches_node's interrupt() call). This
+                                    # endpoint has no approve/reject UI (that lives on
+                                    # the AG-UI endpoint, app/api/routers/ag_ui.py) —
+                                    # auto-decline so this endpoint's behavior is
+                                    # exactly what it was before interrupts existed:
+                                    # the patch is rejected and the reason is
+                                    # explained in narration, nothing pauses silently.
+                                    interrupted = True
+                                    continue
                                 final_state = node_output
                                 if isinstance(node_output, dict):
                                     accumulated_values.update(node_output)
@@ -344,6 +357,23 @@ async def post_message(
                                         {"node": node_name, "narration": (node_output or {}).get("narration")}
                                     ),
                                 }
+                        if interrupted:
+                            async for chunk in graph.astream(
+                                Command(resume={"approved": False}), config=thread_config, stream_mode="updates"
+                            ):
+                                for node_name, node_output in chunk.items():
+                                    if node_name == "__interrupt__":
+                                        continue
+                                    final_state = node_output
+                                    if isinstance(node_output, dict):
+                                        accumulated_values.update(node_output)
+                                    yield {
+                                        "id": node_name,
+                                        "event": "node_complete",
+                                        "data": json.dumps(
+                                            {"node": node_name, "narration": (node_output or {}).get("narration")}
+                                        ),
+                                    }
                         break
                     except (UnicodeDecodeError, UnicodeError):
                         if graph_started or attempt == 2:

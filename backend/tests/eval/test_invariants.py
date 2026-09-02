@@ -209,7 +209,7 @@ class TestSeniorArchitectPromptBehavior:
     def test_ingest_prompt_requires_intent_classification_before_patching(self):
         prompt = get_prompt("ingest_patches")
 
-        assert prompt.version == "v17"
+        assert prompt.version == "v20"
         assert "FIRST, CLASSIFY THE USER'S INTENT BEFORE PATCHING" in prompt.system
         assert "HIGH-IMPACT ARCHITECTURE DECISION" in prompt.system
         assert "NEW UNSCOPED BUSINESS CAPABILITY" in prompt.system
@@ -231,7 +231,7 @@ class TestSeniorArchitectPromptBehavior:
     def test_question_prompt_filters_out_low_value_form_questions(self):
         prompt = get_prompt("generate_questions")
 
-        assert prompt.version == "v5"
+        assert prompt.version == "v8"
         assert "Never use generic boilerplate" in prompt.system
         assert "Would a different answer change wave order" in prompt.system
         assert "do not enumerate all component names" in prompt.system

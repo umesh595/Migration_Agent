@@ -30,7 +30,7 @@ Critical operating rules:
 
 INGEST_PATCHES = Prompt(
     id="ingest_patches",
-    version="v17",
+    version="v20",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: convert the user's message into a set of PATCHES against the current architecture model.
@@ -121,6 +121,20 @@ Rules:
   doesn't say which existing components it connects, apply it to whichever components the surrounding context
   most plausibly means (usually all of them, pairwise, if the message says "they" or "all components") rather
   than inventing a standalone component to represent the pattern itself.
+  A VAGUE N-WAY STATEMENT LIKE THIS IS AN INFERENCE, NOT A STATED FACT — DO NOT COMMIT IT AT FULL CONFIDENCE
+  WITH NO WAY TO CORRECT IT: "they talk to each other via pub/sub" naming 5 components generates a full
+  10-edge mesh from one sentence with no per-pair confirmation from the user — a real, observed failure mode
+  where every edge carried a confident-sounding "recommended because the described workflow implies X depends
+  on Y" reason despite the user never having said anything pair-specific. When you infer a full mesh (or any
+  N>2 set of pairwise edges) from a general statement like this rather than the user naming specific pairs,
+  you MUST also emit exactly ONE add_open_question in the same turn, plainly stating the inferred pattern and
+  asking the user to confirm or correct it — e.g. "I've assumed every one of the 5 domains publishes events
+  directly to every other one (a full mesh) based on 'they speak with each other using pub/sub' — is that
+  accurate, or do only some of them actually need to hear from each other?" Still add the edges (an
+  unconfirmed default beats zero edges and a falsely-disconnected model) — the open question is what makes
+  the inference correctable instead of silently permanent. This does not apply when the user names specific
+  pairs or a subset explicitly ("A publishes to B and C, but not D") — that is a stated fact, not an
+  inference, and needs no confirmation question.
 - AN EXPLICIT DEPENDENCY GRAPH SECTION IS A FLOOR, NOT A CEILING: if the message gives an explicit
   dependency/call graph section (e.g. a list of "A -> B" lines), you MUST reproduce every edge in it — but
   that section existing does NOT excuse you from also extracting edges described in prose ELSEWHERE in the
@@ -308,12 +322,30 @@ Rules:
 - The `narration` field is what the user reads: state plainly what you understood, in one or two sentences.
   If this turn inferred any component criticalities by role, narration MUST mention it (see above) — the
   user should never have to open the audit trail to learn what was assumed on their behalf.
+- WRITE NARRATION FOR A NON-TECHNICAL READER TOO — you don't know whether the person reading it is an
+  engineer. Plain component/business names are fine ("Order Service", "the payment gateway"); avoid
+  introducing vendor product names, protocols, or infrastructure mechanisms the user hasn't themselves used,
+  unless naming one is the actual point of the sentence (e.g. correcting a misunderstanding). Prefer "how the
+  system notifies other parts when something happens" over "the pub/sub layer" when the user hasn't already
+  used that term themselves.
+- SET `user_technical_signal` FROM THIS MESSAGE'S OWN VOCABULARY — never ask the user whether they're
+  technical, never use a fixed keyword list. Judge from how THIS message is written: does it name real
+  technologies/services/versions/configs precisely and correctly, describe mechanisms (retry logic,
+  concurrency handling, specific protocols) unprompted, or use accurate engineering vocabulary naturally?
+  That is "technical". Does it defer technical detail ("someone else set that up", "not sure what database",
+  "I'd have to ask engineering"), or stay entirely at the business/outcome level with no technical vocabulary
+  at all? That is "non_technical". If the message is too short/terse to judge either way (e.g. "yes", "gcp"),
+  or gives no signal, use "unknown" — never guess technical from a single ambiguous word. This is a
+  per-message judgment about THIS message alone; the calling code decides how it accumulates across turns
+  (a later technical signal can upgrade the session, a terse or non-technical turn never downgrades an
+  already-established technical signal, so it is fine — expected — to output "unknown" or "non_technical"
+  for a technical user's own terse reply, e.g. "yes" or "gcp").
 """,
 )
 
 GENERATE_QUESTIONS = Prompt(
     id="generate_questions",
-    version="v5",
+    version="v8",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: turn a list of COMPUTED gaps into the handful of questions a senior migration architect would
@@ -325,10 +357,68 @@ knows. Each gap you're given is already GROUPED by the code (e.g. one gap coveri
 missing a piece of information, not one gap per component) — respect that grouping in how you phrase the
 question; never re-split a single grouped gap back into several per-component questions.
 
-Ask at most 3 questions total, and only the ones that would materially change migration planning, sequencing,
-risk, cutover, or rollback if answered differently. A gap that's low-stakes either way (e.g. a handful of
-components with unconfirmed tier assignments that already have a sensible inferred default) belongs in a
-one-line note that the default will be carried forward, not in the question list.
+ROUTE QUESTION CONTENT BY THE INJECTED MODEL'S `user_technical_level` — CONTENT ONLY, NEVER EXISTENCE. The
+same computed gaps get asked either way; what changes is how deep each answer goes:
+  - "non_technical" or "unknown" (the default, and the safer assumption when signal is mixed or absent — an
+    unanswerable technical question costs more than briefly under-asking a technical user, who can always
+    volunteer more detail unprompted): apply the BUSINESS-LANGUAGE rule below with no exceptions. Never name
+    a technology, protocol, or vendor product the user hasn't already used themselves.
+  - "technical": still ask every business/risk/use-case question the business-language rule below would
+    produce (a technical user needs those answered too — they are business decisions, not technical ones,
+    and staying business-first here is not a routing mistake) — but ALSO add the technical-depth follow-up
+    each topic implies, using real vocabulary directly instead of translating it away: actual delivery
+    guarantees for pub/sub (at-least-once vs exactly-once, ordering), the specific compute/database/queue
+    services actually in use, the auth/trust mechanism BETWEEN services (not just end-user login), network
+    topology (VPC peering, service mesh, public vs private endpoints), and similar precise, answerable-by-an-
+    engineer questions. Emit the technical follow-up as its OWN separate question item (never merged into the
+    business one, per the no-merging rule above) so a technical user sees both, clearly separated.
+
+ASK IN BUSINESS LANGUAGE (the default; see the technical exception just above) — YOU DO NOT KNOW WHETHER THE
+PERSON ANSWERING IS AN ENGINEER. This tool must be usable by a sales, finance, product, or domain lead who
+has never heard of a message queue, not only by a technical architect. A question that names cloud vendor
+products, protocols, or implementation mechanisms is a question only an engineer can answer — that excludes
+exactly the audience this tool needs to serve for a non-technical or unknown user. Ask about the business
+need, the use case, and the decision the answer would drive; let the user answer in their own plain words,
+and translate that into technical vocabulary yourself (in narration and in the model) — never make
+translation the user's job.
+  - WRONG (engineer-only, and this is a real mistake this system has actually made — never repeat it): "What
+    pub/sub mechanism should replace GCP Pub/Sub on AWS (e.g. SNS/SQS, EventBridge, MSK), and do you need
+    strict ordering/exactly-once delivery between domains?" RIGHT: "When something happens in one part of the
+    system (like a new order), how quickly and reliably do the other parts need to find out about it — is a
+    short delay ever okay, or does every part need to know instantly and never miss it?"
+  - WRONG: "Is the payment gateway idempotent on retry?" RIGHT: "If a payment is retried after a network
+    hiccup, could a customer ever be charged twice, or is that already prevented?"
+  - WRONG: "How does Tickets handle seat/inventory concurrency (locking, reservation holds)?" RIGHT: "If two
+    customers try to book the same seat/show at the same second, what happens today — does one of them get
+    blocked, or could you end up with a double-booking?"
+  - WRONG: "What data store technology does each domain use?" (a technology-first question with no business
+    stake) — if the answer wouldn't change a business decision on its own, don't ask it this way at all; ask
+    about the thing that DOES matter (data volume, who needs to query it, how fresh it must be) and let the
+    technology choice be yours to make, not the user's to already know.
+  - This rule does not forbid USING a technical term the user themselves already introduced ("we use MQTT" ->
+    it's fine to reference MQTT back to them) — it forbids INTRODUCING new technical vocabulary, vendor
+    product names, or implementation mechanisms the user hasn't already used, as if the user must already
+    know the technical landscape to answer.
+  - A gap's own description (computed by code) may itself be phrased more technically than this — that is
+    the input for your reasoning, not the output the user sees. Always translate it into a business-framed
+    question before it reaches the user, regardless of how the underlying gap was described.
+
+EACH QUESTION ITEM MUST STAND ALONE ON ONE TOPIC — NEVER MERGE UNRELATED TOPICS INTO ONE STRING. A user
+facing a single paragraph that silently asks about five different things (access control, then payment
+retries, then reporting, then compliance, then data volume, all run together) cannot tell what's already
+answered and what's still open, and a partial reply looks like it answered everything. `questions` is a
+LIST for exactly this reason: one distinct underlying fact/topic per list entry, never combined. This is
+separate from grouping MULTIPLE COMPONENTS under one topic (see below) — that's still encouraged when they
+share one answer; it's merging DIFFERENT topics together that's never acceptable, no matter how related they
+feel or how much shorter the combined version would read.
+
+Only surface a question item for something that would materially change migration planning, sequencing,
+risk, cutover, or rollback if answered differently — apply this filter PER TOPIC, not to a merged bundle. A
+topic that's low-stakes either way (e.g. a handful of components with unconfirmed tier assignments that
+already have a sensible inferred default) belongs in a one-line note that the default will be carried
+forward, not in the question list. There is no fixed cap on how many question items this produces — a system
+with many genuinely distinct, high-impact unknowns legitimately needs several separate questions; the
+significance filter above is what keeps the list from growing unbounded, not an arbitrary count.
 
 Never use generic boilerplate like "Understanding X is crucial" unless the next sentence proves exactly
 what decision it changes. Prefer a direct, hypothesis-led question. If a gap mentions many components,
@@ -355,10 +445,14 @@ rough scale, target cloud, and downtime needs? Rough answers are fine; unknown i
 If the user may not know the stack, explicitly say rough answers are fine.
 
 FOR A BASIC-APP-REQUIREMENTS GAP, discovery has enough components to start, but not enough general
-application requirements to finish. Ask ONE grouped follow-up covering only the missing requirement areas
-named in the gap. Do not split it into many bullets unless the schema forces separate questions. Make it
-clear the user can say "none" or "not applicable" for anything that doesn't exist. This prevents the app
-from finishing discovery before the basics are known, while avoiding an interrogation-style form.
+application requirements to finish. This gap typically names SEVERAL distinct missing requirement areas at
+once (e.g. access control, payment retry safety, reporting, compliance, scale) — emit ONE separate question
+item per distinct area, never one paragraph covering all of them (see the no-merging rule above; this is the
+gap category where that mistake is easiest to make, since the areas arrive bundled together in the gap's own
+description). Make each item clear that the user can say "none" or "not applicable" for anything that
+doesn't exist. This prevents the app from finishing discovery before the basics are known, while keeping
+each item answerable and trackable on its own — never an interrogation-style form, and never a wall of text
+pretending to be one question.
 
 Write questions the way a senior migration consultant would ask them in conversation: specific, grounded in
 what's already known, easy to answer in a sentence, and referencing actual component names, not their ids.
@@ -428,7 +522,7 @@ to capture.
 
 ASSESS_REQUIREMENT_COVERAGE = Prompt(
     id="assess_requirement_coverage",
-    version="v4",
+    version="v5",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: given the current architecture model, decide what basic application requirement areas matter for
@@ -437,17 +531,29 @@ unknown, or needs to be escalated as a risk instead of asked about again.
 
 You are replacing a fixed, generic checklist. Do not just restate a template list of categories — reason
 about what this system, as actually described, would genuinely need for a credible migration plan, and name
-categories specifically. A movie booking system's meaningful categories include things like seat/inventory
-concurrency control during checkout and payment idempotency, not just a generic "integrations" line; an IoT
-telemetry platform's meaningful categories include device provisioning/registration and firmware update
-mechanism; an HR system's include approval workflows and data retention by employee-record type. Start from
-these common baseline areas as a seed, not a ceiling — drop any that are clearly irrelevant to this kind of
-system, and add domain-specific ones the baseline doesn't cover: user access channel, authentication/
-authorization/roles, external integrations (including payments if relevant), async messaging/events/jobs,
-reporting/analytics/exports, security/audit/monitoring/compliance/retention/PII, scale/traffic/data volume.
+categories specifically. A movie booking system's meaningful categories include things like preventing a
+double-booking of the same seat and making sure a customer is never charged twice, not just a generic
+"integrations" line; an IoT telemetry platform's meaningful categories include how new devices get
+recognized/onboarded and how firmware gets updated in the field; an HR system's include who has to approve
+what and how long employee records must be kept. Start from these common baseline areas as a seed, not a
+ceiling — drop any that are clearly irrelevant to this kind of system, and add domain-specific ones the
+baseline doesn't cover: user access channel, authentication/authorization/roles, external integrations
+(including payments if relevant), async messaging/events/jobs, reporting/analytics/exports, security/audit/
+monitoring/compliance/retention/PII, scale/traffic/data volume.
 Nothing about this category list is fixed — treat it as a conversation about THIS system's actual migration
 risk, open to whatever categories that specific system genuinely raises, not a form to fill in the same way
 every time.
+
+`category` IS SHOWN DIRECTLY TO THE USER (quoted verbatim in the follow-up question) — the same audience
+constraint as question generation applies here: name the category as a BUSINESS concern or outcome, never a
+technical mechanism or vendor product. Write "reliably notifying other parts of the system when something
+happens" not "pub/sub mechanism (SNS/SQS/EventBridge)"; "preventing a customer from being charged twice" not
+"payment gateway idempotency"; "making sure two people can't book the same seat" not "seat-level row locking
+/ concurrency control." Reason about the technical mechanism internally if it helps you judge whether the
+category is covered — just never let that technical vocabulary leak into the `category` string itself.
+`recommended_mitigation` is different: it is stored as an internal risk note (in the model's assumptions, for
+the audit trail), not quoted live to the user in the same turn — it may stay technically precise/actionable
+(e.g. "implement a unique constraint on (show_id, seat_id)"), since an engineer will read it later.
 
 DISTINGUISH CASUAL PHRASING FROM AN ACTUALLY UNCERTAIN ANSWER — this is the single most common misjudgment:
 - "no compliance framework that i know of, so none i guess" — the CLAIM is unambiguous (none). "that i know
@@ -539,7 +645,7 @@ made in corrections_made, in plain language; leave it empty if the generator's v
 
 ELICIT_MIGRATION_CONTEXT = Prompt(
     id="elicit_migration_context",
-    version="v2",
+    version="v3",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: structure the user's description of their migration goal into typed fields.
@@ -550,6 +656,12 @@ Your job: structure the user's description of their migration goal into typed fi
   tolerance), put a specific question in clarifying_questions rather than guessing. An unnecessary
   clarifying question wastes the user's time; a wrong guess here corrupts every downstream planning
   decision. Prefer asking when truly unsure about a REQUIRED field.
+- EVERY clarifying_questions ENTRY IS SHOWN DIRECTLY TO THE USER, WHO MAY NOT BE TECHNICAL — phrase it as a
+  business question about tolerance/impact, never a technical mechanism. "Can this system be briefly
+  unavailable during the move, or does it need to stay up the whole time?" not "is zero-downtime blue-green
+  deployment required?"; "if something goes wrong partway through, how much recent activity can we afford to
+  lose?" not "what's the acceptable RPO?" Reason about the technical field internally; ask about the
+  real-world consequence.
 - CAPTURE, DON'T DROP, high-impact details the user already stated: acceptable data loss/RPO/RTO,
   compliance or security constraints, whether authentication/session continuity must be preserved through
   cutover, whether async/background jobs can pause during the migration, whether object storage

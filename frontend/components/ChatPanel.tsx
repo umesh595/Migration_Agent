@@ -4,11 +4,15 @@ import { useEffect, useRef, useState } from "react";
 
 import { ApiError, getConversation, streamMessage } from "@/lib/api";
 import type { NodeCompleteEvent, RequestImpact, SessionStatus, TurnCompleteEvent } from "@/lib/types";
+import { InterruptApprovalCard } from "@/components/InterruptApprovalCard";
 
 interface ChatMessage {
   role: "user" | "agent" | "status" | "error";
   text: string;
   requestImpact?: RequestImpact | null;
+  nodeHistory?: NodeCompleteEvent[];
+  questions?: string[];
+  questionsIntro?: string;
 }
 
 export interface ChatDraft {
@@ -111,6 +115,89 @@ function RequestImpactCard({ impact }: { impact: RequestImpact }) {
   );
 }
 
+// Claude-UI-style transparency: the backend already streams a node_complete
+// event per graph step (see NODE_LABELS) — previously the frontend kept only
+// the LATEST one to drive the ephemeral "Reading your message…" label and
+// discarded the rest once the turn finished. This renders the full accumulated
+// sequence for a completed turn, collapsed by default so it doesn't clutter
+// the normal reading experience.
+function InternalWorkDisclosure({ nodeHistory }: { nodeHistory: NodeCompleteEvent[] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="mt-2 border-t border-white/10 pt-2">
+      <button
+        type="button"
+        className="flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-300"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <span className={`transition-transform ${open ? "rotate-90" : ""}`}>›</span>
+        Show internal work ({nodeHistory.length} step{nodeHistory.length === 1 ? "" : "s"})
+      </button>
+      {open && (
+        <ol className="mt-1.5 space-y-1 border-l border-white/10 pl-3">
+          {nodeHistory.map((event, i) => (
+            <li key={`${event.node}-${i}`} className="text-[11px] leading-4 text-slate-500">
+              {narrateNode(event)}
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+// Tool-Based Generative UI, scoped down: rather than routing question
+// generation through an LLM-invoked frontend tool (our LLM call layer uses
+// direct provider structured-output APIs, not LangChain's bind_tools(), so
+// there's no tool-calling loop to hook into) this renders the SAME
+// already-structured `questions` data — no backend change needed — as an
+// interactive checklist instead of plain bullet text, matching the
+// step-selector reference style. The checkboxes are a personal
+// read/considered tracker (local-only state, not submitted anywhere) since
+// the backend has no per-question structured-answer endpoint — free-text
+// reply below remains the one real way to answer, exactly as before.
+function QuestionChecklist({ questions, intro }: { questions: string[]; intro?: string }) {
+  const [checked, setChecked] = useState<boolean[]>(() => questions.map(() => false));
+  const doneCount = checked.filter(Boolean).length;
+
+  function toggle(i: number) {
+    setChecked((prev) => prev.map((v, idx) => (idx === i ? !v : v)));
+  }
+
+  return (
+    <div className="mt-2.5 rounded-lg border border-brand-400/20 bg-brand-400/[0.04] p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-brand-100">{intro ?? "Questions to consider"}</span>
+        <span className="badge border-brand-400/30 bg-brand-400/10 text-brand-100 shrink-0">
+          {doneCount}/{questions.length} reviewed
+        </span>
+      </div>
+      <ul className="mt-2 space-y-1.5">
+        {questions.map((q, i) => (
+          <li key={i}>
+            <button
+              type="button"
+              onClick={() => toggle(i)}
+              className="flex w-full items-start gap-2 rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-2 text-left text-xs text-slate-200 transition-colors hover:border-brand-400/30"
+            >
+              <span
+                className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded ${
+                  checked[i] ? "bg-grad-primary" : "border border-white/20"
+                }`}
+              >
+                {checked[i] && <span className="text-[10px] leading-none text-white">✓</span>}
+              </span>
+              <span className={checked[i] ? "text-slate-400 line-through decoration-slate-600" : ""}>{q}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function ChatBubble({ message }: { message: ChatMessage }) {
   const [expanded, setExpanded] = useState(false);
   const isLongUserMessage = message.role === "user" && message.text.length > COLLAPSE_MESSAGE_LENGTH;
@@ -156,7 +243,13 @@ function ChatBubble({ message }: { message: ChatMessage }) {
       </span>
       <div className="max-w-[85%] whitespace-pre-line rounded-xl rounded-tl-md border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-slate-200">
         {visibleText}
+        {message.questions && message.questions.length > 0 && (
+          <QuestionChecklist questions={message.questions} intro={message.questionsIntro} />
+        )}
         {visibleImpact && <RequestImpactCard impact={visibleImpact} />}
+        {message.nodeHistory && message.nodeHistory.length > 0 && (
+          <InternalWorkDisclosure nodeHistory={message.nodeHistory} />
+        )}
       </div>
     </div>
   );
@@ -279,11 +372,16 @@ export function ChatPanel({
     // connection doesn't re-run the graph and double-apply patches server-side —
     // the backend rejects a second submission with the same id as a duplicate.
     const messageId = crypto.randomUUID();
+    // Accumulates every node_complete event for this turn (previously only the
+    // latest was kept, to drive the ephemeral progress label, then discarded) —
+    // attached to the resulting agent message so it can be shown afterward.
+    const nodeHistory: NodeCompleteEvent[] = [];
 
     try {
       for await (const evt of streamMessage(sessionId, text, messageId)) {
         if (evt.event === "node_complete") {
           const data = evt.data as NodeCompleteEvent;
+          nodeHistory.push(data);
           setActiveNode(data.node);
           setLiveStatus(narrateNode(data));
         } else if (evt.event === "turn_complete") {
@@ -292,19 +390,20 @@ export function ChatPanel({
           if (data.error) {
             setMessages((prev) => [...prev, { role: "error", text: data.error as string }]);
           } else {
-            const parts: string[] = [];
-            if (data.narration) parts.push(data.narration);
-            if (data.clarifying_questions?.length) {
-              parts.push(
-                "I need to clarify a few things before continuing:\n" +
-                  data.clarifying_questions.map((q) => `• ${q}`).join("\n")
-              );
-            } else if (data.questions?.length) {
-              parts.push(data.questions.map((q) => `• ${q}`).join("\n"));
-            }
+            const questions = data.clarifying_questions?.length ? data.clarifying_questions : data.questions;
+            const questionsIntro = data.clarifying_questions?.length
+              ? "I need to clarify a few things before continuing:"
+              : undefined;
             setMessages((prev) => [
               ...prev,
-              { role: "agent", text: parts.join("\n\n") || "Understood.", requestImpact: data.request_impact },
+              {
+                role: "agent",
+                text: data.narration || (questions?.length ? "" : "Understood."),
+                requestImpact: data.request_impact,
+                nodeHistory,
+                questions,
+                questionsIntro,
+              },
             ]);
           }
         } else if (evt.event === "error") {
@@ -410,6 +509,10 @@ export function ChatPanel({
             </div>
           </div>
         )}
+      </div>
+
+      <div className="mx-4">
+        <InterruptApprovalCard />
       </div>
 
       {attachError && (

@@ -118,6 +118,15 @@ class ArchitectureModel(BaseModel):
     open_questions: list[OpenQuestion] = Field(default_factory=list)
     status: ModelStatus = ModelStatus.DRAFT
     version: int = 1
+    # Inferred live from the user's own vocabulary/specificity/hedging each
+    # turn (ingest_patches sets PatchSet.user_technical_signal; see
+    # apply_patches_node) — never asked as an onboarding question, never a
+    # fixed keyword classifier. "technical" only ever moves forward from
+    # "unknown"/"non_technical" within a session (a user can reveal more
+    # fluency over time; one terse reply should never flip it back), so this
+    # is a one-way upgrade, not a per-turn re-classification. Routes question
+    # CONTENT (generate_questions), not question existence.
+    user_technical_level: str = "unknown"
 
     def component_ids(self) -> set[str]:
         return {c.id for c in self.components}

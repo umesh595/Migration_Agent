@@ -1,7 +1,7 @@
 """Permanent live-conversation eval suite (technique #16, extended to the LLM
 boundary itself): scripted multi-turn conversations, taken directly from
 real director/lead test transcripts and live-reported bugs this project has
-hit, run against the REAL discovery graph (real OpenAI calls) and asserted
+hit, run against the REAL discovery graph (real Anthropic calls) and asserted
 against concrete, structural outcomes.
 
 This is deliberately NOT part of the default fast suite — test_golden_fixture.py
@@ -26,7 +26,7 @@ import pytest
 from app.config import get_settings
 from app.core.request_intelligence import classify_user_request
 from app.llm.gateway import LLMGateway, SessionTokenMeter
-from app.llm.providers.openai_provider import OpenAIProvider
+from app.llm.providers.anthropic_provider import AnthropicProvider
 from app.orchestration.graph import build_discovery_graph
 from app.orchestration.state import Stage
 from app.schemas.architecture import ArchitectureModel, Environment
@@ -34,19 +34,27 @@ from app.schemas.architecture import ArchitectureModel, Environment
 pytestmark = pytest.mark.live_smoke
 
 
-def _real_openai_api_key() -> str:
-    """tests/conftest.py deliberately sets a dummy OPENAI_API_KEY (via
+def _real_env_value(key: str) -> str | None:
+    """tests/conftest.py deliberately sets a dummy ANTHROPIC_API_KEY (via
     os.environ.setdefault) so an accidentally-unmocked LLM call fails loudly
     in the normal suite instead of silently hitting the real API. This suite
-    is the one place that's supposed to hit the real API, so it reads the
-    real key straight from .env rather than through get_settings(), which
+    is the one place that's supposed to hit the real API, so it reads real
+    values straight from .env rather than through get_settings(), which
     would resolve to that dummy value for the lifetime of the test process."""
 
     env_path = pathlib.Path(__file__).resolve().parents[3] / ".env"
     for line in env_path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("OPENAI_API_KEY="):
-            return line.split("=", 1)[1].strip()
-    raise RuntimeError(f"OPENAI_API_KEY not found in {env_path}")
+        if line.startswith(f"{key}="):
+            value = line.split("=", 1)[1].strip()
+            return value or None
+    return None
+
+
+def _real_anthropic_api_key() -> str:
+    value = _real_env_value("ANTHROPIC_API_KEY")
+    if not value:
+        raise RuntimeError("ANTHROPIC_API_KEY not found (or empty) in .env")
+    return value
 
 
 async def _run_turns(turns: list[str]) -> tuple[ArchitectureModel, list[list[str]]]:
@@ -55,10 +63,11 @@ async def _run_turns(turns: list[str]) -> tuple[ArchitectureModel, list[list[str
     way the API layer does — see app/api/routers/sessions.py's post_message."""
 
     settings = get_settings()
-    provider = OpenAIProvider(
-        api_key=_real_openai_api_key(),
-        cheap_model=settings.llm_cheap_model,
-        strong_model=settings.llm_strong_model,
+    provider = AnthropicProvider(
+        api_key=_real_anthropic_api_key(),
+        cheap_model=settings.anthropic_cheap_model,
+        strong_model=settings.anthropic_strong_model,
+        workspace_id=_real_env_value("ANTHROPIC_WORKSPACE_ID"),
     )
     gateway = LLMGateway(provider)
     meter = SessionTokenMeter(budget=2_000_000)
@@ -214,3 +223,28 @@ async def test_high_impact_replatform_is_discussed_not_silently_applied():
     assert still_python_or_undecided or has_open_question_about_it, (
         "the backend's core technology was silently replaced without being raised as a discussion first"
     )
+
+
+@pytest.mark.asyncio
+async def test_vague_mesh_statement_is_confirmable_not_silently_permanent():
+    """discovery_agent_dynamic_spec.md §6 / live-reported: "they speak with
+    each other using pub sub" naming 5 domains generated a full 10-edge mesh
+    in turn one, every edge carrying a confident-sounding inferred reason,
+    with no way for the user to correct it if the real pattern is partial.
+    The mesh default is fine to keep (a wrong guess beats a falsely-
+    disconnected model) — what's required is that it stays correctable."""
+
+    model, _ = await _run_turns(
+        [
+            "I have a GCP based DOMA architecture having domains as order, user, tickets, misc, and reports. "
+            "Each system has its own architecture and they speak with each other using pub sub. I need to "
+            "migrate this to aws",
+        ]
+    )
+
+    event_dependencies = [d for d in model.dependencies if "event" in d.kind.lower()]
+    assert len(event_dependencies) >= 5, "the inferred mesh itself should still be captured as a usable default"
+    assert any(
+        "mesh" in q.text.lower() or "every one" in q.text.lower() or "all of them" in q.text.lower()
+        for q in model.open_questions
+    ), "an inferred full mesh from one vague sentence must be surfaced as an open question for the user to confirm or correct"

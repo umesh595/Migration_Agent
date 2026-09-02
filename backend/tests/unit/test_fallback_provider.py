@@ -1,4 +1,4 @@
-"""FallbackLLMProvider: OpenAI stays primary (DECISIONS.md Q1); Groq only
+"""FallbackLLMProvider: Anthropic stays primary; Groq only
 activates if the primary's account has genuinely run out of quota/credits —
 never for a transient failure. Exercised through the real LLMGateway retry
 loop, since that's what actually drives the provider switch (see

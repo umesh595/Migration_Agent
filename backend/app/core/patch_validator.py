@@ -69,15 +69,51 @@ _STRUCTURAL_PATCH_CLASSES = (
 )
 
 
+def patches_requiring_confirmation(
+    model: ArchitectureModel,
+    patches: list[Patch],
+    *,
+    require_structural_confirmation: bool = False,
+    allow_high_impact_changes: bool = False,
+) -> list[Patch]:
+    """Pure pre-check mirroring validate_patch's two 'discuss before applying' gates
+    below, WITHOUT the rest of validate_patch's mechanical checks (id conflicts,
+    duplicates, etc. — those are always hard rejections, never a confirm/reject
+    decision). Used by apply_patches_node to decide, before mutating anything,
+    whether this turn needs a human-in-the-loop pause (see interrupt() call there)."""
+
+    if allow_high_impact_changes:
+        return []
+
+    pending: list[Patch] = []
+    for patch in patches:
+        if require_structural_confirmation and isinstance(patch, _STRUCTURAL_PATCH_CLASSES):
+            pending.append(patch)
+        elif isinstance(patch, UpdateComponentPatch) and _is_high_impact_replatform(model, patch):
+            pending.append(patch)
+    return pending
+
+
 def validate_patch(
     model: ArchitectureModel,
     patch: Patch,
     *,
     allow_high_impact_changes: bool = False,
     require_structural_confirmation: bool = False,
+    bypass_confirmation: bool = False,
 ) -> str | None:
     """Returns None if the patch is valid against `model`, otherwise a human-readable
-    rejection reason (narrated back to the user verbatim)."""
+    rejection reason (narrated back to the user verbatim).
+
+    `bypass_confirmation` is distinct from `allow_high_impact_changes`: the latter is
+    set when the SAME turn already resolved the open question this gate would have
+    raised (see apply_patch_set's confirmation_reason); the former is set when a human
+    explicitly approved the change through the interrupt() flow in apply_patches_node
+    — both skip the same two gates below, for different reasons."""
+
+    if bypass_confirmation:
+        allow_high_impact_changes = True
+        require_structural_confirmation = False
 
     if require_structural_confirmation and isinstance(patch, _STRUCTURAL_PATCH_CLASSES):
         return (
