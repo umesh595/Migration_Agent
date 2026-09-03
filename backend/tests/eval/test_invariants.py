@@ -252,6 +252,22 @@ class TestSeniorArchitectPromptBehavior:
         assert "Do not claim cost savings" in prompt.system
         assert "Do not mutate the architecture model" in prompt.system
 
+    def test_ingest_completeness_critic_does_not_flag_intentional_criticality_defaults(self):
+        """A critic that flags correct, by-design behavior as an error trains
+        everyone to ignore it — the exact failure mode the user called out
+        live (repeated "invented facts" warnings for role-based criticality
+        defaults that ingest_patches.py deliberately narrates instead of
+        recording via add_assumption, per its own "Do NOT also emit an
+        add_assumption/open_question for a role-based criticality default"
+        rule). The critic must know about that carve-out, not contradict it."""
+
+        prompt = get_prompt("ingest_completeness_critic")
+
+        assert prompt.version == "v2"
+        assert "DO NOT flag a component's `criticality` field as invented merely because" in prompt.system
+        assert "expected, correct behavior, not a gap" in prompt.system
+        assert "Absence of an add_assumption patch is never itself a defect" in prompt.system
+
 
 class TestTokenBudget:
     """INVARIANT: a session cannot spend past its token budget."""

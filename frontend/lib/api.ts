@@ -1,6 +1,9 @@
 import type {
   AdminUser,
+  AwsConnectResult,
+  AwsCredentialsInput,
   ConversationTurn,
+  DocumentImportResult,
   Finding,
   PatchAuditEntry,
   ReviewQualityScore,
@@ -319,4 +322,34 @@ export function adminResetPassword(
   userId: string
 ): Promise<{ id: string; email: string; temporary_password: string }> {
   return request(`/admin/users/${userId}/reset-password`, { method: "POST" });
+}
+
+// --- Architecture import (cloud-discovery-first / two-variant start) ---
+// Not routed through request<T>() — it forces Content-Type: application/json,
+// which would stomp the browser's own multipart boundary header on a FormData body.
+
+export async function importDocument(sessionId: string, file: File): Promise<DocumentImportResult> {
+  const token = getAccessToken();
+  const body = new FormData();
+  body.append("file", file);
+  const response = await fetch(`${API_BASE}/sessions/${sessionId}/integrations/document/import`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body,
+  });
+  if (!response.ok) {
+    throw new ApiError(response.status, await extractDetail(response));
+  }
+  return (await response.json()) as DocumentImportResult;
+}
+
+export function connectAws(sessionId: string, credentials: AwsCredentialsInput): Promise<AwsConnectResult> {
+  return request<AwsConnectResult>(`/sessions/${sessionId}/integrations/cloud/aws/connect`, {
+    method: "POST",
+    body: JSON.stringify(credentials),
+  });
+}
+
+export function disconnectAws(sessionId: string): Promise<{ disconnected: boolean }> {
+  return request(`/sessions/${sessionId}/integrations/cloud/aws/disconnect`, { method: "POST" });
 }

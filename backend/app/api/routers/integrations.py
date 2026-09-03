@@ -34,6 +34,7 @@ from app.config import get_settings
 from app.core.patch_applier import apply_patch_set
 from app.core.request_intelligence import classify_user_request
 from app.db.models import SessionStatus
+from app.integrations import aws_session_cache
 from app.integrations.aws_provider import AWSCredentials, AWSProviderError, fetch_aws_inventory, map_aws_inventory_to_patch_set
 from app.integrations.catalog_provider import CatalogProviderError
 from app.integrations.document_extractor import DocumentExtractionError, extract_text
@@ -337,3 +338,84 @@ async def import_from_aws(
         )
     finally:
         await session_lock.release(session_id_str, lock_token)
+
+
+class AWSConnectRequest(BaseModel):
+    access_key_id: str = Field(min_length=1)
+    secret_access_key: str = Field(min_length=1)
+    session_token: str | None = None
+    region: str = Field(default="us-east-1", min_length=1, max_length=32)
+
+
+class AWSConnectResponse(BaseModel):
+    connected: bool
+    resource_count: int
+
+
+@router.post(
+    "/{session_id}/integrations/cloud/aws/connect",
+    response_model=AWSConnectResponse,
+    dependencies=[Depends(enforce_rate_limit)],
+)
+async def connect_aws(
+    session_id: uuid.UUID,
+    payload: AWSConnectRequest,
+    user: CurrentUser,
+    db: Db,
+) -> AWSConnectResponse:
+    """Cloud-discovery-first (DECISIONS.md's "PRD-bump override" entry, spec §2):
+    connects an AWS account for the REST of this session so later discovery
+    turns can cross-reference live infrastructure facts (what a component
+    actually runs on) instead of asking a question a non-technical — or even
+    technical-but-didn't-build-it — user usually can't answer. Session-scoped
+    only, same as the one-shot AWS import: credentials are cached in-process
+    (app.integrations.aws_session_cache), never written to the database, and
+    used only to fetch a read-only resource inventory. A real inventory fetch
+    IS the connection test (rather than a separate lightweight call) — it
+    validates the credentials and warms the cache in the same round trip.
+    """
+
+    try:
+        session = await session_service.get_session_for_user(db, session_id, user.id)
+    except LookupError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found") from None
+
+    if session.status != SessionStatus.DISCOVERY:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"AWS connect is only available during discovery — session is in '{session.status}'",
+        )
+
+    # Unlike the one-shot import endpoint, credentials are deliberately kept
+    # (not deleted after this call) — that's the entire point of "connect":
+    # caching them in-process for the rest of this session so later turns can
+    # re-scan without asking the user to paste credentials again. They still
+    # never reach the database (see app.integrations.aws_session_cache).
+    credentials = AWSCredentials(
+        access_key_id=payload.access_key_id,
+        secret_access_key=payload.secret_access_key,
+        session_token=payload.session_token,
+        region=payload.region,
+    )
+    try:
+        inventory = await fetch_aws_inventory(credentials)
+    except AWSProviderError as exc:
+        logger.warning("AWS connect failed for session %s", session_id)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"AWS API error: {exc}") from exc
+
+    session_id_str = str(session.id)
+    aws_session_cache.connect(session_id_str, credentials)
+    aws_session_cache.store_inventory(session_id_str, inventory)
+
+    return AWSConnectResponse(connected=True, resource_count=len(inventory.resources))
+
+
+@router.post("/{session_id}/integrations/cloud/aws/disconnect", dependencies=[Depends(enforce_rate_limit)])
+async def disconnect_aws(session_id: uuid.UUID, user: CurrentUser, db: Db) -> dict:
+    try:
+        session = await session_service.get_session_for_user(db, session_id, user.id)
+    except LookupError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found") from None
+
+    was_connected = aws_session_cache.disconnect(str(session.id))
+    return {"disconnected": was_connected}

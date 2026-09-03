@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { ApiError, getConversation, streamMessage } from "@/lib/api";
+import { ApiError, disconnectAws, getConversation, streamMessage } from "@/lib/api";
 import type { NodeCompleteEvent, RequestImpact, SessionStatus, TurnCompleteEvent } from "@/lib/types";
 import { InterruptApprovalCard } from "@/components/InterruptApprovalCard";
+import { StartDiscoveryChoice } from "@/components/StartDiscoveryChoice";
 
 interface ChatMessage {
   role: "user" | "agent" | "status" | "error";
@@ -35,10 +36,10 @@ const VISIBLE_INTENTS = new Set([
 ]);
 
 // Discovery reads pasted text conversationally, same ingest_patches prompt as any
-// typed message — this is NOT an automated parser for these formats. The PRD's
-// Non-Goals explicitly exclude automated discovery from cloud accounts, IaC
-// repos, or monitoring systems in v1; this just saves re-typing a config you
-// already have in front of you (see DECISIONS.md).
+// typed message — this is NOT an automated parser for these formats; it just
+// saves re-typing a config you already have in front of you. Cloud-account and
+// document import (StartDiscoveryChoice) are separate, explicit, user-initiated
+// actions — see DECISIONS.md's "PRD-bump override" entry.
 const PASTE_ACCEPT = ".txt,.md,.yml,.yaml,.tf,.json,.env,text/plain";
 
 const NODE_LABELS: Record<string, string> = {
@@ -278,6 +279,9 @@ export function ChatPanel({
   const [activeNode, setActiveNode] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [attachError, setAttachError] = useState<string | null>(null);
+  const [awsConnection, setAwsConnection] = useState<{ resourceCount: number } | null>(null);
+  const [disconnectingAws, setDisconnectingAws] = useState(false);
+  const [startChoiceDismissed, setStartChoiceDismissed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -357,13 +361,10 @@ export function ChatPanel({
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const text = input.trim();
+  async function sendMessageText(text: string) {
     if (!text || streaming) return;
 
     setMessages((prev) => [...prev, { role: "user", text }]);
-    setInput("");
     setStreaming(true);
     setActiveNode(null);
     setLiveStatus("Sending…");
@@ -427,6 +428,37 @@ export function ChatPanel({
     }
   }
 
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text || streaming) return;
+    setInput("");
+    await sendMessageText(text);
+  }
+
+  /** Injects a system-style note (e.g. "document imported", "AWS connected")
+   * into the transcript without going through the streaming turn pipeline —
+   * used by StartDiscoveryChoice, whose import/connect calls are plain REST
+   * requests, not a graph turn. */
+  function pushAgentNote(text: string, questions?: string[]) {
+    setMessages((prev) => [...prev, { role: "agent", text, questions }]);
+  }
+
+  async function handleDisconnectAws() {
+    if (disconnectingAws) return;
+    setDisconnectingAws(true);
+    try {
+      await disconnectAws(sessionId);
+    } catch {
+      // Best-effort: even if the request fails, drop the local badge — the
+      // in-process cache also expires the cached inventory on its own TTL.
+    } finally {
+      setAwsConnection(null);
+      setDisconnectingAws(false);
+      pushAgentNote("Disconnected your AWS account. I won't cross-reference live infrastructure anymore this session.");
+    }
+  }
+
   const isPlanningRun = streaming && workflowStatus === "planning";
   const activePlanningIndex = activeNode ? PLANNING_NODES.indexOf(activeNode) : -1;
   const elapsedLabel =
@@ -442,7 +474,19 @@ export function ChatPanel({
           <h3 className="text-sm font-semibold text-slate-200">Conversation</h3>
           <p className="text-[11px] text-slate-500">Ask questions, review recommendations, or provide missing architecture context.</p>
         </div>
-        {streaming && <span className="ml-auto h-2 w-2 rounded-full bg-emerald-400 animate-pulse-ring" />}
+        {awsConnection && (
+          <button
+            type="button"
+            className="ml-auto flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-medium text-emerald-200 transition hover:border-rose-400/30 hover:bg-rose-400/10 hover:text-rose-200 disabled:opacity-60"
+            disabled={disconnectingAws}
+            title="Click to disconnect this AWS account"
+            onClick={handleDisconnectAws}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            AWS connected · {awsConnection.resourceCount} resources
+          </button>
+        )}
+        {streaming && <span className={awsConnection ? "h-2 w-2 rounded-full bg-emerald-400 animate-pulse-ring" : "ml-auto h-2 w-2 rounded-full bg-emerald-400 animate-pulse-ring"} />}
       </div>
 
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4" aria-live="polite">
@@ -451,6 +495,29 @@ export function ChatPanel({
             <div className="ml-auto h-9 w-2/3 max-w-[85%] animate-pulse rounded-xl rounded-tr-md bg-white/[0.06]" />
             <div className="h-14 w-3/4 max-w-[85%] animate-pulse rounded-xl rounded-tl-md bg-white/[0.04]" />
           </div>
+        ) : messages.length === 0 && workflowStatus === "discovery" && !startChoiceDismissed ? (
+          <StartDiscoveryChoice
+            sessionId={sessionId}
+            placeholder={placeholder}
+            onSendText={sendMessageText}
+            onDismiss={() => {
+              setStartChoiceDismissed(true);
+              window.requestAnimationFrame(() => textareaRef.current?.focus());
+            }}
+            onDocumentImported={(result) => {
+              pushAgentNote(
+                result.narration || "Imported your document — I didn't find anything to add questions about yet.",
+                result.questions.length ? result.questions : undefined
+              );
+              onTurnComplete();
+            }}
+            onAwsConnected={(result) => {
+              setAwsConnection({ resourceCount: result.resource_count });
+              pushAgentNote(
+                `Connected your AWS account — found ${result.resource_count} resource${result.resource_count === 1 ? "" : "s"}. I'll cross-reference it automatically as we go, so I won't ask you things a live scan can already answer.`
+              );
+            }}
+          />
         ) : messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <p className="max-w-xs text-sm text-slate-500">{placeholder}</p>

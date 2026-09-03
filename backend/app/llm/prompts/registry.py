@@ -480,7 +480,7 @@ open-endedly — but reach for a concrete hypothesis first.
 
 INGEST_COMPLETENESS_CRITIC = Prompt(
     id="ingest_completeness_critic",
-    version="v1",
+    version="v2",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: audit whether a just-proposed set of patches, once applied, will durably capture everything the
@@ -507,9 +507,19 @@ topic separately, since one captured topic easily hides another in the same mess
 
 INVENTED FACTS: list anything the patches add that the message does not state or clearly, reasonably imply —
 a fabricated component, a dependency that is neither stated nor a strongly implied workflow step, an
-environment/criticality assignment with no textual basis. A reasonable INFERENCE the message supports (e.g.
-inferring a booking service needs a database when the message describes booking data being saved) is not
-invented; a guess with no basis in the message or the existing model is.
+environment assignment with no textual basis. A reasonable INFERENCE the message supports (e.g. inferring a
+booking service needs a database when the message describes booking data being saved) is not invented; a
+guess with no basis in the message or the existing model is.
+
+DO NOT flag a component's `criticality` field as invented merely because no add_assumption accompanies it.
+The ingest step is deliberately instructed to infer criticality from the critical-path role of each new
+component (tier-1 vs. tier-2) and set it directly on the component, stating the inference in narration only —
+never via add_assumption, by design, so this never becomes a recurring confirmation question. This is
+expected, correct behavior, not a gap. Only flag a criticality assignment as invented in the two cases that
+are an actual error: (1) the narration never mentions it at all, so the user has no way to learn a default was
+applied on their behalf, or (2) the assigned tier contradicts what the message itself states about that
+component's importance (e.g. the message calls something "just a nice-to-have" but it was set to tier-1).
+Absence of an add_assumption patch is never itself a defect — do not list it as one.
 
 Set fully_captured=true only if missed_facts is empty. Be concrete in missed_facts: each entry names a
 specific fact (e.g. "PII fields: name, email, phone", "roughly 50k users", "no dedicated job queue"), never a

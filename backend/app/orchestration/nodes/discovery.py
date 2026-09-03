@@ -12,10 +12,13 @@ import re
 
 from langgraph.types import interrupt
 
+from app.core.cloud_discovery import apply_cloud_discovery
 from app.core.gap_analyzer import Gap, GapCategory, analyze_gaps
 from app.core.patch_applier import apply_patch_set
 from app.core.patch_validator import patches_requiring_confirmation
 from app.core.request_intelligence import RequestIntent, render_request_impact_for_prompt
+from app.integrations import aws_session_cache
+from app.integrations.aws_provider import AWSProviderError, fetch_aws_inventory
 from app.llm.base import ModelTier, StructuredOutputError
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.prompts.registry import get_prompt
@@ -1012,6 +1015,31 @@ def _apply_obvious_helper_dependencies(model: ArchitectureModel):
     return new_model, results
 
 
+async def _apply_cloud_discovery_if_connected(model: ArchitectureModel, session_id: str) -> tuple[ArchitectureModel, list[str]]:
+    """Cloud-discovery-first (spec §2): called only when this session has an
+    active AWS connection (app.integrations.aws_session_cache). Reuses a
+    cached inventory scan within its TTL rather than re-hitting AWS every
+    single turn — the fetch is a real network call, not free, and the
+    inventory does not change turn-to-turn in practice."""
+
+    inventory = aws_session_cache.get_cached_inventory(session_id)
+    if inventory is None:
+        credentials = aws_session_cache.get_credentials(session_id)
+        if credentials is None:
+            return model, []
+        try:
+            inventory = await fetch_aws_inventory(credentials)
+        except AWSProviderError as exc:
+            # A live AWS call can fail transiently (rate limit, network) —
+            # this must never block or fail the turn, same contract as the
+            # ingest completeness critic's own additive-only failure handling.
+            logger.warning("cloud discovery AWS fetch failed for session %s: %s", session_id, exc)
+            return model, []
+        aws_session_cache.store_inventory(session_id, inventory)
+
+    return apply_cloud_discovery(model, inventory)
+
+
 async def gap_analysis_node(state: GraphState, gateway: LLMGateway, meter: SessionTokenMeter) -> dict:
     """Recomputes unknowns from the UPDATED model. Open questions, orphan
     components, missing environment/criticality, and unconfirmed assumptions
@@ -1024,6 +1052,11 @@ async def gap_analysis_node(state: GraphState, gateway: LLMGateway, meter: Sessi
     """
 
     model = state["model"]
+    session_id = state.get("session_id", "")
+    cloud_scan_notes: list[str] = []
+    if aws_session_cache.is_connected(session_id):
+        model, cloud_scan_notes = await _apply_cloud_discovery_if_connected(model, session_id)
+
     deterministic_gaps = analyze_gaps(model)
     requirement_gaps, model = await assess_dynamic_requirement_coverage(
         model,
@@ -1044,10 +1077,21 @@ async def gap_analysis_node(state: GraphState, gateway: LLMGateway, meter: Sessi
     gaps = _adapt_gaps_to_latest_user_message(gaps, state)
     trace_node(
         node_name="discovery.gap_analysis",
-        session_id=state.get("session_id", ""),
-        metadata={"gap_count": len(gaps)},
+        session_id=session_id,
+        metadata={"gap_count": len(gaps), "cloud_scan_matches": len(cloud_scan_notes)},
     )
-    return {"_gaps": gaps, "model": model, "error": None}
+    result: dict = {"_gaps": gaps, "model": model, "error": None}
+    if cloud_scan_notes:
+        # A lightweight recognition check, not a blocking confirmation (spec
+        # §2) — this is why it's a narration append, never an open_question or
+        # a gap: the facts are already resolved=True assumptions by the time
+        # this runs (see apply_cloud_discovery), so there is nothing left to
+        # confirm, only something worth telling the user happened.
+        note = "Cross-referenced your connected AWS account and filled in automatically: " + "; ".join(
+            cloud_scan_notes
+        ) + ". Let me know if any of this looks wrong or out of date."
+        result["narration"] = f"{state.get('narration', '')}\n\n{note}".strip()
+    return result
 
 
 async def assess_dynamic_requirement_coverage(

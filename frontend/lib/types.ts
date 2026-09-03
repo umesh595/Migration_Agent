@@ -335,3 +335,22 @@ export interface AdminUser {
   is_admin: boolean;
   is_active: boolean;
 }
+
+export interface DocumentImportResult {
+  narration: string | null;
+  questions: string[];
+  model_version: number;
+  error: string | null;
+}
+
+export interface AwsCredentialsInput {
+  access_key_id: string;
+  secret_access_key: string;
+  session_token?: string;
+  region?: string;
+}
+
+export interface AwsConnectResult {
+  connected: boolean;
+  resource_count: number;
+}
