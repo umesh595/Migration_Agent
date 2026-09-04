@@ -209,7 +209,7 @@ class TestSeniorArchitectPromptBehavior:
     def test_ingest_prompt_requires_intent_classification_before_patching(self):
         prompt = get_prompt("ingest_patches")
 
-        assert prompt.version == "v20"
+        assert prompt.version == "v22"
         assert "FIRST, CLASSIFY THE USER'S INTENT BEFORE PATCHING" in prompt.system
         assert "HIGH-IMPACT ARCHITECTURE DECISION" in prompt.system
         assert "NEW UNSCOPED BUSINESS CAPABILITY" in prompt.system
@@ -231,18 +231,49 @@ class TestSeniorArchitectPromptBehavior:
     def test_question_prompt_filters_out_low_value_form_questions(self):
         prompt = get_prompt("generate_questions")
 
-        assert prompt.version == "v8"
+        assert prompt.version == "v9"
         assert "Never use generic boilerplate" in prompt.system
         assert "Would a different answer change wave order" in prompt.system
         assert "do not enumerate all component names" in prompt.system
 
+    def test_question_prompt_produces_hypothesis_cards_and_answer_options(self):
+        """Hypothesis Cards + multiple-choice-with-free-text: the agent should
+        propose a reasoned best guess when it has one (not just ask a blank
+        question), and offer 2-3 concrete answers to pick from — never
+        fabricated filler options, and never forced onto genuinely open-ended
+        questions that have no natural discrete answers."""
+
+        prompt = get_prompt("generate_questions")
+        assert "HYPOTHESIS CARDS" in prompt.system
+        assert "fabricate a guess just to fill the field" in prompt.system
+        assert "ANSWER OPTIONS" in prompt.system
+        assert "never a filler option with no real chance of being right just to reach three" in prompt.system
+
     def test_semantic_review_prompt_checks_cost_efficiency_and_strategy_justification(self):
         prompt = get_prompt("semantic_review")
 
-        assert prompt.version == "v2"
+        assert prompt.version == "v3"
         assert "cost or efficiency claims" in prompt.system
         assert "why this over alternatives" in prompt.system
         assert "alter source architecture after Gate 1 without explicit user" in prompt.system
+
+    def test_semantic_review_prompt_requires_evidence_backed_findings(self):
+        """Review Upgrade: a finding must cite the specific fact it violates, a
+        concrete fix, and a concrete consequence — 'rollback is weak' alone is
+        not an acceptable finding anymore. Also pins that the judge now
+        specifically penalizes findings with empty/generic evidence fields,
+        not just vague messages."""
+
+        prompt = get_prompt("semantic_review")
+        assert "EVIDENCE-BACKED FINDINGS" in prompt.system
+        assert "violated_requirement" in prompt.system
+        assert "suggested_fix" in prompt.system
+        assert "risk_if_ignored" in prompt.system
+
+        judge = get_prompt("semantic_review_judge")
+        assert judge.version == "v2"
+        assert "violated_requirement field is empty" in judge.system
+        assert "suggested_fix is empty or" in judge.system
 
     def test_review_discussion_prompt_requires_plan_grounding(self):
         prompt = get_prompt("review_discussion")
@@ -263,10 +294,48 @@ class TestSeniorArchitectPromptBehavior:
 
         prompt = get_prompt("ingest_completeness_critic")
 
-        assert prompt.version == "v2"
+        assert prompt.version == "v3"
         assert "DO NOT flag a component's `criticality` field as invented merely because" in prompt.system
         assert "expected, correct behavior, not a gap" in prompt.system
         assert "Absence of an add_assumption patch is never itself a defect" in prompt.system
+
+    def test_requirement_coverage_prompts_drive_adaptive_risk_weighted_ranking(self):
+        """Adaptive Question Ranking: risk_score must be reasoned holistically per
+        category (business risk, migration impact, dependency uncertainty,
+        security/privacy, planning-blocker level), not left at a flat default —
+        otherwise 'ask the next best question' degrades back into 'ask questions
+        in the order gaps happened to be generated,' which is the exact
+        complaint this upgrade fixes. Also pins the domain-reasoning examples
+        (payments/healthcare/marketplace) that replace a hardcoded per-domain
+        checklist — illustrative anchors the LLM generalizes from, never a fixed
+        lookup keyed off a literal domain name."""
+
+        generator = get_prompt("assess_requirement_coverage")
+        assert generator.version == "v6"
+        assert "ADAPTIVE QUESTION RANKING" in generator.system
+        assert "do not default every category to the same middling number" in generator.system
+        assert "idempotent charge handling" in generator.system
+        assert "never ask about a category from an example above that this system" in generator.system
+
+        critic = get_prompt("requirement_coverage_critic")
+        assert critic.version == "v4"
+        assert "Also re-check risk_score itself on every verdict you keep" in critic.system
+
+    def test_ingest_completeness_critic_detects_contradictions_not_just_gaps(self):
+        """The Contradiction Detector upgrade: same LLM call as the completeness
+        critic (shares its exact inputs — model before this turn, message,
+        proposed patches — so this adds real intelligence without a second
+        round-trip's latency). Must catch genuine 'both cannot be true' clashes
+        while explicitly NOT flagging refinements, new components, or a hedge
+        later confirmed more confidently."""
+
+        prompt = get_prompt("ingest_completeness_critic")
+
+        assert "CONTRADICTIONS" in prompt.system
+        assert "all services run on AWS ECS" in prompt.system
+        assert "zero downtime" in prompt.system
+        assert "Do NOT flag" in prompt.system
+        assert "a hedge (\"maybe X\") followed by" in prompt.system
 
 
 class TestTokenBudget:

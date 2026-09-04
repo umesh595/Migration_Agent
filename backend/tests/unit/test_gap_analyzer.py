@@ -1,7 +1,7 @@
 from app.core.gap_analyzer import GapCategory, analyze_gaps, top_gaps
 from app.core.request_intelligence import classify_user_request
 from app.orchestration.nodes.discovery import _adapt_gaps_to_latest_user_message
-from app.schemas.architecture import ArchitectureModel, Assumption, Component, OpenQuestion
+from app.schemas.architecture import ArchitectureModel, Assumption, AssumptionStatus, Component, OpenQuestion
 
 
 def test_open_questions_always_outrank_other_gap_categories():
@@ -97,7 +97,7 @@ def test_sparse_intake_question_does_not_fire_once_real_assumptions_exist_even_w
                 id="A1",
                 text="System accepts user data; books movie shows; hosted on GCP.",
                 raised_by="llm",
-                resolved=True,
+                status=AssumptionStatus.CONFIRMED,
             )
         ],
     )

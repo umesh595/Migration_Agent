@@ -297,6 +297,54 @@ export default function SessionWorkspacePage() {
                     Approval means the discovered source architecture is good enough for planning. Later source changes
                     should be treated as explicit revisions because they can change sequencing, risk, effort, and rollback.
                   </div>
+                  {state.discovery_confidence && (
+                    <div
+                      className={`mb-3 rounded-lg border p-3 ${
+                        state.discovery_confidence.ready_for_planning
+                          ? "border-emerald-400/25 bg-emerald-400/[0.06]"
+                          : "border-amber-400/25 bg-amber-400/[0.06]"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p
+                          className={`text-xs font-semibold uppercase tracking-wide ${
+                            state.discovery_confidence.ready_for_planning ? "text-emerald-200" : "text-amber-200"
+                          }`}
+                        >
+                          Discovery confidence
+                        </p>
+                        <span
+                          className={`badge ${
+                            state.discovery_confidence.ready_for_planning
+                              ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+                              : "border-amber-400/30 bg-amber-400/10 text-amber-200"
+                          }`}
+                        >
+                          {state.discovery_confidence.ready_for_planning ? "Ready for planning" : "Not ready yet"}
+                        </span>
+                      </div>
+                      <dl className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                        <div className="rounded-md border border-white/[0.06] bg-white/[0.025] p-2">
+                          <dd className="text-lg font-semibold text-slate-100">
+                            {state.discovery_confidence.completeness_percent}%
+                          </dd>
+                          <dt className="mt-0.5 text-slate-500">Completeness</dt>
+                        </div>
+                        <div className="rounded-md border border-white/[0.06] bg-white/[0.025] p-2">
+                          <dd className="text-lg font-semibold text-slate-100">
+                            {state.discovery_confidence.blocking_unknowns}
+                          </dd>
+                          <dt className="mt-0.5 text-slate-500">Blocking unknowns</dt>
+                        </div>
+                        <div className="rounded-md border border-white/[0.06] bg-white/[0.025] p-2">
+                          <dd className="text-lg font-semibold text-slate-100">
+                            {state.discovery_confidence.high_risk_assumptions}
+                          </dd>
+                          <dt className="mt-0.5 text-slate-500">High-risk assumptions</dt>
+                        </div>
+                      </dl>
+                    </div>
+                  )}
                   {gate1Summary && (
                     <div className="mb-3 rounded-lg border border-sky-400/20 bg-sky-500/[0.05] p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-sky-200">

@@ -32,11 +32,12 @@ from app.llm.schemas import (
 from app.llm.state_injection import render_gaps_for_prompt, render_model_for_prompt
 from app.observability.tracing import trace_node
 from app.orchestration.state import GraphState, Stage
-from app.schemas.architecture import ArchitectureModel, DependencyKind, Environment, WorkloadType
+from app.schemas.architecture import ArchitectureModel, AssumptionStatus, DependencyKind, Environment, WorkloadType
 from app.schemas.patches import (
     AddAssumptionPatch,
     AddComponentPatch,
     AddDependencyPatch,
+    AddOpenQuestionPatch,
     ConfirmAssumptionPatch,
     PatchOutcome,
     PatchSet,
@@ -46,14 +47,26 @@ from app.schemas.patches import (
 
 logger = logging.getLogger(__name__)
 
-# Per-topic requirement-coverage gap priorities (see assess_dynamic_requirement_
-# coverage) — sit just below gap_analyzer._PRIORITY's SPARSE_ARCHITECTURE_CONTEXT
-# (95) and above ORPHAN_COMPONENT (80), so a genuinely high-impact hedge can
-# outrank a merely-unknown, low-stakes topic without either ever burying the
-# other inside one merged BASIC_APP_REQUIREMENTS gap (technique: impact-
-# weighted priority, not a flat per-category constant).
-_HIGH_IMPACT_HEDGE_GAP_PRIORITY = 92
-_OTHER_REQUIREMENT_GAP_PRIORITY = 88
+def _requirement_gap_priority(verdict: RequirementCoverageVerdict) -> int:
+    """Adaptive Question Ranking (risk-weighted): priority is DERIVED from the
+    verdict's own holistic risk_score (business risk, migration impact,
+    dependency uncertainty, security/privacy impact, planning-blocker level —
+    see RequirementCoverageVerdict.risk_score), not a flat per-category
+    constant. A genuinely high-risk hedge on THIS system now competes for the
+    next question slot on its actual merits instead of every requirement gap
+    being interchangeable; a low-risk unknown can sink below a structural gap
+    like ORPHAN_COMPONENT (80, gap_analyzer._PRIORITY) instead of always
+    beating it. Bounded below OPEN_QUESTION/a CONTRADICTION open question
+    (100) and just above MISSING_ENVIRONMENT (60) at the low end, so a
+    contradiction or an explicit unresolved question always wins, and even a
+    low-risk requirement gap still outranks pure form-filling gaps."""
+
+    priority = 61 + round(verdict.risk_score * 0.36)  # risk=0 -> 61, risk=100 -> 97
+    if verdict.status == "hedged_or_uncertain":
+        # Already-raised uncertainty is worth nudging ahead of an equally-risky
+        # but never-yet-discussed unknown — the user signaled it themselves.
+        priority = min(priority + 3, 99)
+    return priority
 
 
 async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionTokenMeter) -> dict:
@@ -174,6 +187,7 @@ def _capture_raw_message_after_total_ingest_failure(model: ArchitectureModel, us
                 f'review: "{user_message.strip()}"',
                 related_component_ids=[component.id for component in model.components],
                 confidence="unsure",
+                source="deterministic fallback: ingest LLM call failed outright for this message",
             )
         ],
         narration="",
@@ -248,6 +262,7 @@ async def critique_ingest_completeness(
             "fully_captured": verdict.fully_captured,
             "missed_count": len(verdict.missed_facts),
             "invented_count": len(verdict.invented_facts),
+            "contradiction_count": len(verdict.contradictions),
         },
     )
     if verdict.invented_facts:
@@ -256,17 +271,41 @@ async def critique_ingest_completeness(
             session_id,
             verdict.invented_facts,
         )
-    if not verdict.missed_facts:
-        return patch_set
+    if verdict.contradictions:
+        logger.warning(
+            "ingest completeness critic flagged %d contradiction(s) for session %s: %s",
+            len(verdict.contradictions),
+            session_id,
+            [c.description for c in verdict.contradictions],
+        )
 
-    summary = "Additional detail captured by completeness review: " + "; ".join(verdict.missed_facts) + "."
-    return PatchSet(
-        patches=[
-            *patch_set.patches,
-            AddAssumptionPatch(text=summary, related_component_ids=[component.id for component in model.components]),
-        ],
-        narration=patch_set.narration,
-    )
+    new_patches: list = []
+    if verdict.missed_facts:
+        summary = "Additional detail captured by completeness review: " + "; ".join(verdict.missed_facts) + "."
+        new_patches.append(
+            AddAssumptionPatch(
+                text=summary,
+                related_component_ids=[component.id for component in model.components],
+                source=f"ingest completeness critic caught this message text unpatched: {user_message.strip()!r}",
+            )
+        )
+
+    # Contradiction Detector: a real logical conflict is not something to
+    # silently pick a side on (that would be the LLM guessing which of two
+    # things the user "really" meant) or to bury only in narration (discarded
+    # after this turn, invisible to gap analysis) — it becomes a real,
+    # tracked open question via the SAME mechanism the discuss-before-adding
+    # flow already uses, so the next turn's gap analysis surfaces it and it
+    # gets asked about like any other unresolved unknown.
+    for contradiction in verdict.contradictions:
+        text = contradiction.description
+        if contradiction.existing_fact:
+            text += f' (previously: "{contradiction.existing_fact}"; now: "{contradiction.new_statement}")'
+        new_patches.append(AddOpenQuestionPatch(text=f"CONTRADICTION — {text}"))
+
+    if not new_patches:
+        return patch_set
+    return PatchSet(patches=[*patch_set.patches, *new_patches], narration=patch_set.narration)
 
 
 def auto_confirm_directly_stated_assumptions(
@@ -352,6 +391,7 @@ def capture_unpatched_factual_answer_as_assumption(
             AddAssumptionPatch(
                 text=f"User-provided detail not otherwise captured: {user_message.strip()}",
                 related_component_ids=[component.id for component in model.components],
+                source="deterministic fallback: verbatim user message text, ingest LLM produced no patch for it",
             ),
         ],
         narration=patch_set.narration,
@@ -401,7 +441,12 @@ def draft_minimal_architecture_when_user_says_proceed(
         )
     )
     additions.append(
-        AddDependencyPatch(source_id=app_id, target_id="primary_database", kind=DependencyKind.DATA_READ)
+        AddDependencyPatch(
+            source_id=app_id,
+            target_id="primary_database",
+            kind=DependencyKind.DATA_READ,
+            source="deterministic default: minimal placeholder architecture, no real dependency stated yet",
+        )
     )
     additions.append(
         AddAssumptionPatch(
@@ -409,6 +454,7 @@ def draft_minimal_architecture_when_user_says_proceed(
             "user's explicit request to proceed without full details. Replace with real components as "
             "soon as they're known.",
             related_component_ids=[app_id, "primary_database"],
+            source="deterministic default: user explicitly asked to proceed without providing architecture details",
         )
     )
     narration = patch_set.narration or (
@@ -473,7 +519,11 @@ def resolve_sparse_intake_open_question_from_target_context_answer(
     pending_assumption_adds = sum(1 for patch in patch_set.patches if isinstance(patch, AddAssumptionPatch))
     predicted_id = f"A{len(model.assumptions) + pending_assumption_adds + 1}"
     assumption_patches = [
-        AddAssumptionPatch(text=summary, related_component_ids=[component.id for component in model.components]),
+        AddAssumptionPatch(
+            text=summary,
+            related_component_ids=[component.id for component in model.components],
+            source=f"deterministic fallback: summarized from a target-planning message: {user_message.strip()!r}",
+        ),
         ConfirmAssumptionPatch(assumption_id=predicted_id),
     ]
 
@@ -486,7 +536,7 @@ def resolve_sparse_intake_open_question_from_target_context_answer(
 
 def model_has_confirmed_greenfield_fact(model: ArchitectureModel) -> bool:
     return any(
-        assumption.resolved and _GREENFIELD_ASSUMPTION_MARKER in assumption.text
+        assumption.status == AssumptionStatus.CONFIRMED and _GREENFIELD_ASSUMPTION_MARKER in assumption.text
         for assumption in model.assumptions
     )
 
@@ -696,7 +746,11 @@ def resolve_environment_open_questions_from_short_answer(
         context_text = " ".join(
             [
                 *(question.text for question in model.open_questions if not question.resolved),
-                *(assumption.text for assumption in model.assumptions if not assumption.resolved),
+                *(
+                    assumption.text
+                    for assumption in model.assumptions
+                    if assumption.status == AssumptionStatus.OPEN
+                ),
             ]
         ).lower()
         detected = _detect_environment_answer(context_text)
@@ -730,7 +784,7 @@ def resolve_environment_open_questions_from_short_answer(
         assumption
         for assumption in model.assumptions
         if assumption.raised_by == "llm"
-        and not assumption.resolved
+        and assumption.status == AssumptionStatus.OPEN
         and any(term in assumption.text.lower().replace("-", " ") for term in environment_terms)
     ]
 
@@ -793,6 +847,8 @@ def resolve_environment_open_questions_from_short_answer(
             AddAssumptionPatch(
                 text=f"The current hosting environment is {provider_label}.",
                 related_component_ids=[patch.id for patch in update_patches],
+                source=f"deterministic fallback: short-answer environment detection matched {provider_label!r} "
+                f"in the user's reply: {user_message.strip()!r}",
             )
         )
 
@@ -1084,7 +1140,7 @@ async def gap_analysis_node(state: GraphState, gateway: LLMGateway, meter: Sessi
     if cloud_scan_notes:
         # A lightweight recognition check, not a blocking confirmation (spec
         # §2) — this is why it's a narration append, never an open_question or
-        # a gap: the facts are already resolved=True assumptions by the time
+        # a gap: the facts are already status=CONFIRMED assumptions by the time
         # this runs (see apply_cloud_discovery), so there is nothing left to
         # confirm, only something worth telling the user happened.
         note = "Cross-referenced your connected AWS account and filled in automatically: " + "; ".join(
@@ -1213,7 +1269,7 @@ async def assess_dynamic_requirement_coverage(
                 category=GapCategory.BASIC_APP_REQUIREMENTS,
                 description=description,
                 related_component_ids=[component.id for component in model.components],
-                priority=_HIGH_IMPACT_HEDGE_GAP_PRIORITY if is_high_impact_hedge else _OTHER_REQUIREMENT_GAP_PRIORITY,
+                priority=_requirement_gap_priority(verdict),
             )
         )
     return gaps, model
@@ -1240,7 +1296,10 @@ def _record_escalated_risks(model: ArchitectureModel, escalated: list[Requiremen
             text += f" Recommendation: {verdict.recommended_mitigation}"
         additions.append(
             AddAssumptionPatch(
-                text=text, related_component_ids=[component.id for component in model.components]
+                text=text,
+                related_component_ids=[component.id for component in model.components],
+                source=f"requirement coverage critic escalated a repeated hedge on {verdict.category!r} "
+                "without a more confident answer across turns",
             )
         )
 
@@ -1400,6 +1459,7 @@ async def generate_questions_node(state: GraphState, gateway: LLMGateway, meter:
         )
         return {
             "pending_questions": [],
+            "question_details": [],
             "narration": f"{state.get('narration', '')}\n\n{closing}".strip(),
             "stage": Stage.DISCOVERY,
             "_gaps": None,
@@ -1433,6 +1493,7 @@ async def generate_questions_node(state: GraphState, gateway: LLMGateway, meter:
         # gaps are real either way, they just read less naturally.
         return {
             "pending_questions": [g.description for g in gaps],
+            "question_details": [],
             "stage": Stage.DISCOVERY,
             "_gaps": None,
             "error": None,
@@ -1440,6 +1501,7 @@ async def generate_questions_node(state: GraphState, gateway: LLMGateway, meter:
 
     return {
         "pending_questions": [q.text for q in response.parsed.questions],
+        "question_details": response.parsed.questions,
         "narration": f"{state.get('narration', '')}\n\n{response.parsed.narration}".strip(),
         "stage": Stage.DISCOVERY,
         "_gaps": None,

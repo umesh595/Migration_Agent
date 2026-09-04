@@ -14,7 +14,7 @@ from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.providers.openai_provider import MockProvider
 from app.llm.schemas import RequirementCoverageCriticOutput, RequirementCoverageOutput, RequirementCoverageVerdict
 from app.orchestration.nodes.discovery import assess_dynamic_requirement_coverage
-from app.schemas.architecture import ArchitectureModel, Assumption, Component, WorkloadType
+from app.schemas.architecture import ArchitectureModel, Assumption, AssumptionStatus, Component, WorkloadType
 
 
 def _model_with_components() -> ArchitectureModel:
@@ -119,7 +119,11 @@ async def test_runs_even_with_zero_components_if_assumptions_exist():
     gateway = LLMGateway(provider)
     meter = SessionTokenMeter(budget=100_000)
     model = ArchitectureModel(
-        assumptions=[Assumption(id="A1", text="Accepts bookings, hosted on GCP.", raised_by="llm", resolved=True)]
+        assumptions=[
+            Assumption(
+                id="A1", text="Accepts bookings, hosted on GCP.", raised_by="llm", status=AssumptionStatus.CONFIRMED
+            )
+        ]
     )
 
     gaps, _ = await assess_dynamic_requirement_coverage(model, gateway, meter)
@@ -257,7 +261,7 @@ async def test_escalated_hedge_becomes_a_durable_confirmed_risk_assumption_not_a
     assert gaps == []
     assert len(model.assumptions) == 1
     risk = model.assumptions[0]
-    assert risk.resolved is True
+    assert risk.status == AssumptionStatus.CONFIRMED
     assert "FLAGGED RISK" in risk.text
     assert "double-booking prevention" in risk.text
     assert "unique constraint or row-level locking" in risk.text
@@ -287,4 +291,4 @@ async def test_escalation_and_a_separate_unknown_category_coexist():
     assert "reporting/analytics" in gaps[0].description
     assert "double-booking prevention" not in gaps[0].description  # escalated, not re-asked
     assert len(model.assumptions) == 1
-    assert model.assumptions[0].resolved is True
+    assert model.assumptions[0].status == AssumptionStatus.CONFIRMED

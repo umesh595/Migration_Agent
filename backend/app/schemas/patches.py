@@ -84,6 +84,7 @@ class AddDependencyPatch(BaseModel):
     target_id: str
     kind: DependencyKind
     description: str = ""
+    source: str = Field(default="", description="Evidence provenance: quote/paraphrase or inference basis.")
 
 
 class RemoveDependencyPatch(BaseModel):
@@ -108,22 +109,18 @@ class AddAssumptionPatch(BaseModel):
         "and gave a guess anyway (e.g. 'no idea how X works, maybe just Y'). Preserve the hedge here — do not "
         "smooth it into a confident-sounding sentence.",
     )
+    source: str = Field(default="", description="Evidence provenance: quote/paraphrase or inference basis.")
 
 
 class ConfirmAssumptionPatch(BaseModel):
-    """The user's counterpart to add_assumption: when the user confirms, corrects,
-    or rejects an assumption the LLM previously raised, this resolves it so
-    GapAnalyzer stops re-flagging it every turn. Without this op, an LLM-raised
-    assumption had no path to ever leave the open-gap list — 'yes, that's
-    correct' had nothing to attach to."""
+    """Resolves an assumption the LLM previously raised: confirmed (optionally
+    with corrected wording) or rejected outright (guess was simply wrong, no
+    replacement given — do not also set updated_text)."""
 
     op: Literal[PatchOp.CONFIRM_ASSUMPTION] = PatchOp.CONFIRM_ASSUMPTION
     assumption_id: str
-    updated_text: str | None = Field(
-        default=None,
-        description="Set only if the user's confirmation corrects or refines the original wording; "
-        "omit to confirm the assumption exactly as originally stated.",
-    )
+    updated_text: str | None = Field(default=None, description="Set only if the user corrected the wording.")
+    rejected: bool = Field(default=False, description="True if the guess was simply wrong, no replacement given.")
 
 
 class ResolveOpenQuestionPatch(BaseModel):

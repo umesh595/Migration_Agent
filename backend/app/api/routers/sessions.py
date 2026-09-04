@@ -20,6 +20,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.api.deps import CurrentUser, Db, SessionLock, enforce_message_rate_limit, enforce_rate_limit, get_gateway
 from app.config import get_settings
+from app.core.discovery_confidence import compute_discovery_confidence
 from app.core.exporter import render_docx, render_pdf
 from app.core.graph_engine import compute_impact
 from app.core.request_intelligence import classify_user_request
@@ -161,6 +162,9 @@ async def get_state(session_id: uuid.UUID, user: CurrentUser, db: Db) -> dict:
         "model": model.model_dump(mode="json"),
         "plan": plan.model_dump(mode="json") if plan else None,
         "migration_context": context.model_dump(mode="json") if context else None,
+        # Discovery Confidence Score: always computed fresh from the current
+        # model, never cached — see app.core.discovery_confidence.
+        "discovery_confidence": compute_discovery_confidence(model).model_dump(mode="json"),
     }
 
 
@@ -403,10 +407,15 @@ async def post_message(
             values = accumulated_values or (final_state or {})
             await _persist_turn(db, session, meter, model_before, values)
 
+            question_details = []
             if original_status == SessionStatus.DISCOVERY:
                 # Discovery narration/questions are genuinely per-turn LLM output.
                 narration = values.get("narration")
                 questions = values.get("pending_questions", [])
+                # Hypothesis Cards / answer options: only generate_questions_node
+                # (Discovery) populates this richer structure alongside the plain
+                # question strings above.
+                question_details = [q.model_dump(mode="json") for q in values.get("question_details", [])]
             elif original_status == SessionStatus.PLANNING:
                 # Planning shares this thread's checkpointed state with any earlier
                 # discovery turns, but no planning node ever sets `narration` or
@@ -501,6 +510,7 @@ async def post_message(
                     {
                         "narration": narration,
                         "questions": questions,
+                        "question_details": question_details,
                         "clarifying_questions": values.get("context_clarifying_questions", []),
                         "error": values.get("error"),
                         "model_version": getattr(values.get("model"), "version", None),

@@ -247,11 +247,19 @@ export interface SessionSummary {
   token_usage: number;
 }
 
+export interface DiscoveryConfidence {
+  completeness_percent: number;
+  blocking_unknowns: number;
+  high_risk_assumptions: number;
+  ready_for_planning: boolean;
+}
+
 export interface SessionState {
   session: SessionSummary;
   model: ArchitectureModel;
   plan: MigrationPlan | null;
   migration_context: MigrationContext | null;
+  discovery_confidence: DiscoveryConfidence;
 }
 
 export type FindingSeverity = "info" | "warning" | "error";
@@ -266,6 +274,9 @@ export interface Finding {
   message: string;
   related_component_ids: string[];
   resolution_status: ResolutionStatus;
+  violated_requirement: string;
+  suggested_fix: string;
+  risk_if_ignored: string;
 }
 
 export interface PatchAuditEntry {
@@ -296,9 +307,17 @@ export interface RequestImpact {
   impact_dimensions: string[];
 }
 
+export interface GeneratedQuestion {
+  text: string;
+  related_gap_description: string;
+  hypothesis: string;
+  answer_options: string[];
+}
+
 export interface TurnCompleteEvent {
   narration: string | null;
   questions: string[];
+  question_details: GeneratedQuestion[];
   clarifying_questions: string[];
   error: string | null;
   model_version: number | null;

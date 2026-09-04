@@ -5,7 +5,15 @@ applied or rejected — produces a PatchResult for the audit log (Doc 3 §3.2 st
 from __future__ import annotations
 
 from app.core.patch_validator import validate_patch
-from app.schemas.architecture import ArchitectureModel, Assumption, Component, Dependency, Environment, OpenQuestion
+from app.schemas.architecture import (
+    ArchitectureModel,
+    Assumption,
+    AssumptionStatus,
+    Component,
+    Dependency,
+    Environment,
+    OpenQuestion,
+)
 from app.schemas.patches import (
     AddAssumptionPatch,
     AddComponentPatch,
@@ -67,6 +75,7 @@ def _apply_single(model: ArchitectureModel, patch: Patch) -> ArchitectureModel:
                     target_id=patch.target_id,
                     kind=patch.kind,
                     description=patch.description,
+                    source=patch.source,
                 )
             )
 
@@ -90,14 +99,18 @@ def _apply_single(model: ArchitectureModel, patch: Patch) -> ArchitectureModel:
                     raised_by="llm",
                     related_component_ids=patch.related_component_ids,
                     confidence=patch.confidence,
+                    source=patch.source,
                 )
             )
 
         case ConfirmAssumptionPatch():
             assumption = next(a for a in data.assumptions if a.id == patch.assumption_id)
-            assumption.resolved = True
-            if patch.updated_text is not None:
-                assumption.text = patch.updated_text
+            if patch.rejected:
+                assumption.status = AssumptionStatus.REJECTED
+            else:
+                assumption.status = AssumptionStatus.CONFIRMED
+                if patch.updated_text is not None:
+                    assumption.text = patch.updated_text
 
         case ResolveOpenQuestionPatch():
             question = next((q for q in data.open_questions if q.id == patch.question_id), None)
@@ -109,6 +122,8 @@ def _apply_single(model: ArchitectureModel, patch: Patch) -> ArchitectureModel:
                     text=patch.resolution_text,
                     raised_by="user",
                     related_component_ids=question.related_component_ids,
+                    status=AssumptionStatus.CONFIRMED,
+                    source=f"user answered open question: {question.text}",
                 )
             )
 

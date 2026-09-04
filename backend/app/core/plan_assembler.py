@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from app.core.graph_engine import compute_cross_wave_dependencies
 from app.llm.schemas import ComponentPlanLLMOutput, CutoverReviewOutput, RollbackPlanOutput
-from app.schemas.architecture import ArchitectureModel
+from app.schemas.architecture import ArchitectureModel, AssumptionStatus
 from app.schemas.findings import Finding, FindingSeverity, ResolutionStatus
 from app.schemas.migration_plan import (
     CoexistenceGroup,
@@ -190,7 +190,7 @@ def assemble_plan(
             source="model_assumption",
         )
         for a in model.assumptions
-        if a.raised_by == "llm" and not a.resolved
+        if a.raised_by == "llm" and a.status == AssumptionStatus.OPEN
     ]
 
     return MigrationPlan(

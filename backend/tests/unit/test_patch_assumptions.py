@@ -8,7 +8,15 @@ from app.orchestration.nodes.discovery import (
     resolve_dependency_open_questions_from_short_answer,
     resolve_environment_open_questions_from_short_answer,
 )
-from app.schemas.architecture import ArchitectureModel, Assumption, Component, DependencyKind, Environment, OpenQuestion
+from app.schemas.architecture import (
+    ArchitectureModel,
+    Assumption,
+    AssumptionStatus,
+    Component,
+    DependencyKind,
+    Environment,
+    OpenQuestion,
+)
 from app.schemas.patches import (
     AddAssumptionPatch,
     AddOpenQuestionPatch,
@@ -205,7 +213,7 @@ def test_yes_confirms_gcp_environment_assumption_and_clears_unknown_environment(
                 text="The system is hosted on GCP.",
                 raised_by="llm",
                 related_component_ids=["api"],
-                resolved=False,
+                status=AssumptionStatus.OPEN,
             )
         ],
     )
@@ -216,7 +224,7 @@ def test_yes_confirms_gcp_environment_assumption_and_clears_unknown_environment(
     new_model, results = apply_patch_set(model, patch_set)
 
     assert all(result.outcome == PatchOutcome.APPLIED for result in results)
-    assert new_model.assumptions[0].resolved is True
+    assert new_model.assumptions[0].status == AssumptionStatus.CONFIRMED
     assert new_model.components[0].environment == Environment.CLOUD
 
 
@@ -245,33 +253,33 @@ def test_unresolved_llm_assumption_is_a_gap_but_resolved_one_is_not():
     turn indefinitely."""
 
     model = _model()
-    model.assumptions.append(Assumption(id="A1", text="The API is stateless", raised_by="llm", resolved=False))
+    model.assumptions.append(Assumption(id="A1", text="The API is stateless", raised_by="llm"))
 
     gaps = top_gaps(model, n=10)
     assert any(g.category == GapCategory.UNCONFIRMED_ASSUMPTION for g in gaps)
 
     confirmed = model.model_copy(deep=True)
-    confirmed.assumptions[0].resolved = True
+    confirmed.assumptions[0].status = AssumptionStatus.CONFIRMED
     gaps_after = top_gaps(confirmed, n=10)
     assert not any(g.category == GapCategory.UNCONFIRMED_ASSUMPTION for g in gaps_after)
 
 
 def test_confirm_assumption_marks_it_resolved():
     model = _model()
-    model.assumptions.append(Assumption(id="A1", text="The API is stateless", raised_by="llm", resolved=False))
+    model.assumptions.append(Assumption(id="A1", text="The API is stateless", raised_by="llm"))
 
     new_model, results = apply_patch_set(
         model, PatchSet(patches=[ConfirmAssumptionPatch(assumption_id="A1")], narration="")
     )
 
     assert results[0].outcome == PatchOutcome.APPLIED
-    assert new_model.assumptions[0].resolved is True
+    assert new_model.assumptions[0].status == AssumptionStatus.CONFIRMED
     assert new_model.assumptions[0].text == "The API is stateless"
 
 
 def test_confirm_assumption_can_correct_the_wording():
     model = _model()
-    model.assumptions.append(Assumption(id="A1", text="The API is stateless", raised_by="llm", resolved=False))
+    model.assumptions.append(Assumption(id="A1", text="The API is stateless", raised_by="llm"))
 
     new_model, results = apply_patch_set(
         model,
@@ -282,8 +290,68 @@ def test_confirm_assumption_can_correct_the_wording():
     )
 
     assert results[0].outcome == PatchOutcome.APPLIED
-    assert new_model.assumptions[0].resolved is True
+    assert new_model.assumptions[0].status == AssumptionStatus.CONFIRMED
     assert new_model.assumptions[0].text == "The API is stateless except for caching"
+
+
+def test_reject_assumption_marks_it_rejected_not_confirmed():
+    """The explicit-rejection counterpart to confirm: the user said a guess was
+    simply wrong, with no replacement given — this must land as REJECTED, not
+    CONFIRMED (a rejected guess is not a fact) and must not silently vanish
+    from the evidence ledger (the audit trail should show what was tried)."""
+
+    model = _model()
+    model.assumptions.append(Assumption(id="A1", text="The API is stateless", raised_by="llm"))
+
+    new_model, results = apply_patch_set(
+        model, PatchSet(patches=[ConfirmAssumptionPatch(assumption_id="A1", rejected=True)], narration="")
+    )
+
+    assert results[0].outcome == PatchOutcome.APPLIED
+    assert new_model.assumptions[0].status == AssumptionStatus.REJECTED
+    assert new_model.assumptions[0].text == "The API is stateless"  # text preserved, only status changes
+
+    # A rejected assumption is no longer a pending gap (it's a closed, if negative,
+    # answer) — same contract as a confirmed one.
+    gaps = top_gaps(new_model, n=10)
+    assert not any(g.category == GapCategory.UNCONFIRMED_ASSUMPTION for g in gaps)
+
+
+def test_reject_already_resolved_assumption_rejected():
+    model = _model()
+    model.assumptions.append(Assumption(id="A1", text="x", raised_by="llm", status=AssumptionStatus.CONFIRMED))
+
+    _, results = apply_patch_set(
+        model, PatchSet(patches=[ConfirmAssumptionPatch(assumption_id="A1", rejected=True)], narration="")
+    )
+
+    assert results[0].outcome == PatchOutcome.REJECTED
+    assert "already confirmed" in results[0].reason
+
+
+def test_reject_unknown_assumption_rejected():
+    model = _model()
+    _, results = apply_patch_set(
+        model, PatchSet(patches=[ConfirmAssumptionPatch(assumption_id="A99", rejected=True)], narration="")
+    )
+
+    assert results[0].outcome == PatchOutcome.REJECTED
+    assert "A99" in results[0].reason
+
+
+def test_confirm_assumption_rejects_setting_both_updated_text_and_rejected():
+    model = _model()
+    model.assumptions.append(Assumption(id="A1", text="x", raised_by="llm"))
+
+    _, results = apply_patch_set(
+        model,
+        PatchSet(
+            patches=[ConfirmAssumptionPatch(assumption_id="A1", updated_text="y", rejected=True)], narration=""
+        ),
+    )
+
+    assert results[0].outcome == PatchOutcome.REJECTED
+    assert "cannot set updated_text when rejecting" in results[0].reason
 
 
 def test_confirm_unknown_assumption_rejected():
@@ -296,17 +364,17 @@ def test_confirm_unknown_assumption_rejected():
 
 def test_confirm_already_resolved_assumption_rejected():
     model = _model()
-    model.assumptions.append(Assumption(id="A1", text="x", raised_by="llm", resolved=True))
+    model.assumptions.append(Assumption(id="A1", text="x", raised_by="llm", status=AssumptionStatus.CONFIRMED))
 
     _, results = apply_patch_set(model, PatchSet(patches=[ConfirmAssumptionPatch(assumption_id="A1")], narration=""))
 
     assert results[0].outcome == PatchOutcome.REJECTED
-    assert "already resolved" in results[0].reason
+    assert "already confirmed" in results[0].reason
 
 
 def test_confirm_assumption_with_blank_updated_text_rejected():
     model = _model()
-    model.assumptions.append(Assumption(id="A1", text="x", raised_by="llm", resolved=False))
+    model.assumptions.append(Assumption(id="A1", text="x", raised_by="llm"))
 
     _, results = apply_patch_set(
         model, PatchSet(patches=[ConfirmAssumptionPatch(assumption_id="A1", updated_text="   ")], narration="")

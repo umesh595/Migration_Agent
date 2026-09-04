@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { ApiError, disconnectAws, getConversation, streamMessage } from "@/lib/api";
-import type { NodeCompleteEvent, RequestImpact, SessionStatus, TurnCompleteEvent } from "@/lib/types";
+import type { GeneratedQuestion, NodeCompleteEvent, RequestImpact, SessionStatus, TurnCompleteEvent } from "@/lib/types";
 import { InterruptApprovalCard } from "@/components/InterruptApprovalCard";
 import { StartDiscoveryChoice } from "@/components/StartDiscoveryChoice";
 
@@ -13,6 +13,7 @@ interface ChatMessage {
   requestImpact?: RequestImpact | null;
   nodeHistory?: NodeCompleteEvent[];
   questions?: string[];
+  questionDetails?: GeneratedQuestion[];
   questionsIntro?: string;
 }
 
@@ -153,13 +154,26 @@ function InternalWorkDisclosure({ nodeHistory }: { nodeHistory: NodeCompleteEven
 // generation through an LLM-invoked frontend tool (our LLM call layer uses
 // direct provider structured-output APIs, not LangChain's bind_tools(), so
 // there's no tool-calling loop to hook into) this renders the SAME
-// already-structured `questions` data — no backend change needed — as an
-// interactive checklist instead of plain bullet text, matching the
-// step-selector reference style. The checkboxes are a personal
-// read/considered tracker (local-only state, not submitted anywhere) since
-// the backend has no per-question structured-answer endpoint — free-text
-// reply below remains the one real way to answer, exactly as before.
-function QuestionChecklist({ questions, intro }: { questions: string[]; intro?: string }) {
+// already-structured `questions` data as an interactive checklist instead of
+// plain bullet text, matching the step-selector reference style. The
+// checkboxes are a personal read/considered tracker (local-only state, not
+// submitted anywhere). Hypothesis Cards (`details[i].hypothesis`) and answer
+// options (`details[i].answer_options`) are real backend output
+// (generate_questions_node) — picking an option seeds the shared input box
+// via onPickOption rather than auto-sending, so the user can still edit or
+// add detail before hitting Send; free text there remains available
+// regardless, for anything the offered options don't cover.
+function QuestionChecklist({
+  questions,
+  details,
+  intro,
+  onPickOption,
+}: {
+  questions: string[];
+  details?: GeneratedQuestion[];
+  intro?: string;
+  onPickOption: (text: string) => void;
+}) {
   const [checked, setChecked] = useState<boolean[]>(() => questions.map(() => false));
   const doneCount = checked.filter(Boolean).length;
 
@@ -176,30 +190,52 @@ function QuestionChecklist({ questions, intro }: { questions: string[]; intro?: 
         </span>
       </div>
       <ul className="mt-2 space-y-1.5">
-        {questions.map((q, i) => (
-          <li key={i}>
-            <button
-              type="button"
-              onClick={() => toggle(i)}
-              className="flex w-full items-start gap-2 rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-2 text-left text-xs text-slate-200 transition-colors hover:border-brand-400/30"
-            >
-              <span
-                className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded ${
-                  checked[i] ? "bg-grad-primary" : "border border-white/20"
-                }`}
+        {questions.map((q, i) => {
+          const detail = details?.[i];
+          return (
+            <li key={i} className="rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-2">
+              <button
+                type="button"
+                onClick={() => toggle(i)}
+                className="flex w-full items-start gap-2 text-left text-xs text-slate-200"
               >
-                {checked[i] && <span className="text-[10px] leading-none text-white">✓</span>}
-              </span>
-              <span className={checked[i] ? "text-slate-400 line-through decoration-slate-600" : ""}>{q}</span>
-            </button>
-          </li>
-        ))}
+                <span
+                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded ${
+                    checked[i] ? "bg-grad-primary" : "border border-white/20"
+                  }`}
+                >
+                  {checked[i] && <span className="text-[10px] leading-none text-white">✓</span>}
+                </span>
+                <span className={checked[i] ? "text-slate-400 line-through decoration-slate-600" : ""}>{q}</span>
+              </button>
+              {detail?.hypothesis && (
+                <p className="ml-6 mt-1.5 text-[11px] italic leading-4 text-brand-200/80">
+                  💡 {detail.hypothesis}
+                </p>
+              )}
+              {detail && detail.answer_options.length > 0 && (
+                <div className="ml-6 mt-1.5 flex flex-wrap gap-1.5">
+                  {detail.answer_options.map((option, optionIndex) => (
+                    <button
+                      key={optionIndex}
+                      type="button"
+                      onClick={() => onPickOption(option)}
+                      className="rounded-full border border-white/15 bg-white/[0.05] px-2.5 py-1 text-[11px] text-slate-200 transition hover:border-brand-400/40 hover:bg-brand-400/10 hover:text-brand-100"
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
 }
 
-function ChatBubble({ message }: { message: ChatMessage }) {
+function ChatBubble({ message, onPickOption }: { message: ChatMessage; onPickOption: (text: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const isLongUserMessage = message.role === "user" && message.text.length > COLLAPSE_MESSAGE_LENGTH;
   const visibleImpact =
@@ -245,7 +281,12 @@ function ChatBubble({ message }: { message: ChatMessage }) {
       <div className="max-w-[85%] whitespace-pre-line rounded-xl rounded-tl-md border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-slate-200">
         {visibleText}
         {message.questions && message.questions.length > 0 && (
-          <QuestionChecklist questions={message.questions} intro={message.questionsIntro} />
+          <QuestionChecklist
+            questions={message.questions}
+            details={message.questionDetails}
+            intro={message.questionsIntro}
+            onPickOption={onPickOption}
+          />
         )}
         {visibleImpact && <RequestImpactCard impact={visibleImpact} />}
         {message.nodeHistory && message.nodeHistory.length > 0 && (
@@ -395,6 +436,11 @@ export function ChatPanel({
             const questionsIntro = data.clarifying_questions?.length
               ? "I need to clarify a few things before continuing:"
               : undefined;
+            // question_details (Hypothesis Cards / answer options) only ever
+            // corresponds to data.questions (Discovery's generate_questions_node
+            // output) — never to clarifying_questions (Planning's simpler
+            // free-text intake), so only attach it in that case.
+            const questionDetails = data.clarifying_questions?.length ? undefined : data.question_details;
             setMessages((prev) => [
               ...prev,
               {
@@ -403,6 +449,7 @@ export function ChatPanel({
                 requestImpact: data.request_impact,
                 nodeHistory,
                 questions,
+                questionDetails,
                 questionsIntro,
               },
             ]);
@@ -442,6 +489,18 @@ export function ChatPanel({
    * requests, not a graph turn. */
   function pushAgentNote(text: string, questions?: string[]) {
     setMessages((prev) => [...prev, { role: "agent", text, questions }]);
+  }
+
+  /** Hypothesis Cards / answer options: picking a suggested answer seeds the
+   * shared input box with it rather than sending immediately — the user can
+   * still edit or add detail before hitting Send, same box either way. */
+  function handlePickAnswerOption(text: string) {
+    if (streaming) return;
+    setInput(text);
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(text.length, text.length);
+    });
   }
 
   async function handleDisconnectAws() {
@@ -524,7 +583,7 @@ export function ChatPanel({
           </div>
         ) : null}
         {!historyLoading && messages.map((m, i) => (
-          <ChatBubble key={i} message={m} />
+          <ChatBubble key={i} message={m} onPickOption={handlePickAnswerOption} />
         ))}
         {streaming && (
           <div className="flex items-start gap-2.5 animate-pop-in">

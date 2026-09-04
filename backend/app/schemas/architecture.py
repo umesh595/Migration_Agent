@@ -61,6 +61,15 @@ class Dependency(BaseModel):
     target_id: str
     kind: DependencyKind
     description: str = ""
+    # Evidence Ledger (discovery_agent_dynamic_spec.md upgrade): a short, specific
+    # provenance note — a close paraphrase/quote of the triggering user text
+    # ("user said: 'payment service depends on Redis'") or how it was inferred
+    # ("inferred: the described booking flow needs somewhere to persist bookings").
+    # Empty only for dependencies added before this field existed. See
+    # app.core.evidence for the deterministic, always-fresh "used_by" computation —
+    # deliberately NOT a stored field here, since staleness would make it worse
+    # than no answer at all.
+    source: str = ""
 
     @model_validator(mode="after")
     def _no_self_loop(self) -> Dependency:
@@ -69,22 +78,32 @@ class Dependency(BaseModel):
         return self
 
 
+class AssumptionStatus(StrEnum):
+    OPEN = "open"
+    CONFIRMED = "confirmed"
+    REJECTED = "rejected"
+
+
 class Assumption(BaseModel):
     id: str
     text: str
-    raised_by: str = Field(description="'llm' or 'user'.")
+    raised_by: str = Field(description="'llm', 'user', 'cloud_scan', or 'contradiction_detector'.")
     related_component_ids: list[str] = Field(default_factory=list)
-    # User-attributed assumptions (raised_by == "user") are inherently confirmed —
-    # they came FROM the user, not as an LLM guess awaiting confirmation — so they
-    # default resolved. An LLM-raised assumption starts unresolved and stays a gap
-    # (surfaced by GapAnalyzer) until a ConfirmAssumptionPatch resolves it; without
-    # that patch existing, confirming an assumption was structurally impossible and
-    # discovery would re-ask about it every single turn.
-    resolved: bool = False
-    # Distinct from `resolved`: resolved means "not an open question anymore",
+    # Evidence Ledger tri-state (discovery_agent_dynamic_spec.md upgrade): OPEN is
+    # an LLM guess awaiting confirmation (a gap, surfaced by GapAnalyzer);
+    # CONFIRMED is a fact the user stated directly or explicitly agreed with;
+    # REJECTED is a guess the user explicitly said was wrong (see
+    # ConfirmAssumptionPatch.rejected) — kept in the ledger rather than deleted,
+    # so the audit trail shows what was tried and corrected, not just the final answer.
+    # patch_applier.py sets this explicitly per construction site rather than
+    # deriving it from `raised_by`, since "user-raised implies confirmed" is true
+    # for every current call site but is a property of how each site constructs
+    # the assumption, not an invariant this schema should silently assume.
+    status: AssumptionStatus = AssumptionStatus.OPEN
+    # Distinct from `status`: status means "is this still a pending guess",
     # confidence means "how sure was the user when they said this". "no idea,
     # maybe just a db transaction" and "we use SELECT FOR UPDATE" both read as
-    # a plain confirmed fact once flattened to a resolved assumption's text
+    # a plain confirmed fact once flattened to a confirmed assumption's text
     # alone — without this, a hedge on a load-bearing detail (double-booking
     # prevention, payment idempotency) is indistinguishable from a confident
     # answer to any downstream gap/coverage check, and discovery moves on as
@@ -94,6 +113,9 @@ class Assumption(BaseModel):
         description="'stated' (a plain confirmed fact), 'hedged' (the user signaled uncertainty — "
         "'maybe', 'I think', 'probably', 'not sure'), or 'unsure' (the user said they don't know).",
     )
+    # Evidence Ledger: see Dependency.source above — same contract, same reason
+    # for staying free-text and provenance-specific rather than a fixed enum.
+    source: str = ""
 
 
 class OpenQuestion(BaseModel):

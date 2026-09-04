@@ -99,6 +99,59 @@ def test_rule_004_flags_missing_rollback():
     assert any(f.rule_id == "RULE-004" for f in findings)
 
 
+def test_rule_004_names_tier1_component_and_zero_downtime_in_its_evidence():
+    """Evidence-backed review upgrade — the exact scenario the feature is named
+    after: 'rollback is weak' alone is not acceptable; the finding must name
+    the specific violated fact (tier-1 + zero-downtime), a concrete fix, and a
+    concrete consequence, not generic filler."""
+
+    orders_db = Component(id="orders_db", name="Orders DB", workload_type="database", criticality="tier-1")
+    model = ArchitectureModel(components=[orders_db])
+    waves = [Wave(index=0, component_ids=["orders_db"], rationale="r")]
+    plan = _complete_plan(model, waves)
+    plan.rollback_strategy = None
+    plan.component_plans[0].rollback_notes = ""
+    context = MigrationContext(
+        source_environment="on_prem",
+        target_environment="cloud",
+        target_platform_description="AWS",
+        downtime_tolerance=DowntimeTolerance.ZERO_DOWNTIME,
+    )
+
+    findings = run_rules(model, plan, context)
+    rule_004 = [f for f in findings if f.rule_id == "RULE-004"]
+    assert len(rule_004) == 2  # plan-level + the orders_db component-level gap
+
+    for finding in rule_004:
+        assert finding.violated_requirement, f"{finding.id} has no violated_requirement"
+        assert finding.suggested_fix, f"{finding.id} has no suggested_fix"
+        assert finding.risk_if_ignored, f"{finding.id} has no risk_if_ignored"
+        assert "tier-1" in finding.violated_requirement
+        assert "zero_downtime" in finding.violated_requirement or "zero-downtime" in finding.risk_if_ignored
+
+
+def test_every_deterministic_finding_on_a_broken_plan_carries_evidence():
+    """Broad invariant: no deterministic rule finding should ever ship with an
+    empty violated_requirement/suggested_fix/risk_if_ignored — a finding
+    without evidence is exactly the regression this upgrade fixes."""
+
+    model = ArchitectureModel(components=[_component("a"), _component("b")])
+    waves = [Wave(index=0, component_ids=["a"], rationale="r"), Wave(index=1, component_ids=["b"], rationale="r")]
+    plan = _complete_plan(model, waves)
+    # Break several rules at once.
+    plan.rollback_strategy = None
+    plan.cutover_strategy = None
+    plan.component_mappings[0].disposition = "retire"
+    model.dependencies.append(Dependency(id="b->a", source_id="b", target_id="a", kind="sync_call"))
+
+    findings = run_rules(model, plan)
+    assert len(findings) > 3
+    for finding in findings:
+        assert finding.violated_requirement, f"{finding.id} has no violated_requirement"
+        assert finding.suggested_fix, f"{finding.id} has no suggested_fix"
+        assert finding.risk_if_ignored, f"{finding.id} has no risk_if_ignored"
+
+
 def test_rule_006_flags_mapping_plan_disposition_mismatch():
     model = ArchitectureModel(components=[_component("a")])
     waves = [Wave(index=0, component_ids=["a"], rationale="r")]

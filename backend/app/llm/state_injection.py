@@ -29,15 +29,22 @@ def render_model_for_prompt(model: ArchitectureModel) -> str:
             for c in model.components
         ],
         "dependencies": [
-            {"source_id": d.source_id, "target_id": d.target_id, "kind": str(d.kind)} for d in model.dependencies
+            {
+                "source_id": d.source_id,
+                "target_id": d.target_id,
+                "kind": str(d.kind),
+                "source": d.source,
+            }
+            for d in model.dependencies
         ],
         "assumptions": [
             {
                 "id": a.id,
                 "text": a.text,
                 "raised_by": a.raised_by,
-                "resolved": a.resolved,
+                "status": a.status.value,
                 "confidence": a.confidence,
+                "source": a.source,
             }
             for a in model.assumptions
         ],
@@ -130,7 +137,14 @@ def render_review_for_judge(
             {"rule_id": f.rule_id, "message": f.message} for f in rule_findings
         ],
         "critic_findings_to_score": [
-            {"severity": str(f.severity), "message": f.message, "related_component_ids": f.related_component_ids}
+            {
+                "severity": str(f.severity),
+                "message": f.message,
+                "related_component_ids": f.related_component_ids,
+                "violated_requirement": f.violated_requirement,
+                "suggested_fix": f.suggested_fix,
+                "risk_if_ignored": f.risk_if_ignored,
+            }
             for f in llm_findings
         ],
     }

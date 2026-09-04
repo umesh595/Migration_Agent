@@ -215,6 +215,9 @@ async def llm_review_node(state: GraphState, gateway: LLMGateway, meter: Session
             related_component_ids=[
                 cid for cid in f.related_component_ids if cid in state["model"].component_ids()
             ],
+            violated_requirement=f.violated_requirement,
+            suggested_fix=f.suggested_fix,
+            risk_if_ignored=f.risk_if_ignored,
         )
         for i, f in enumerate(response.parsed.findings)
     ]

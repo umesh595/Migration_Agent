@@ -30,7 +30,7 @@ Critical operating rules:
 
 INGEST_PATCHES = Prompt(
     id="ingest_patches",
-    version="v20",
+    version="v22",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: convert the user's message into a set of PATCHES against the current architecture model.
@@ -230,6 +230,12 @@ Rules:
 - Only emit patches for information actually present in the user's message.
 - If the user corrects an earlier fact, emit the removal AND the addition (e.g. remove_dependency then add_dependency).
 - If the user states something you are inferring rather than reading directly, emit it as an add_assumption patch instead.
+- EVIDENCE LEDGER — every add_assumption and add_dependency patch MUST set its `source` field to a short, SPECIFIC
+  provenance note: a close paraphrase or quote of the exact message text it's based on (e.g. "user said: 'payment
+  service depends on Redis'"), or the concrete reasoning used to infer it (e.g. "inferred: booking data described
+  as being saved needs a persistent datastore"). Never a generic placeholder like "user said so", "inferred", or
+  "from context" with nothing further — name the actual basis so a later reviewer can see WHY this is believed,
+  not just THAT it is.
 - PRESERVE HEDGING — DO NOT SMOOTH IT INTO A CONFIDENT SENTENCE: when the user's own wording signals
   uncertainty about something they're telling you ("maybe", "I think", "probably", "not sure", "no idea how
   X works, maybe just Y", "tbh not sure"), set that add_assumption patch's `confidence` field to "hedged", or
@@ -239,14 +245,17 @@ Rules:
   a settled fact. Leave `confidence` at its default ("stated") only for things the user actually knows and
   said plainly.
 - ASSUMPTIONS MUST BE CONFIRMABLE, NOT REPEATED: the injected model lists every existing assumption with its
-  id, raised_by, and resolved flag. If the user's message is confirming, correcting, rejecting, or answering
-  ANY assumption already listed with resolved=false (e.g. "yes, that's correct", "yes, all three are
+  id, raised_by, and status (open/confirmed/rejected). If the user's message is confirming, correcting, or
+  answering ANY assumption already listed with status=open (e.g. "yes, that's correct", "yes, all three are
   confirmed", "actually it's X not Y") — even if your own previous narration restated that assumption's text
   back to the user — you MUST emit confirm_assumption with that exact assumption's id for EVERY assumption the
-  message addresses (set updated_text only if the user corrected the wording; omit it to confirm as-is).
-  NEVER emit a fresh add_assumption that just restates an already-listed unresolved assumption — that leaves
-  the original stuck at resolved=false forever and the same question gets asked again next turn. Only use
-  add_assumption for a genuinely NEW inference not already present in the assumptions list.
+  message addresses (set updated_text only if the user corrected the wording; omit it to confirm as-is). If the
+  user instead says a status=open assumption is simply WRONG with no replacement fact given in the same breath
+  (e.g. "no, that's not right", "that's wrong, ignore that"), emit confirm_assumption with rejected=true for
+  that assumption's id (and do not set updated_text) — do not silently drop it or leave it stuck at status=open.
+  NEVER emit a fresh add_assumption that just restates an already-listed status=open assumption — that leaves
+  the original stuck open forever and the same question gets asked again next turn. Only use add_assumption for
+  a genuinely NEW inference not already present in the assumptions list.
 - If the user's message answers an open question, emit resolve_open_question with that question's id.
 - If a PREVIOUS AGENT MESSAGE is provided and the user's current message is terse ("yes", "correct",
   "on gcp", "no", "standalone", etc.), interpret it as an answer to that previous agent message. Do not
@@ -345,7 +354,7 @@ Rules:
 
 GENERATE_QUESTIONS = Prompt(
     id="generate_questions",
-    version="v8",
+    version="v9",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: turn a list of COMPUTED gaps into the handful of questions a senior migration architect would
@@ -475,18 +484,39 @@ the DOCX/PPT generation library to be invoked by the AI service or the worker du
 right, or does something else call it?" rather than "does DOCX/PPT generation have any dependencies we
 haven't captured?"). If genuinely nothing in the model suggests a plausible caller, it's fine to ask more
 open-endedly — but reach for a concrete hypothesis first.
+
+HYPOTHESIS CARDS — set the `hypothesis` field whenever you have a real basis to guess, for ANY gap, not only
+orphan-component ones: a reasoned, concrete best-guess answer grounded in the component's role, the rest of
+the injected model, and what this kind of system typically does (e.g. "Likely a cache for session/auth data,
+since it sits directly between the API and the database" or "Given this is a booking system, probably backed
+by a per-show, per-seat unique constraint" ). Leave it empty ("") when you genuinely have no basis — never
+fabricate a guess just to fill the field; an empty hypothesis is correct and common for open factual
+questions (e.g. "roughly how many users do you have"). The question `text` itself should still read naturally
+whether or not a hypothesis is set — `hypothesis` is additional structured content the UI may show alongside
+it, not a replacement for a clear question.
+
+ANSWER OPTIONS — set `answer_options` to 2-3 short, concrete, mutually distinct answers the user could pick
+INSTEAD of typing a full sentence, when the question naturally has a small number of plausible answers (a
+yes/no-shaped question, or a handful of realistic possibilities). When a hypothesis exists, make it the FIRST
+option, phrased as the actual answer, not as "confirm the hypothesis" (e.g. "Yes — it's a session/auth
+cache", not "Confirm the hypothesis above"). Add one or two other genuinely plausible alternatives as further
+options — never a filler option with no real chance of being right just to reach three. The user can always
+type their own answer regardless of these options, so leave `answer_options` EMPTY for genuinely open-ended
+questions with no natural discrete answers (a scale/volume number, a free-form description, "what does this
+system actually do") — do not force options onto a question that doesn't have any.
 """,
 )
 
 INGEST_COMPLETENESS_CRITIC = Prompt(
     id="ingest_completeness_critic",
-    version="v2",
+    version="v3",
     system=_CLOSED_WORLD_PREAMBLE
     + """
-Your job: audit whether a just-proposed set of patches, once applied, will durably capture everything the
-user's message actually said — and flag anything the patches invented that the message doesn't support.
-You are a second, independent opinion on ingestion's own output — the same relationship the semantic review
-critic has to the rules engine during plan review, applied here to discovery instead.
+Your job has three parts: audit whether a just-proposed set of patches, once applied, will durably capture
+everything the user's message actually said; flag anything the patches invented that the message doesn't
+support; and catch genuine logical contradictions. You are a second, independent opinion on ingestion's own
+output — the same relationship the semantic review critic has to the rules engine during plan review, applied
+here to discovery instead.
 
 You are given: the architecture model BEFORE this turn, the user's message, the PATCHES about to be applied
 (each with its op — add_component, add_dependency, add_assumption, resolve_open_question, confirm_assumption,
@@ -521,6 +551,22 @@ applied on their behalf, or (2) the assigned tier contradicts what the message i
 component's importance (e.g. the message calls something "just a nice-to-have" but it was set to tier-1).
 Absence of an add_assumption patch is never itself a defect — do not list it as one.
 
+CONTRADICTIONS: compare the user's message against BOTH itself and every existing status=confirmed or
+status=open assumption / component field already in the injected model, looking for a genuine "both of these
+cannot be true" clash — never a mere gap, a different level of detail, or two facts that plausibly describe
+different components. Concrete examples of a real contradiction: the model already says the system is fully
+on-prem, but this message says all services run on AWS ECS; this message says there is no PII anywhere, but
+also describes storing customer email and phone numbers (which ARE PII); the model records a "zero downtime"
+migration constraint, but this message says the database can simply be stopped during migration. Do NOT flag:
+a fact stated more precisely than before (e.g. "a database" earlier, "Postgres 14" now — a refinement, not a
+conflict), a NEW component introduced that merely wasn't mentioned before, or a hedge ("maybe X") followed by
+a more confident answer later (that is confirmation, not contradiction). For each real contradiction, set
+`existing_fact` to the specific prior fact being contradicted (quote or closely paraphrase it, naming its
+assumption id if it has one) and `new_statement` to the specific conflicting part of this message — both
+sides must be concrete enough that a reader could immediately see the clash without re-reading the whole
+conversation. Leave `contradictions` empty when there is no genuine conflict; an empty list is the common,
+expected case, not something to avoid.
+
 Set fully_captured=true only if missed_facts is empty. Be concrete in missed_facts: each entry names a
 specific fact (e.g. "PII fields: name, email, phone", "roughly 50k users", "no dedicated job queue"), never a
 vague restatement like "some details may be missing." If the message is a pure question, a bare
@@ -532,7 +578,7 @@ to capture.
 
 ASSESS_REQUIREMENT_COVERAGE = Prompt(
     id="assess_requirement_coverage",
-    version="v5",
+    version="v6",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: given the current architecture model, decide what basic application requirement areas matter for
@@ -552,7 +598,18 @@ baseline doesn't cover: user access channel, authentication/authorization/roles,
 monitoring/compliance/retention/PII, scale/traffic/data volume.
 Nothing about this category list is fixed — treat it as a conversation about THIS system's actual migration
 risk, open to whatever categories that specific system genuinely raises, not a form to fill in the same way
-every time.
+every time. This includes recognizing what KIND of system it is from what the user has actually described —
+a payment-handling system's genuinely load-bearing categories look different from a healthcare system's or an
+internal admin tool's, and the categories you name should read like a senior architect who has built systems
+in that exact space, not a generic checklist applied to everything equally. For example (illustrative, not
+exhaustive — reason about what THIS system actually needs, never treat any fixed list as required): a system
+that processes payments typically needs idempotent charge handling (never double-charging on a retry), a
+clear refund/chargeback path, PCI-relevant data handling, and reconciliation between what was charged and
+what was recorded; a system handling any patient/health data typically needs an audit trail of who accessed
+what and when, and a data-retention policy; a marketplace or multi-tenant system typically needs tenant/seller
+data isolation and a dispute-resolution path. Use reasoning like this to find the categories that actually
+matter for what THIS user described — never ask about a category from an example above that this system
+doesn't actually have (e.g. don't ask about refunds for a system that has no payments at all).
 
 `category` IS SHOWN DIRECTLY TO THE USER (quoted verbatim in the follow-up question) — the same audience
 constraint as question generation applies here: name the category as a BUSINESS concern or outcome, never a
@@ -604,6 +661,14 @@ hole) — false for cosmetic or nice-to-have areas. A category that is both high
 is exactly the case that must never be silently treated as settled — and if it's already been hedged once
 before, it must escalate rather than repeat.
 
+ADAPTIVE QUESTION RANKING — also set risk_score (0-100) for every category, even covered/not_applicable ones
+(it still records how much this category mattered). This is what decides which unknown actually gets asked
+about FIRST when several are still open — a system with five unknowns should have its most consequential one
+asked about before its least, not all five treated as equally urgent. Score holistically across business risk
+(real damage if wrong), migration impact (changes wave order or sequencing), dependency uncertainty (blocks
+reasoning about other components), security/privacy impact, and whether this blocks credible planning at all
+— do not default every category to the same middling number just because they're all "unknown."
+
 If everything genuinely relevant has real, confidently-stated detail (covered or explicitly not applicable),
 return the full list with none marked unknown or hedged_or_uncertain — do not invent an unknown category just
 to have something to ask about.
@@ -612,7 +677,7 @@ to have something to ask about.
 
 REQUIREMENT_COVERAGE_CRITIC = Prompt(
     id="requirement_coverage_critic",
-    version="v3",
+    version="v4",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: independently re-check another model's requirement-coverage verdicts against the same architecture
@@ -637,7 +702,15 @@ think about what could cause a real production incident for a system like this o
 generic checklist) — e.g. a booking/reservation system needs double-booking prevention and payment
 idempotency; a system handling payments needs refund/chargeback handling; a multi-tenant system needs tenant
 data isolation. If the generator's list is missing something like this, add it as a new verdict (status
-"unknown" or "hedged_or_uncertain" as appropriate, high_impact=true).
+"unknown" or "hedged_or_uncertain" as appropriate, high_impact=true, risk_score reflecting how much a wrong
+answer here would actually hurt — usually 70+ for something in this category).
+
+Also re-check risk_score itself on every verdict you keep: if the generator left several very different
+categories all sitting at the same middling score, that's a missed distinction, not a correct verdict — a
+double-booking gap and a reporting-format preference should never carry the same risk_score. Correct any
+verdict whose risk_score doesn't actually reflect its business risk, migration impact, dependency
+uncertainty, security/privacy impact, and planning-blocker level, same criteria as the generator's own
+instructions.
 
 FAILURE MODE 3 — a hedge that's already been asked about once and must now escalate, not repeat: for every
 verdict still marked "hedged_or_uncertain", check the injected model's assumptions for one already recorded
@@ -889,7 +962,7 @@ actual plan, not a cloud cheat sheet.
 
 SEMANTIC_REVIEW = Prompt(
     id="semantic_review",
-    version="v2",
+    version="v3",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: critique a migration plan for problems that a MECHANICAL rules engine cannot detect.
@@ -919,12 +992,27 @@ If you find nothing of substance, return an empty findings list. Do not manufact
 Every finding must name the affected component, strategy section, cost/efficiency item, or validation check
 and explain why it matters to delivery, not just that it is "unclear."
 severity must be one of: info, warning, error.
+
+EVIDENCE-BACKED FINDINGS — every finding must also cite what it's actually grounded in, in three separate
+fields, not folded into `message`:
+- violated_requirement: the SPECIFIC stated fact this violates, quoted or closely paraphrased from the
+  injected model/context (e.g. "the accepted model marks Orders DB as tier-1 (business-critical)" or "the
+  migration context states downtime_tolerance is zero_downtime"). Never a vague "best practices" reference —
+  name the actual fact.
+- suggested_fix: a concrete, specific action, not generic advice (e.g. "add a replica-sync step and an
+  automated rollback trigger to the Orders DB component plan" — not "improve the rollback plan").
+- risk_if_ignored: what concretely breaks in production if this is left unaddressed (e.g. "a failed cutover
+  would have no path back to a consistent state, and Orders DB — tier-1 — would be down with no rollback").
+Do not write "rollback is weak" as the whole finding — write it the way a senior architect would justify the
+finding to a skeptical engineer: "rollback is weak because the accepted model says Orders DB is tier-1 and
+downtime tolerance is zero-downtime, but the plan has no replica sync or rollback trigger" — `message` states
+the problem, the three fields above back it up with the specific evidence, fix, and consequence.
 """,
 )
 
 SEMANTIC_REVIEW_JUDGE = Prompt(
     id="semantic_review_judge",
-    version="v1",
+    version="v2",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: independently score the quality of a SEPARATE model's semantic critique of a migration plan.
@@ -939,9 +1027,13 @@ Score each dimension 0-100:
   that restates a rule finding in different words (even if worded well) should score this LOW, regardless of
   how well-written it is.
 - specificity_score: LOW if a finding is generic advice that could apply to any migration ("consider testing
-  thoroughly"); HIGH only if it names actual components, steps, or values from this specific plan.
+  thoroughly"); HIGH only if it names actual components, steps, or values from this specific plan. A finding
+  whose violated_requirement field is empty, or is vague filler ("best practices"), rather than a specific
+  quoted fact from the model/context, should score LOW here regardless of how the message reads.
 - actionability_score: could a migration engineer act on this finding today without asking a follow-up
-  question? Vague "this might be a problem" framing scores LOW.
+  question? Vague "this might be a problem" framing scores LOW. A finding whose suggested_fix is empty or
+  generic ("improve the rollback plan") rather than a concrete action scores LOW here even if the message
+  itself sounds insightful.
 - context_awareness_score: does the critique account for the stated downtime tolerance and constraints, or
   does it read as if it ignored them?
 - overall_score: your holistic judgment. An EMPTY findings list on a genuinely clean plan should score HIGH —

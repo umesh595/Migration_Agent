@@ -17,6 +17,17 @@ from app.schemas.migration_plan import EfficiencyBreakdown, EffortBreakdown, Sev
 class GeneratedQuestion(BaseModel):
     text: str
     related_gap_description: str = Field(description="Echo of the Gap.description this question addresses.")
+    hypothesis: str = Field(
+        default="",
+        description="A concrete, reasoned best guess when the model/context gives enough to propose one "
+        "(e.g. 'Likely a cache for session/auth data, since it sits between the API and the DB') — empty "
+        "when there's genuinely no reasonable basis to guess. See system prompt.",
+    )
+    answer_options: list[str] = Field(
+        default_factory=list,
+        description="2-3 short, concrete, mutually distinct answers the user could pick instead of typing — "
+        "empty when the question has no natural discrete answers. See system prompt.",
+    )
 
 
 class QuestionGenerationOutput(BaseModel):
@@ -49,6 +60,13 @@ class RequirementCoverageVerdict(BaseModel):
         "for THIS system (e.g. double-booking, a payment charged twice, silent data loss) — false for "
         "cosmetic or nice-to-have areas. A hedged high_impact item is exactly the case that must not be "
         "silently treated as done."
+    )
+    risk_score: int = Field(
+        default=50,
+        ge=0,
+        le=100,
+        description="0-100: how much asking about this next actually matters (business risk, migration "
+        "impact, dependency uncertainty, security/privacy, planning-blocker level). See system prompt.",
     )
     evidence: str = Field(
         default="",
@@ -116,15 +134,31 @@ class RequirementCoverageCriticOutput(BaseModel):
     )
 
 
+class Contradiction(BaseModel):
+    """One genuine 'both cannot be true' logical conflict — see system prompt's
+    CONTRADICTIONS section for what counts and what doesn't."""
+
+    description: str = Field(description="Plain-language explanation naming both sides concretely.")
+    existing_fact: str = Field(default="", description="Prior fact conflicted with; empty if within one message.")
+    new_statement: str = Field(description="The conflicting part of THIS message, quoted or paraphrased.")
+    severity: Literal["low", "medium", "high"] = Field(description="See system prompt for the severity rubric.")
+
+
 class IngestCompletenessCriticOutput(BaseModel):
     """Output of the discovery-loop ingest completeness critic (technique #8's
     rules->critic->judge pattern, applied to discovery ingestion instead of
     plan review). ingest_node's own patch proposal is trusted once and never
     independently checked — this is the second opinion: given the same user
     message and the patches about to be applied, does the resulting model
-    actually capture everything stated? The most common way discovery repeats
-    a question is a fact the user gave landing only in narration (shown once,
-    discarded) rather than as a patch (durable, what gap analysis reads).
+    actually capture everything stated, and does anything it now states
+    conflict with what's already known? Sharing one LLM call for both checks
+    (rather than a second dedicated contradiction-detector call) keeps this a
+    single extra round-trip per turn, not two, since both checks read the
+    exact same inputs: the model before this turn, the message, the patches.
+
+    The most common way discovery repeats a question is a fact the user gave
+    landing only in narration (shown once, discarded) rather than as a patch
+    (durable, what gap analysis reads).
     """
 
     fully_captured: bool = Field(
@@ -141,6 +175,12 @@ class IngestCompletenessCriticOutput(BaseModel):
         default_factory=list,
         description="Facts the proposed patches introduce that the user's message does not state or clearly, "
         "reasonably imply — fabrications, not legitimate inferences.",
+    )
+    contradictions: list[Contradiction] = Field(
+        default_factory=list,
+        description="Genuine logical conflicts noticed either within this message alone, or between this "
+        "message and an existing confirmed/stated fact in the injected model. Empty when there is no real "
+        "conflict — do not invent one from a merely incomplete or differently-phrased statement.",
     )
     rationale: str = Field(description="One or two sentences justifying the verdict.")
 
@@ -225,6 +265,11 @@ class LLMFindingOutput(BaseModel):
     severity: str
     message: str
     related_component_ids: list[str] = Field(default_factory=list)
+    violated_requirement: str = Field(
+        default="", description="The specific model/context fact this violates — quote it. See system prompt."
+    )
+    suggested_fix: str = Field(default="", description="A concrete, actionable fix, not generic advice.")
+    risk_if_ignored: str = Field(default="", description="What concretely breaks in production if ignored.")
 
 
 class SemanticReviewOutput(BaseModel):

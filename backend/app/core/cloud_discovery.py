@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 
 from app.integrations.aws_provider import _KIND_TO_TECHNOLOGY_PREFIX, AWSFetchResult, AWSResourceRecord
-from app.schemas.architecture import ArchitectureModel, Assumption, Component, Environment, WorkloadType
+from app.schemas.architecture import ArchitectureModel, Assumption, AssumptionStatus, Component, Environment, WorkloadType
 
 _STOPWORDS = {"the", "a", "an", "and", "or", "for", "of", "to"}
 _STRIPPED_SUFFIXES = ("domain", "service", "database", "db", "api", "backend", "frontend", "server", "system")
@@ -124,8 +124,9 @@ def apply_cloud_discovery(model: ArchitectureModel, inventory: AWSFetchResult) -
                 ),
                 raised_by="cloud_scan",
                 related_component_ids=[component.id],
-                resolved=True,  # a live cloud fact is not a pending confirmation (spec §2)
+                status=AssumptionStatus.CONFIRMED,  # a live cloud fact is not a pending confirmation (spec §2)
                 confidence="stated",
+                source=f"AWS live scan match: {match.kind.upper()} resource {match.resource_id!r}",
             )
         )
         notes.append(f'"{component.name}" -> {match.kind.upper()} `{match.resource_id}`')

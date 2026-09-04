@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 
-from app.schemas.architecture import ArchitectureModel, Environment
+from app.schemas.architecture import ArchitectureModel, AssumptionStatus, Environment
 from app.schemas.patches import (
     AddAssumptionPatch,
     AddComponentPatch,
@@ -199,8 +199,10 @@ def validate_patch(
             assumption = next((a for a in model.assumptions if a.id == patch.assumption_id), None)
             if assumption is None:
                 return f"no assumption with id '{patch.assumption_id}' exists"
-            if assumption.resolved:
-                return f"assumption '{patch.assumption_id}' is already resolved"
+            if assumption.status != AssumptionStatus.OPEN:
+                return f"assumption '{patch.assumption_id}' is already {assumption.status.value}"
+            if patch.rejected and patch.updated_text is not None:
+                return "cannot set updated_text when rejecting an assumption"
             if patch.updated_text is not None and not patch.updated_text.strip():
                 return "updated_text cannot be empty — omit it to confirm as originally stated"
             return None

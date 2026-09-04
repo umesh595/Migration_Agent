@@ -7,6 +7,7 @@ from enum import StrEnum
 from typing import Annotated, TypedDict
 
 from app.core.request_intelligence import RequestImpact
+from app.llm.schemas import GeneratedQuestion
 from app.schemas.architecture import ArchitectureModel
 from app.schemas.findings import Finding
 from app.schemas.migration_context import MigrationContext
@@ -40,6 +41,14 @@ class GraphState(TypedDict, total=False):
     model: Annotated[ArchitectureModel, _replace]
     last_patch_results: list[PatchResult]
     pending_questions: list[str]
+    # Hypothesis Cards / adaptive answer options: the same questions as
+    # pending_questions, but with the full generated structure (reasoned best
+    # guess, 2-3 concrete answer options) — only populated by
+    # generate_questions_node. Kept separate from pending_questions rather than
+    # replacing it, since several other call sites (review discuss, planning
+    # intake, document import) populate pending_questions with plain strings
+    # that were never run through question generation and have no such detail.
+    question_details: list[GeneratedQuestion]
     narration: str
 
     # Planning

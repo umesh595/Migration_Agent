@@ -22,7 +22,14 @@ from app.orchestration.nodes.discovery import (
     resolve_sparse_intake_open_question_from_target_context_answer,
 )
 from app.orchestration.state import Stage
-from app.schemas.architecture import ArchitectureModel, Assumption, Component, OpenQuestion, WorkloadType
+from app.schemas.architecture import (
+    ArchitectureModel,
+    Assumption,
+    AssumptionStatus,
+    Component,
+    OpenQuestion,
+    WorkloadType,
+)
 from app.schemas.patches import AddAssumptionPatch, AddComponentPatch, PatchOp, PatchSet
 
 
@@ -127,7 +134,7 @@ def test_target_context_backup_does_not_duplicate_the_assumption_once_greenfield
                 id="A1",
                 text="User-provided migration context: this is a greenfield build with no existing deployed system yet.",
                 raised_by="llm",
-                resolved=True,
+                status=AssumptionStatus.CONFIRMED,
             )
         ],
     )
@@ -158,7 +165,7 @@ def test_confirmed_greenfield_fact_suppresses_current_hosting_question_on_a_late
                 text="User-provided migration context: target platform is AWS; this is a greenfield build with "
                 "no existing deployed system yet.",
                 raised_by="llm",
-                resolved=True,
+                status=AssumptionStatus.CONFIRMED,
             )
         ],
     )

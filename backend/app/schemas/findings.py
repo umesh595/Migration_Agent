@@ -37,3 +37,13 @@ class Finding(BaseModel):
     message: str
     related_component_ids: list[str] = Field(default_factory=list)
     resolution_status: ResolutionStatus = ResolutionStatus.OPEN
+    # Evidence-backed review upgrade: a finding is a claim, and a claim needs a
+    # citation — "rollback is weak" tells a reviewer nothing they can act on;
+    # "rollback is weak because Orders DB is tier-1 and downtime tolerance is
+    # zero-downtime, but the plan has no replica sync or rollback trigger" does.
+    # All three are empty only for findings from before this field existed.
+    violated_requirement: str = Field(
+        default="", description="The specific stated fact/requirement this violates, quoting the model/context."
+    )
+    suggested_fix: str = Field(default="", description="A concrete, actionable fix — not generic advice.")
+    risk_if_ignored: str = Field(default="", description="What concretely goes wrong in production if left unaddressed.")

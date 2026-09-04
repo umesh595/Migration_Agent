@@ -29,7 +29,7 @@ from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.providers.anthropic_provider import AnthropicProvider
 from app.orchestration.graph import build_discovery_graph
 from app.orchestration.state import Stage
-from app.schemas.architecture import ArchitectureModel, Environment
+from app.schemas.architecture import ArchitectureModel, AssumptionStatus, Environment
 
 pytestmark = pytest.mark.live_smoke
 
@@ -172,7 +172,8 @@ async def test_stated_facts_are_captured_and_never_asked_to_be_reconfirmed():
 
     assert "20k" in _all_text(model) or "20,000" in _all_text(model) or "20000" in _all_text(model)
     confirmed_stated_facts = any(
-        a.resolved and ("login" in a.text.lower() or "20k" in a.text.lower() or "admin" in a.text.lower())
+        a.status == AssumptionStatus.CONFIRMED
+        and ("login" in a.text.lower() or "20k" in a.text.lower() or "admin" in a.text.lower())
         for a in model.assumptions
     )
     assert confirmed_stated_facts, [a.text for a in model.assumptions]

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from app.core.cloud_discovery import apply_cloud_discovery
 from app.integrations.aws_provider import AWSFetchResult, AWSResourceRecord
-from app.schemas.architecture import ArchitectureModel, Component, Environment, WorkloadType
+from app.schemas.architecture import ArchitectureModel, AssumptionStatus, Component, Environment, WorkloadType
 
 
 def test_name_overlap_alone_is_not_enough_kind_must_fit_workload_type():
@@ -58,7 +58,7 @@ def test_matching_resource_fills_technology_and_environment():
 
     cloud_assumptions = [a for a in updated.assumptions if a.raised_by == "cloud_scan"]
     assert len(cloud_assumptions) == 1
-    assert cloud_assumptions[0].resolved is True  # never a pending confirmation
+    assert cloud_assumptions[0].status == AssumptionStatus.CONFIRMED  # never a pending confirmation
 
 
 def test_no_match_leaves_model_untouched():

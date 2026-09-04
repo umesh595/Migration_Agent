@@ -8,7 +8,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
-from app.schemas.architecture import ArchitectureModel, Environment
+from app.schemas.architecture import ArchitectureModel, AssumptionStatus, Environment
 
 
 class GapCategory(StrEnum):
@@ -162,7 +162,7 @@ def analyze_gaps(model: ArchitectureModel) -> list[Gap]:
         )
 
     for assumption in model.assumptions:
-        if assumption.raised_by == "llm" and not assumption.resolved:
+        if assumption.raised_by == "llm" and assumption.status == AssumptionStatus.OPEN:
             gaps.append(
                 Gap(
                     category=GapCategory.UNCONFIRMED_ASSUMPTION,

@@ -83,6 +83,28 @@ export function FindingsPanel({
                 Related: <span className="font-mono text-slate-400">{f.related_component_ids.join(", ")}</span>
               </p>
             )}
+            {(f.violated_requirement || f.suggested_fix || f.risk_if_ignored) && (
+              <div className="mt-2.5 space-y-1.5 rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs">
+                {f.violated_requirement && (
+                  <p>
+                    <span className="font-semibold text-slate-300">Why this is flagged: </span>
+                    <span className="text-slate-400">{f.violated_requirement}</span>
+                  </p>
+                )}
+                {f.suggested_fix && (
+                  <p>
+                    <span className="font-semibold text-slate-300">Suggested fix: </span>
+                    <span className="text-slate-400">{f.suggested_fix}</span>
+                  </p>
+                )}
+                {f.risk_if_ignored && (
+                  <p>
+                    <span className="font-semibold text-slate-300">Risk if ignored: </span>
+                    <span className="text-slate-400">{f.risk_if_ignored}</span>
+                  </p>
+                )}
+              </div>
+            )}
             <div className="mt-3 flex gap-2 border-t border-white/[0.06] pt-3">
               {f.resolution_status !== "resolved" && (
                 <button
