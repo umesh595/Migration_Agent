@@ -57,3 +57,18 @@ def test_production_accepts_safe_config():
 def test_development_tolerates_weak_secret_for_local_convenience():
     settings = _settings(APP_ENV="development", JWT_SECRET="short")
     assert settings.env == "development"
+
+
+def test_comma_separated_gemini_keys_parse_without_json_decoding():
+    settings = _settings(JWT_SECRET="x" * 40, GEMINI_API_KEYS="key-a, key-b, key-c")
+    assert settings.gemini_api_keys == ["key-a", "key-b", "key-c"]
+
+
+def test_gemini_keys_unset_by_default():
+    settings = _settings(JWT_SECRET="x" * 40)
+    assert settings.gemini_api_keys is None
+
+
+def test_empty_gemini_keys_normalizes_to_unset():
+    settings = _settings(JWT_SECRET="x" * 40, GEMINI_API_KEYS="")
+    assert settings.gemini_api_keys is None

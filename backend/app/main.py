@@ -14,6 +14,7 @@ from app.integrations.rest_catalog_provider import RestCatalogProvider
 from app.llm.gateway import LLMGateway
 from app.llm.providers.anthropic_provider import AnthropicProvider
 from app.llm.providers.fallback_provider import FallbackLLMProvider
+from app.llm.providers.gemini_provider import GeminiProvider
 from app.llm.providers.groq_provider import GroqProvider
 from app.observability.tracing import flush as tracing_flush
 from app.observability.tracing import tracing_status
@@ -58,9 +59,19 @@ async def lifespan(app: FastAPI):
         timeout_s=settings.llm_request_timeout_s,
         workspace_id=settings.anthropic_workspace_id,
     )
-    # Groq is a fallback only (see FallbackLLMProvider) — activated automatically
-    # if Anthropic's account runs out of quota/credits. Unset GROQ_API_KEY to
-    # run Anthropic-only.
+    # Gemini and Groq are an optional two-deep fallback chain behind Anthropic,
+    # unwound in that order only once Anthropic's account has no quota/credits
+    # left (see FallbackLLMProvider). Unset either key to skip that stage.
+    gemini_provider = (
+        GeminiProvider(
+            api_keys=settings.gemini_api_keys,
+            cheap_model=settings.gemini_cheap_model,
+            strong_model=settings.gemini_strong_model,
+            timeout_s=settings.llm_request_timeout_s,
+        )
+        if settings.gemini_api_keys
+        else None
+    )
     groq_provider = (
         GroqProvider(
             api_key=settings.groq_api_key.get_secret_value(),
@@ -71,7 +82,12 @@ async def lifespan(app: FastAPI):
         if settings.groq_api_key
         else None
     )
-    provider = FallbackLLMProvider(primary=anthropic_provider, fallback=groq_provider)
+    fallback_chain = (
+        FallbackLLMProvider(primary=gemini_provider, fallback=groq_provider)
+        if gemini_provider is not None
+        else groq_provider
+    )
+    provider = FallbackLLMProvider(primary=anthropic_provider, fallback=fallback_chain)
     app.state.gateway = LLMGateway(
         provider,
         cheap_tier_max_retries=settings.llm_cheap_tier_max_retries,

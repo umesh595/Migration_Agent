@@ -35,10 +35,20 @@ class Settings(BaseSettings):
     bootstrap_admin_email: str | None = Field(default=None, alias="BOOTSTRAP_ADMIN_EMAIL")
     bootstrap_admin_password: SecretStr | None = Field(default=None, alias="BOOTSTRAP_ADMIN_PASSWORD")
 
-    # --- LLM gateway (Anthropic primary; Groq optional fallback) ---
+    # --- LLM gateway (Anthropic primary; Gemini then Groq as a two-deep
+    # optional fallback chain — see FallbackLLMProvider) ---
     anthropic_api_key: SecretStr = Field(alias="ANTHROPIC_API_KEY")
     anthropic_cheap_model: str = Field(default="claude-sonnet-5", alias="ANTHROPIC_CHEAP_MODEL")
     anthropic_strong_model: str = Field(default="claude-opus-5", alias="ANTHROPIC_STRONG_MODEL")
+
+    # --- Gemini: optional fallback only, used when Anthropic's account has no
+    # quota/credits left (see FallbackLLMProvider). Round-robins across every
+    # key in the comma-separated list on each call (see GeminiProvider). Leave
+    # GEMINI_API_KEYS unset to skip straight to Groq (or to no fallback at all)
+    # when Anthropic fails. ---
+    gemini_api_keys: Annotated[list[str] | None, NoDecode] = Field(default=None, alias="GEMINI_API_KEYS")
+    gemini_cheap_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_CHEAP_MODEL")
+    gemini_strong_model: str = Field(default="gemini-2.5-pro", alias="GEMINI_STRONG_MODEL")
     # Only required for an identity-linked API key (one generated from a personal
     # Console profile rather than from inside a specific workspace's own API Keys
     # tab) — such a key can't infer which workspace's budget to bill against, so
@@ -113,6 +123,13 @@ class Settings(BaseSettings):
     def _split_origins(cls, v: object) -> object:
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
+
+    @field_validator("gemini_api_keys", mode="before")
+    @classmethod
+    def _split_gemini_keys(cls, v: object) -> object:
+        if isinstance(v, str):
+            return [key.strip() for key in v.split(",") if key.strip()] or None
         return v
 
     @model_validator(mode="after")

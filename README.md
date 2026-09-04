@@ -302,10 +302,15 @@ Key settings:
 | `RATE_LIMIT_RPM` / `RATE_LIMIT_MESSAGES_RPM` | `30` / `10` | Per user, shared via Redis |
 | `RATE_LIMIT_FAIL_OPEN` | `false` | Fails closed by default — set true to allow requests through if Redis is unreachable |
 
-**Provider portability.** Anthropic is the primary wired provider, with Groq kept as
-an optional quota/credits fallback. The gateway remains provider-agnostic: each
-provider implements `LLMProvider` in `app/llm/providers/`, with no changes needed in
-the graph nodes or prompts.
+**Provider portability.** Anthropic is the primary wired provider. Gemini, then
+Groq, are an optional two-deep fallback chain behind it, only engaged once
+Anthropic's account has no quota/credits left (`FallbackLLMProvider`). Gemini's
+own tier round-robins across every key in `GEMINI_API_KEYS` on each call,
+spreading load/rate-limits evenly instead of hammering one key until it errors
+(`app/llm/providers/gemini_provider.py`) — only once every configured Gemini key
+has individually come back quota-exhausted does it hand off to Groq. The gateway
+remains provider-agnostic: each provider implements `LLMProvider` in
+`app/llm/providers/`, with no changes needed in the graph nodes or prompts.
 
 **Observability.** Langfuse tracing activates when `LANGFUSE_PUBLIC_KEY` and
 `LANGFUSE_SECRET_KEY` are set, and is a silent no-op otherwise. If it's configured but
