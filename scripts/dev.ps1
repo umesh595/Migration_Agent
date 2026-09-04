@@ -111,6 +111,33 @@ function Confirm-EnvFile {
         Write-Step "No frontend/.env.local found - creating one from .env.local.example"
         Copy-Item $frontendEnvExamplePath $frontendEnvPath
     }
+
+    Confirm-DevpConfig
+}
+
+function Confirm-DevpConfig {
+    # .devprune.json is the PERSONAL dev-prune config (per machine/clone) -
+    # distinct from the committed project.devprune.json already in the repo.
+    # devp writes it itself (and registers it in .git/info/exclude, never
+    # .gitignore) so its $schema pointer and scaffolding stay correct - this
+    # script never hand-writes the JSON. Purely a convenience for anyone who
+    # has dev-prune installed; silently skipped otherwise, since it has
+    # nothing to do with actually running the app.
+    $devpCmd = Get-Command devp -ErrorAction SilentlyContinue
+    if (-not $devpCmd) {
+        $devpCmd = Get-Command dev-prune -ErrorAction SilentlyContinue
+    }
+    if (-not $devpCmd) {
+        return
+    }
+
+    $devprunePersonalPath = Join-Path $RepoRoot '.devprune.json'
+    if (-not (Test-Path $devprunePersonalPath)) {
+        Write-Step "dev-prune found - creating this machine's .devprune.json"
+        Push-Location $RepoRoot
+        & $devpCmd.Source config project . | Out-Null
+        Pop-Location
+    }
 }
 
 function Wait-ForHealth {
