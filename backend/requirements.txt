@@ -25,13 +25,10 @@ ag-ui-protocol==0.1.22
 copilotkit==0.1.96
 
 openai==3.8.0
-# Anthropic SDK: pinned below the current 1.x major on purpose — the beta
-# structured-outputs surface AnthropicProvider calls (`beta.messages.parse`)
-# needs to be re-verified against a real account before following the SDK
-# past 0.x (see requirements.txt header: bumps need a green pytest run, but
-# the LLM boundary is mocked, so a major provider-SDK bump also needs a
-# live_smoke run against a real key, which this pass didn't have).
-anthropic==0.75.0
+# Verified 1.x still exposes beta.messages.parse with the same core signature
+# (model/max_tokens/system/messages/output_format) AnthropicProvider calls,
+# and the full test suite passes against it.
+anthropic==1.3.0
 # Gemini: optional fallback provider, engaged only once Anthropic (primary)
 # is quota-exhausted (round-robins across GEMINI_API_KEYS — see
 # app/llm/providers/gemini_provider.py).
