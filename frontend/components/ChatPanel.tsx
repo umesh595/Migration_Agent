@@ -85,7 +85,7 @@ function formatIntent(intent: string): string {
 
 function RequestImpactCard({ impact }: { impact: RequestImpact }) {
   return (
-    <div className="mt-3 rounded-lg border border-brand-400/20 bg-brand-400/[0.055] p-3 text-xs text-slate-300">
+    <div className="mt-3 rounded-lg border border-brand-400/20 bg-brand-400/5.5 p-3 text-xs text-slate-300">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold text-brand-100">Decision reasoning</span>
         <span className="badge border-brand-400/30 bg-brand-400/10 text-brand-100">{formatIntent(impact.intent)}</span>
@@ -108,7 +108,7 @@ function RequestImpactCard({ impact }: { impact: RequestImpact }) {
           {impact.should_mutate_source ? "source change allowed" : "source protected"}
         </span>
         {impact.impact_dimensions.map((dimension) => (
-          <span key={dimension} className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-slate-300">
+          <span key={dimension} className="rounded-full border border-white/10 bg-white/4 px-2 py-0.5 text-slate-300">
             {dimension.replace(/_/g, " ")}
           </span>
         ))}
@@ -182,7 +182,7 @@ function QuestionChecklist({
   }
 
   return (
-    <div className="mt-2.5 rounded-lg border border-brand-400/20 bg-brand-400/[0.04] p-3">
+    <div className="mt-2.5 rounded-lg border border-brand-400/20 bg-brand-400/4 p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-semibold text-brand-100">{intro ?? "Questions to consider"}</span>
         <span className="badge border-brand-400/30 bg-brand-400/10 text-brand-100 shrink-0">
@@ -193,7 +193,7 @@ function QuestionChecklist({
         {questions.map((q, i) => {
           const detail = details?.[i];
           return (
-            <li key={i} className="rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-2">
+            <li key={i} className="rounded-md border border-white/10 bg-white/3 px-2.5 py-2">
               <button
                 type="button"
                 onClick={() => toggle(i)}
@@ -220,7 +220,7 @@ function QuestionChecklist({
                       key={optionIndex}
                       type="button"
                       onClick={() => onPickOption(option)}
-                      className="rounded-full border border-white/15 bg-white/[0.05] px-2.5 py-1 text-[11px] text-slate-200 transition hover:border-brand-400/40 hover:bg-brand-400/10 hover:text-brand-100"
+                      className="rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[11px] text-slate-200 transition hover:border-brand-400/40 hover:bg-brand-400/10 hover:text-brand-100"
                     >
                       {option}
                     </button>
@@ -275,10 +275,10 @@ function ChatBubble({ message, onPickOption }: { message: ChatMessage; onPickOpt
 
   return (
     <div className="flex items-start gap-2.5 animate-pop-in">
-      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.06] ring-1 ring-white/10 text-xs">
+      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/6 ring-1 ring-white/10 text-xs">
         🤖
       </span>
-      <div className="max-w-[85%] whitespace-pre-line rounded-xl rounded-tl-md border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-slate-200">
+      <div className="max-w-[85%] whitespace-pre-line rounded-xl rounded-tl-md border border-white/10 bg-white/4 px-3.5 py-2.5 text-sm text-slate-200">
         {visibleText}
         {message.questions && message.questions.length > 0 && (
           <QuestionChecklist
@@ -526,8 +526,8 @@ export function ChatPanel({
       : `${Math.floor(elapsedSeconds / 60)}m ${String(elapsedSeconds % 60).padStart(2, "0")}s`;
 
   return (
-    <div className="card-glow flex h-[calc(100vh-22rem)] min-h-[620px] flex-col !p-0 overflow-hidden">
-      <div className="flex items-center gap-2 border-b border-white/10 bg-white/[0.02] px-4 py-3">
+    <div className="card-glow flex h-[calc(100vh-22rem)] min-h-[620px] flex-col p-0! overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-white/10 bg-white/2 px-4 py-3">
         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-grad-primary text-[11px] font-bold text-white">AI</span>
         <div>
           <h3 className="text-sm font-semibold text-slate-200">Conversation</h3>
@@ -551,8 +551,8 @@ export function ChatPanel({
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4" aria-live="polite">
         {historyLoading ? (
           <div className="space-y-3">
-            <div className="ml-auto h-9 w-2/3 max-w-[85%] animate-pulse rounded-xl rounded-tr-md bg-white/[0.06]" />
-            <div className="h-14 w-3/4 max-w-[85%] animate-pulse rounded-xl rounded-tl-md bg-white/[0.04]" />
+            <div className="ml-auto h-9 w-2/3 max-w-[85%] animate-pulse rounded-xl rounded-tr-md bg-white/6" />
+            <div className="h-14 w-3/4 max-w-[85%] animate-pulse rounded-xl rounded-tl-md bg-white/4" />
           </div>
         ) : messages.length === 0 && workflowStatus === "discovery" && !startChoiceDismissed ? (
           <StartDiscoveryChoice
@@ -587,8 +587,8 @@ export function ChatPanel({
         ))}
         {streaming && (
           <div className="flex items-start gap-2.5 animate-pop-in">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/[0.06] ring-1 ring-white/10 text-[10px] font-bold text-slate-300">AI</span>
-            <div className="max-w-[88%] rounded-xl rounded-tl-md border border-white/10 bg-white/[0.04] px-3.5 py-3">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/6 ring-1 ring-white/10 text-[10px] font-bold text-slate-300">AI</span>
+            <div className="max-w-[88%] rounded-xl rounded-tl-md border border-white/10 bg-white/4 px-3.5 py-3">
               <div className="flex items-center gap-2">
                 <span className="flex gap-1">
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-400 [animation-delay:-0.3s]" />
@@ -598,7 +598,7 @@ export function ChatPanel({
                 <span className="text-xs font-medium text-slate-300">{liveStatus}</span>
               </div>
               {isPlanningRun && (
-                <div className="mt-3 rounded-lg border border-brand-400/20 bg-brand-400/[0.055] p-3">
+                <div className="mt-3 rounded-lg border border-brand-400/20 bg-brand-400/5.5 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                     <span className="font-semibold text-brand-100">Generating migration plan</span>
                     <span className="text-brand-200/80">Elapsed {elapsedLabel}</span>
@@ -647,7 +647,7 @@ export function ChatPanel({
         </p>
       )}
 
-      <form onSubmit={handleSubmit} className="flex gap-2 border-t border-white/10 bg-white/[0.02] p-3">
+      <form onSubmit={handleSubmit} className="flex gap-2 border-t border-white/10 bg-white/2 p-3">
         <label htmlFor="chat-input" className="sr-only">
           Message
         </label>
@@ -661,7 +661,7 @@ export function ChatPanel({
         />
         <button
           type="button"
-          className="btn-secondary self-end !px-2.5"
+          className="btn-secondary self-end px-2.5!"
           disabled={streaming}
           title="Attach a config file (e.g. docker-compose.yml, a Terraform summary, a README) — read conversationally, same as typing it"
           onClick={() => fileInputRef.current?.click()}

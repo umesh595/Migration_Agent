@@ -109,7 +109,7 @@ export function ArchitectureCanvas({
         </div>
         <button
           type="button"
-          className="btn-secondary shrink-0 !px-2.5 !py-1.5 !text-xs"
+          className="btn-secondary shrink-0 px-2.5! py-1.5! text-xs!"
           aria-pressed={!showText}
           onClick={() => setShowText((v) => !v)}
         >
@@ -124,7 +124,7 @@ export function ArchitectureCanvas({
             <span className="badge border-brand-400/30 bg-brand-400/10 text-brand-300">
               {model.components.length} components
             </span>
-            <span className="badge border-white/10 bg-white/[0.04] text-slate-400">
+            <span className="badge border-white/10 bg-white/4 text-slate-400">
               {model.dependencies.length} dependencies
             </span>
           </div>
@@ -132,7 +132,7 @@ export function ArchitectureCanvas({
           <h5 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Components</h5>
           <ul className="mt-2 space-y-3">
             {model.components.map((c) => (
-              <li key={c.id} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+              <li key={c.id} className="rounded-xl border border-white/6 bg-white/2 p-3">
                 <div className="flex items-center gap-2">
                   <span className="text-base">{WORKLOAD_ICON[c.workload_type] ?? "🔷"}</span>
                   <span className="font-medium text-slate-100">{c.name}</span>
@@ -163,7 +163,7 @@ export function ArchitectureCanvas({
                 </div>
                 {c.description && <p className="mt-1.5 text-slate-400">{c.description}</p>}
                 {impactFor === c.id && (
-                  <div className="mt-2 rounded-lg border border-brand-400/20 bg-brand-400/[0.06] p-2.5 text-xs animate-pop-in">
+                  <div className="mt-2 rounded-lg border border-brand-400/20 bg-brand-400/6 p-2.5 text-xs animate-pop-in">
                     {impactError ? (
                       <p className="text-rose-300">{impactError}</p>
                     ) : impact ? (
@@ -189,7 +189,7 @@ export function ArchitectureCanvas({
           <h5 className="mt-5 text-xs font-semibold uppercase tracking-wide text-slate-500">Dependencies</h5>
           <ul className="mt-2 grid gap-2">
             {model.dependencies.map((d) => (
-              <li key={d.id} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
+              <li key={d.id} className="rounded-lg border border-white/6 bg-white/2 p-2.5">
                 <div className="grid gap-2 text-xs sm:grid-cols-[1fr_auto_1fr] sm:items-center">
                   <div className="min-w-0">
                     <p className="truncate font-medium text-slate-200">
@@ -199,7 +199,7 @@ export function ArchitectureCanvas({
                   </div>
                   <div className="flex items-center gap-2 sm:justify-center">
                     <span className="text-brand-300">to</span>
-                    <span className="badge border-white/10 bg-white/[0.03] text-slate-400">
+                    <span className="badge border-white/10 bg-white/3 text-slate-400">
                       {d.kind.replace(/_/g, " ")}
                     </span>
                   </div>
@@ -211,7 +211,7 @@ export function ArchitectureCanvas({
                   </div>
                 </div>
                 {d.description && (
-                  <p className="mt-2 border-t border-white/[0.05] pt-2 text-xs leading-relaxed text-slate-500">
+                  <p className="mt-2 border-t border-white/5 pt-2 text-xs leading-relaxed text-slate-500">
                     {d.description}
                   </p>
                 )}

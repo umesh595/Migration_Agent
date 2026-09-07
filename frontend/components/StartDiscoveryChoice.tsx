@@ -122,7 +122,7 @@ function OptionCard({
     <button
       type="button"
       onClick={onClick}
-      className="card flex flex-col items-start gap-1.5 !p-4 text-left transition hover:border-brand-400/40 hover:bg-white/[0.06]"
+      className="card flex flex-col items-start gap-1.5 p-4! text-left transition hover:border-brand-400/40 hover:bg-white/6"
     >
       <span className="text-xl">{icon}</span>
       <span className="text-sm font-semibold text-slate-100">{title}</span>
@@ -286,7 +286,7 @@ export function StartDiscoveryChoice({
           PDF, DOCX, or plain text. I'll read it exactly the way I'd read a typed description — same questions apply
           afterward.
         </p>
-        <label className="card flex cursor-pointer flex-col items-center gap-2 !p-6 text-center text-xs text-slate-400 hover:border-brand-400/40">
+        <label className="card flex cursor-pointer flex-col items-center gap-2 p-6! text-center text-xs text-slate-400 hover:border-brand-400/40">
           <input
             type="file"
             accept=".pdf,.docx,.doc,.txt,.md,application/pdf,text/plain"
@@ -388,7 +388,7 @@ export function StartDiscoveryChoice({
 
       <div className="space-y-3">
         {components.map((c, i) => (
-          <div key={c.key} className="card space-y-3 !p-4">
+          <div key={c.key} className="card space-y-3 p-4!">
             <div className="flex items-center gap-2">
               <input
                 className="input flex-1 font-medium"
@@ -398,7 +398,7 @@ export function StartDiscoveryChoice({
               />
               <button
                 type="button"
-                className="btn-secondary !px-2.5 !py-2"
+                className="btn-secondary px-2.5! py-2!"
                 onClick={() => removeComponent(c.key)}
                 disabled={components.length === 1}
                 title="Remove this component"
@@ -408,7 +408,7 @@ export function StartDiscoveryChoice({
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div>
-                <label className="label !mb-1 !text-[11px]">Type</label>
+                <label className="label mb-1! text-[11px]!">Type</label>
                 <select
                   className="input text-sm"
                   value={c.workloadType}
@@ -422,7 +422,7 @@ export function StartDiscoveryChoice({
                 </select>
               </div>
               <div>
-                <label className="label !mb-1 !text-[11px]">Environment</label>
+                <label className="label mb-1! text-[11px]!">Environment</label>
                 <select
                   className="input text-sm"
                   value={c.environment}
@@ -436,7 +436,7 @@ export function StartDiscoveryChoice({
                 </select>
               </div>
               <div>
-                <label className="label !mb-1 !text-[11px]">Technology (optional)</label>
+                <label className="label mb-1! text-[11px]!">Technology (optional)</label>
                 <input
                   className="input text-sm"
                   placeholder="e.g. Node.js on ECS"
@@ -445,7 +445,7 @@ export function StartDiscoveryChoice({
                 />
               </div>
               <div>
-                <label className="label !mb-1 !text-[11px]">Criticality (optional)</label>
+                <label className="label mb-1! text-[11px]!">Criticality (optional)</label>
                 <input
                   className="input text-sm"
                   placeholder="e.g. tier-1"
@@ -463,9 +463,9 @@ export function StartDiscoveryChoice({
 
       {namedComponents.length >= 2 && (
         <div className="space-y-3">
-          <p className="label !mb-0">How do they connect? (optional)</p>
+          <p className="label mb-0!">How do they connect? (optional)</p>
           {dependencies.map((d) => (
-            <div key={d.key} className="card space-y-3 !p-4">
+            <div key={d.key} className="card space-y-3 p-4!">
               <div className="flex items-center gap-2">
                 <select
                   className="input flex-1 text-sm"
@@ -494,7 +494,7 @@ export function StartDiscoveryChoice({
                 </select>
                 <button
                   type="button"
-                  className="btn-secondary shrink-0 !px-2.5 !py-2"
+                  className="btn-secondary shrink-0 px-2.5! py-2!"
                   onClick={() => setDependencies((prev) => prev.filter((row) => row.key !== d.key))}
                   title="Remove this connection"
                 >
@@ -503,7 +503,7 @@ export function StartDiscoveryChoice({
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="label !mb-1 !text-[11px]">Kind</label>
+                  <label className="label mb-1! text-[11px]!">Kind</label>
                   <select
                     className="input text-sm"
                     value={d.kind}
@@ -517,7 +517,7 @@ export function StartDiscoveryChoice({
                   </select>
                 </div>
                 <div>
-                  <label className="label !mb-1 !text-[11px]">Note (optional)</label>
+                  <label className="label mb-1! text-[11px]!">Note (optional)</label>
                   <input
                     className="input text-sm"
                     placeholder="e.g. writes order records"

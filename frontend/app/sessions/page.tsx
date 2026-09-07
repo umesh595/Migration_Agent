@@ -105,7 +105,7 @@ export default function SessionsPage() {
                 className="card group flex items-center justify-between gap-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-400/40 hover:shadow-glow"
               >
                 <div className="flex items-center gap-3.5">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.05] text-lg ring-1 ring-white/10 transition-colors group-hover:bg-brand-500/10">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/5 text-lg ring-1 ring-white/10 transition-colors group-hover:bg-brand-500/10">
                     🗂️
                   </span>
                   <div>

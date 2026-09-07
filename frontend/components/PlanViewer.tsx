@@ -59,7 +59,7 @@ function ExplanationBox({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-brand-400/15 bg-brand-400/[0.045] p-3">
+    <div className="rounded-lg border border-brand-400/15 bg-brand-400/4.5 p-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-brand-200">{title}</p>
       <div className="mt-1 text-xs leading-5 text-slate-400">{children}</div>
     </div>
@@ -98,13 +98,13 @@ function EffortDetails({
   }
 
   return (
-    <div className="mt-3 rounded-lg border border-white/[0.06] bg-black/10 p-3">
+    <div className="mt-3 rounded-lg border border-white/6 bg-black/10 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Effort</span>
         <span className="badge border-brand-400/30 bg-brand-400/10 text-brand-300">
           {breakdown.total || headline}
         </span>
-        <span className="badge border-white/10 bg-white/[0.04] text-slate-400">
+        <span className="badge border-white/10 bg-white/4 text-slate-400">
           confidence: {breakdown.confidence}
         </span>
       </div>
@@ -112,11 +112,11 @@ function EffortDetails({
         {rows.map(([label, value]) => (
           <div key={label}>
             <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</dt>
-            <dd className="mt-0.5 whitespace-normal break-words text-xs leading-relaxed text-slate-400">{value}</dd>
+            <dd className="mt-0.5 whitespace-normal wrap-break-word text-xs leading-relaxed text-slate-400">{value}</dd>
           </div>
         ))}
       </dl>
-      <p className="mt-2 whitespace-normal break-words text-xs leading-relaxed text-slate-500">
+      <p className="mt-2 whitespace-normal wrap-break-word text-xs leading-relaxed text-slate-500">
         {breakdown.rationale}
       </p>
     </div>
@@ -127,14 +127,14 @@ function EfficiencyDetails({ breakdown }: { breakdown: EfficiencyBreakdown | nul
   if (!breakdown) return null;
 
   return (
-    <div className="mt-3 rounded-lg border border-emerald-400/15 bg-emerald-400/[0.04] p-3">
+    <div className="mt-3 rounded-lg border border-emerald-400/15 bg-emerald-400/4 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-emerald-300/80">Efficiency</span>
         <span className="badge border-emerald-400/30 bg-emerald-400/10 text-emerald-300">
           confidence: {breakdown.confidence}
         </span>
       </div>
-      <p className="mt-2 whitespace-normal break-words text-xs leading-relaxed text-slate-300">
+      <p className="mt-2 whitespace-normal wrap-break-word text-xs leading-relaxed text-slate-300">
         {breakdown.primary_efficiency_gain}
       </p>
       <div className="mt-2 grid gap-3 sm:grid-cols-2">
@@ -155,7 +155,7 @@ function EfficiencyDetails({ breakdown }: { breakdown: EfficiencyBreakdown | nul
           </ul>
         </div>
       </div>
-      <p className="mt-2 whitespace-normal break-words text-xs leading-relaxed text-slate-500">
+      <p className="mt-2 whitespace-normal wrap-break-word text-xs leading-relaxed text-slate-500">
         {breakdown.rationale}
       </p>
     </div>
@@ -197,7 +197,7 @@ export function PlanViewer({
       </Section>
 
       <Section visible={shouldShow(2)} number={2} icon="🗺️" title="Component mapping">
-        <div className="overflow-x-auto rounded-xl border border-white/[0.06]">
+        <div className="overflow-x-auto rounded-xl border border-white/6">
           <table className="w-full min-w-[760px] table-fixed text-left text-sm">
             <thead>
               <tr className="border-b border-white/10 text-slate-400">
@@ -208,10 +208,10 @@ export function PlanViewer({
             </thead>
             <tbody>
               {plan.component_mappings.map((m) => (
-                <tr key={m.component_id} className="border-b border-white/[0.05] last:border-0 hover:bg-white/[0.02]">
-                  <td className="break-words px-3 py-2 font-medium text-slate-200">{m.component_id}</td>
+                <tr key={m.component_id} className="border-b border-white/5 last:border-0 hover:bg-white/2">
+                  <td className="wrap-break-word px-3 py-2 font-medium text-slate-200">{m.component_id}</td>
                   <td className="px-3 py-2 text-slate-400">{m.disposition}</td>
-                  <td className="whitespace-normal break-words px-3 py-2 leading-relaxed text-slate-400">{m.target_description}</td>
+                  <td className="whitespace-normal wrap-break-word px-3 py-2 leading-relaxed text-slate-400">{m.target_description}</td>
                 </tr>
               ))}
             </tbody>
@@ -226,7 +226,7 @@ export function PlanViewer({
         </ExplanationBox>
         <ol className="mt-3 space-y-2.5">
           {plan.waves.map((w) => (
-            <li key={w.index} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+            <li key={w.index} className="rounded-xl border border-white/6 bg-white/2 p-3">
               <div className="flex items-start gap-2.5">
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-brand-500/20 text-[11px] font-bold text-brand-300">
                   {w.index}
@@ -252,10 +252,10 @@ export function PlanViewer({
       <Section visible={shouldShow(4)} number={4} icon="🧩" title="Component migration approach">
         <div className="space-y-3">
           {plan.component_plans.map((p) => (
-            <div key={p.component_id} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+            <div key={p.component_id} className="rounded-xl border border-white/6 bg-white/2 p-3">
               <p className="flex items-center gap-2 text-sm font-medium text-slate-200">
                 {p.component_id}
-                <span className="badge border-white/10 bg-white/[0.04] text-slate-400">wave {p.wave_index}</span>
+                <span className="badge border-white/10 bg-white/4 text-slate-400">wave {p.wave_index}</span>
                 <span className="badge border-brand-400/30 bg-brand-400/10 text-brand-300">{p.disposition}</span>
               </p>
               <p className="mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">Recommended steps</p>
@@ -265,11 +265,11 @@ export function PlanViewer({
                 ))}
               </ol>
               {p.dependencies_considered.length > 0 && (
-                <div className="mt-3 border-t border-white/[0.06] pt-2">
+                <div className="mt-3 border-t border-white/6 pt-2">
                   <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Dependencies considered</p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {p.dependencies_considered.map((dependency) => (
-                      <span key={dependency} className="badge border-white/10 bg-white/[0.03] text-slate-400">
+                      <span key={dependency} className="badge border-white/10 bg-white/3 text-slate-400">
                         {dependency}
                       </span>
                     ))}
@@ -286,7 +286,7 @@ export function PlanViewer({
       <Section visible={shouldShow(5)} number={5} icon="⚠️" title="Risks & assumptions">
         <ul className="space-y-2">
           {plan.risks.map((r) => (
-            <li key={r.id} className="flex items-start gap-2.5 rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5 text-sm">
+            <li key={r.id} className="flex items-start gap-2.5 rounded-lg border border-white/6 bg-white/2 p-2.5 text-sm">
               <span className={`badge shrink-0 ${RISK_STYLES[r.severity]}`}>{r.severity}</span>
               <span className="text-slate-300">
                 {r.description} — <span className="text-slate-500">{r.mitigation}</span>
@@ -306,7 +306,7 @@ export function PlanViewer({
             <ul className="mt-2.5 space-y-1">
               {plan.validation_summary.cross_component_checks.map((c, i) => (
                 <li key={i} className="flex gap-2 text-xs text-slate-400">
-                  <span className="badge border-white/10 bg-white/[0.04] text-slate-400">{c.check_type}</span>
+                  <span className="badge border-white/10 bg-white/4 text-slate-400">{c.check_type}</span>
                   {c.description}
                 </li>
               ))}
@@ -360,7 +360,7 @@ export function PlanViewer({
       </Section>
 
       <Section visible={shouldShow(9)} number={9} icon="🗓️" title="Migration roadmap">
-        <div className="overflow-x-auto rounded-xl border border-white/[0.06]">
+        <div className="overflow-x-auto rounded-xl border border-white/6">
           <table className="w-full min-w-[860px] table-fixed text-left text-sm">
             <thead>
               <tr className="border-b border-white/10 text-slate-400">
@@ -375,15 +375,15 @@ export function PlanViewer({
             </thead>
             <tbody>
               {plan.roadmap_items.map((item, i) => (
-                <tr key={i} className="border-b border-white/[0.05] last:border-0 hover:bg-white/[0.02]">
+                <tr key={i} className="border-b border-white/5 last:border-0 hover:bg-white/2">
                   <td className="px-3 py-2 text-slate-400">{item.wave_index}</td>
-                  <td className="break-words px-3 py-2 font-medium text-slate-200">{item.component_id}</td>
+                  <td className="wrap-break-word px-3 py-2 font-medium text-slate-200">{item.component_id}</td>
                   <td className="px-3 py-2 text-slate-400">{item.disposition}</td>
-                  <td className="whitespace-normal break-words px-3 py-2 leading-relaxed text-slate-400">{item.summary}</td>
+                  <td className="whitespace-normal wrap-break-word px-3 py-2 leading-relaxed text-slate-400">{item.summary}</td>
                   <td className="px-3 py-2 text-slate-500">
                     <EffortDetails headline={item.estimated_effort} breakdown={item.effort_breakdown} compact />
                   </td>
-                  <td className="whitespace-normal break-words px-3 py-2 text-xs leading-relaxed text-slate-500">
+                  <td className="whitespace-normal wrap-break-word px-3 py-2 text-xs leading-relaxed text-slate-500">
                     {item.efficiency_breakdown?.primary_efficiency_gain ?? "-"}
                   </td>
                   <td className="px-3 py-2 text-slate-500">
@@ -403,7 +403,7 @@ export function PlanViewer({
             ${costSummary.total_monthly_usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             <span className="ml-1.5 text-sm font-normal text-slate-500">/ month, estimated</span>
           </p>
-          <div className="mt-3 overflow-x-auto rounded-xl border border-white/[0.06]">
+          <div className="mt-3 overflow-x-auto rounded-xl border border-white/6">
             <table className="w-full min-w-[860px] table-fixed text-left text-sm">
               <thead>
                 <tr className="border-b border-white/10 text-slate-400">
@@ -416,14 +416,14 @@ export function PlanViewer({
               </thead>
               <tbody>
                 {costSummary.estimates.map((e, i) => (
-                  <tr key={i} className="border-b border-white/[0.05] last:border-0 hover:bg-white/[0.02]">
-                    <td className="break-words px-3 py-2 font-medium text-slate-200">{e.component_id}</td>
+                  <tr key={i} className="border-b border-white/5 last:border-0 hover:bg-white/2">
+                    <td className="wrap-break-word px-3 py-2 font-medium text-slate-200">{e.component_id}</td>
                     <td className="px-3 py-2 text-slate-400 uppercase">{e.provider}</td>
                     <td className="px-3 py-2 text-slate-400">{e.service_category.replace(/_/g, " ")}</td>
                     <td className="px-3 py-2 text-slate-300">
                       {e.monthly_usd !== null ? `$${e.monthly_usd.toFixed(2)}` : <span className="text-slate-600">not estimated</span>}
                     </td>
-                    <td className="whitespace-normal break-words px-3 py-2 leading-relaxed text-slate-500">
+                    <td className="whitespace-normal wrap-break-word px-3 py-2 leading-relaxed text-slate-500">
                       {e.monthly_usd !== null ? e.sizing_assumption : e.note}
                     </td>
                   </tr>

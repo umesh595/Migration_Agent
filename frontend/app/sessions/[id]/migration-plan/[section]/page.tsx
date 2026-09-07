@@ -52,7 +52,7 @@ export default function MigrationPlanSectionPage() {
           <div>
             <Link
               href={`/sessions/${sessionId}/migration-plan`}
-              className="btn-secondary !h-9 !w-9 !px-0 !py-0"
+              className="btn-secondary h-9! w-9! px-0! py-0!"
               aria-label="Back to migration plan"
               title="Back to migration plan"
             >

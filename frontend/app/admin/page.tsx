@@ -179,7 +179,7 @@ export default function AdminPage() {
                 </thead>
                 <tbody>
                   {users?.map((u) => (
-                    <tr key={u.id} className="border-b border-white/[0.06] transition-colors hover:bg-white/[0.02]">
+                    <tr key={u.id} className="border-b border-white/6 transition-colors hover:bg-white/2">
                       <td className="px-4 py-3 text-slate-200">{u.email}</td>
                       <td className="px-4 py-3">
                         {u.is_admin ? (
@@ -204,7 +204,7 @@ export default function AdminPage() {
                         <div className="flex gap-2">
                           <button
                             type="button"
-                            className={u.is_active ? "btn-danger !px-2.5 !py-1 !text-xs" : "btn-secondary !px-2.5 !py-1 !text-xs"}
+                            className={u.is_active ? "btn-danger px-2.5! py-1! text-xs!" : "btn-secondary px-2.5! py-1! text-xs!"}
                             disabled={busyUserId === u.id}
                             onClick={() => handleToggleActive(u)}
                           >
@@ -212,7 +212,7 @@ export default function AdminPage() {
                           </button>
                           <button
                             type="button"
-                            className="btn-secondary !px-2.5 !py-1 !text-xs"
+                            className="btn-secondary px-2.5! py-1! text-xs!"
                             disabled={busyUserId === u.id}
                             onClick={() => handleResetPassword(u)}
                           >

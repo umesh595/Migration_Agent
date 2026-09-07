@@ -58,10 +58,10 @@ export function DiagramFrame({
 
   if (fullscreen) {
     return (
-      <div className="fixed inset-0 z-50 flex flex-col bg-[#05060f] animate-fade-up" role="img" aria-label={ariaLabel}>
+      <div className="fixed inset-0 z-50 flex flex-col bg-ink-950 animate-fade-up" role="img" aria-label={ariaLabel}>
         <div className="flex items-center justify-between border-b border-white/10 px-5 py-3">
           <p className="text-sm font-medium text-slate-200">{title}</p>
-          <button type="button" className="btn-secondary !px-3 !py-1.5 !text-xs" onClick={() => setFullscreen(false)}>
+          <button type="button" className="btn-secondary px-3! py-1.5! text-xs!" onClick={() => setFullscreen(false)}>
             ✕ Close (Esc)
           </button>
         </div>
@@ -71,10 +71,10 @@ export function DiagramFrame({
   }
 
   return (
-    <div style={{ height }} className="card relative overflow-hidden !p-0" role="img" aria-label={ariaLabel}>
+    <div style={{ height }} className="card relative overflow-hidden p-0!" role="img" aria-label={ariaLabel}>
       <button
         type="button"
-        className="btn-secondary absolute right-3 top-3 z-10 !px-2.5 !py-1.5 !text-xs"
+        className="btn-secondary absolute right-3 top-3 z-10 px-2.5! py-1.5! text-xs!"
         title="Expand to fullscreen"
         onClick={() => setFullscreen(true)}
       >

@@ -115,7 +115,7 @@ export function TargetArchitectureCanvas({ model, plan }: { model: ArchitectureM
         </div>
         <button
           type="button"
-          className="btn-secondary shrink-0 !px-2.5 !py-1.5 !text-xs"
+          className="btn-secondary shrink-0 px-2.5! py-1.5! text-xs!"
           aria-pressed={showText}
           onClick={() => setShowText((v) => !v)}
         >
@@ -145,7 +145,7 @@ export function TargetArchitectureCanvas({ model, plan }: { model: ArchitectureM
             {plan.component_mappings.map((m) => {
               const component = model.components.find((c) => c.id === m.component_id);
               return (
-                <li key={m.component_id} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <li key={m.component_id} className="rounded-xl border border-white/6 bg-white/2 p-3">
                   <div className="flex items-center gap-2">
                     <span
                       className="badge"

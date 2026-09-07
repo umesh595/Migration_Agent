@@ -29,12 +29,12 @@ export function InterruptApprovalCard() {
       const patches = raw?.patches ?? [];
 
       return (
-        <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/[0.06] p-3 text-sm text-slate-200 animate-pop-in">
+        <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/6 p-3 text-sm text-slate-200 animate-pop-in">
           <p className="font-semibold text-amber-100">Confirmation needed</p>
           <p className="mt-1 text-xs leading-5 text-slate-300">{interrupt?.message}</p>
           <ul className="mt-2 space-y-1.5">
             {patches.map((p, i) => (
-              <li key={i} className="rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-xs text-slate-300">
+              <li key={i} className="rounded-md border border-white/10 bg-white/3 px-2.5 py-1.5 text-xs text-slate-300">
                 <span className="font-mono text-amber-200">{p.op}</span>
                 {p.summary && <span className="ml-1.5 text-slate-400">— {p.summary}</span>}
               </li>
@@ -43,14 +43,14 @@ export function InterruptApprovalCard() {
           <div className="mt-3 flex gap-2">
             <button
               type="button"
-              className="btn-primary !py-1.5 !px-3 text-xs"
+              className="btn-primary py-1.5! px-3! text-xs"
               onClick={() => resolve({ approved: true })}
             >
               Approve
             </button>
             <button
               type="button"
-              className="btn-secondary !py-1.5 !px-3 text-xs"
+              className="btn-secondary py-1.5! px-3! text-xs"
               onClick={() => resolve({ approved: false })}
             >
               Reject

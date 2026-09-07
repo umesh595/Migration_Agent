@@ -37,7 +37,7 @@ export function ExportButtons({ sessionId }: { sessionId: string }) {
             type="button"
             disabled={busy !== null}
             onClick={() => handle(f.key)}
-            className="group relative flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
+            className="group relative flex items-center gap-3 rounded-xl border border-white/10 bg-white/3 p-3.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/6 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span
               className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-lg ${f.gradient} shadow-md transition-transform group-hover:scale-105`}

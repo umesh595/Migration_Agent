@@ -100,7 +100,7 @@ export function AuditTrailPanel({
 
   if (records.length === 0) {
     return (
-      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 text-sm text-slate-500">
+      <div className="rounded-xl border border-white/6 bg-white/2 p-4 text-sm text-slate-500">
         No patches proposed yet.
       </div>
     );
@@ -133,8 +133,8 @@ export function AuditTrailPanel({
   }
 
   return (
-    <div className="rounded-xl border border-white/[0.08] bg-white/[0.025] p-4">
-      <div className="mb-3 border-b border-white/[0.06] pb-3">
+    <div className="rounded-xl border border-white/8 bg-white/2.5 p-4">
+      <div className="mb-3 border-b border-white/6 pb-3">
         <p className="text-sm font-semibold text-slate-200">Model change ledger</p>
         <p className="mt-1 text-xs leading-5 text-slate-500">
           Every suggested architecture change is recorded here with its outcome, reason, and effect on planning.
@@ -145,7 +145,7 @@ export function AuditTrailPanel({
       <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-start">
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Latest recommendation</p>
-          <div className="mt-2 rounded-lg border border-brand-400/20 bg-brand-400/[0.055] p-3">
+          <div className="mt-2 rounded-lg border border-brand-400/20 bg-brand-400/5.5 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className={`badge ${OUTCOME_STYLES[latest.outcome]}`}>{latest.outcome}</span>
               <span className="text-xs text-slate-500">
@@ -155,26 +155,26 @@ export function AuditTrailPanel({
               {onReviewPatch && (
                 <button
                   type="button"
-                  className="btn-secondary ml-auto !px-2.5 !py-1 !text-xs"
+                  className="btn-secondary ml-auto px-2.5! py-1! text-xs!"
                   onClick={() => onReviewPatch(formatPatchReviewDraft(latest))}
                 >
                   Review
                 </button>
               )}
             </div>
-            <p className="mt-2 break-words font-mono text-xs text-slate-200">{summarizePatch(latest.patch)}</p>
+            <p className="mt-2 wrap-break-word font-mono text-xs text-slate-200">{summarizePatch(latest.patch)}</p>
             <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2">
-              <div className="rounded-lg border border-white/[0.06] bg-black/10 p-2">
+              <div className="rounded-lg border border-white/6 bg-black/10 p-2">
                 <p className="font-medium text-slate-300">What this changes</p>
                 <p className="mt-1 leading-5 text-slate-500">{patchImpact(latest.patch)}</p>
               </div>
-              <div className="rounded-lg border border-white/[0.06] bg-black/10 p-2">
+              <div className="rounded-lg border border-white/6 bg-black/10 p-2">
                 <p className="font-medium text-slate-300">Why recommended</p>
                 <p className="mt-1 leading-5 text-slate-500">{latest.justification}</p>
               </div>
             </div>
             {latest.reason && (
-              <p className="mt-2 rounded-lg border border-amber-400/15 bg-amber-400/[0.05] p-2 text-xs leading-5 text-amber-100/80">
+              <p className="mt-2 rounded-lg border border-amber-400/15 bg-amber-400/5 p-2 text-xs leading-5 text-amber-100/80">
                 Validator note: {latest.reason}
               </p>
             )}
@@ -182,35 +182,35 @@ export function AuditTrailPanel({
         </div>
 
         <div className="grid grid-cols-3 gap-2 text-center sm:min-w-56">
-          <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-2">
+          <div className="rounded-lg border border-white/6 bg-white/3 p-2">
             <div className="text-lg font-semibold text-slate-100">{records.length}</div>
             <div className="text-[11px] text-slate-500">total</div>
           </div>
-          <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/[0.06] p-2">
+          <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/6 p-2">
             <div className="text-lg font-semibold text-emerald-300">{appliedCount}</div>
             <div className="text-[11px] text-emerald-300/70">accepted</div>
           </div>
-          <div className="rounded-lg border border-rose-400/20 bg-rose-400/[0.06] p-2">
+          <div className="rounded-lg border border-rose-400/20 bg-rose-400/6 p-2">
             <div className="text-lg font-semibold text-rose-300">{rejectedCount}</div>
             <div className="text-[11px] text-rose-300/70">rejected</div>
           </div>
         </div>
       </div>
 
-      <div className="mt-3 rounded-lg border border-white/[0.05]">
+      <div className="mt-3 rounded-lg border border-white/5">
         {onReviewPatch && (
-          <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.05] bg-white/[0.02] p-2.5 text-xs">
+          <div className="flex flex-wrap items-center gap-2 border-b border-white/5 bg-white/2 p-2.5 text-xs">
             <span className="mr-auto text-slate-400">
               {selectedIndexes.size === 0
                 ? "Select patches to review together"
                 : `${selectedIndexes.size} selected`}
             </span>
-            <button type="button" className="btn-secondary !px-2.5 !py-1 !text-xs" onClick={selectAll}>
+            <button type="button" className="btn-secondary px-2.5! py-1! text-xs!" onClick={selectAll}>
               Select all
             </button>
             <button
               type="button"
-              className="btn-secondary !px-2.5 !py-1 !text-xs"
+              className="btn-secondary px-2.5! py-1! text-xs!"
               disabled={selectedIndexes.size === 0}
               onClick={clearSelected}
             >
@@ -218,7 +218,7 @@ export function AuditTrailPanel({
             </button>
             <button
               type="button"
-              className="btn-primary !px-2.5 !py-1 !text-xs"
+              className="btn-primary px-2.5! py-1! text-xs!"
               disabled={selectedRecords.length === 0}
               onClick={() => onReviewPatch(formatMultiPatchReviewDraft(selectedRecords))}
             >
@@ -227,7 +227,7 @@ export function AuditTrailPanel({
           </div>
         )}
         <div className="max-h-72 overflow-y-auto">
-          <ul className="divide-y divide-white/[0.05]">
+          <ul className="divide-y divide-white/5">
             {history.map(({ record: r, index }) => (
               <li
                 key={`${index}-${summarizePatch(r.patch)}`}
@@ -237,7 +237,7 @@ export function AuditTrailPanel({
                   {onReviewPatch && (
                     <input
                       type="checkbox"
-                      className="h-3.5 w-3.5 rounded border-white/20 bg-white/[0.04] accent-brand-500"
+                      className="h-3.5 w-3.5 rounded-sm border-white/20 bg-white/4 accent-brand-500"
                       checked={selectedIndexes.has(index)}
                       onChange={() => toggleSelected(index)}
                       aria-label={`Select ${summarizePatch(r.patch)} for batch review`}
@@ -251,11 +251,11 @@ export function AuditTrailPanel({
                 </div>
                 <div>
                   <div className="flex flex-wrap items-start gap-2">
-                    <p className="min-w-0 flex-1 break-words font-mono text-slate-300">{summarizePatch(r.patch)}</p>
+                    <p className="min-w-0 flex-1 wrap-break-word font-mono text-slate-300">{summarizePatch(r.patch)}</p>
                     {onReviewPatch && (
                       <button
                         type="button"
-                        className="btn-secondary shrink-0 !px-2.5 !py-1 !text-xs"
+                        className="btn-secondary shrink-0 px-2.5! py-1! text-xs!"
                         onClick={() => onReviewPatch(formatPatchReviewDraft(r))}
                       >
                         Review
