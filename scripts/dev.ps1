@@ -160,11 +160,45 @@ function Wait-ForHealth {
     return $false
 }
 
-function Get-BootstrapCredentials {
+function Get-EnvValues {
+    # Reads .env once and returns every KEY=value line as a hashtable, so
+    # callers needing several values (bootstrap credentials, the local-mode
+    # DB/Redis connection pieces below) don't each re-open and re-scan the
+    # same short file.
     $envPath = Join-Path $RepoRoot '.env'
-    $email = (Select-String -Path $envPath -Pattern '^BOOTSTRAP_ADMIN_EMAIL=(.*)$').Matches.Groups[1].Value
-    $password = (Select-String -Path $envPath -Pattern '^BOOTSTRAP_ADMIN_PASSWORD=(.*)$').Matches.Groups[1].Value
-    [PSCustomObject]@{ Email = $email; Password = $password }
+    $values = @{}
+    foreach ($line in Get-Content $envPath) {
+        if ($line -match '^([A-Za-z_][A-Za-z0-9_]*)=(.*)$') {
+            $values[$Matches[1]] = $Matches[2]
+        }
+    }
+    $values
+}
+
+function Get-BootstrapCredentials {
+    $env = Get-EnvValues
+    [PSCustomObject]@{ Email = $env['BOOTSTRAP_ADMIN_EMAIL']; Password = $env['BOOTSTRAP_ADMIN_PASSWORD'] }
+}
+
+function Get-LocalConnectionEnv {
+    # docker-compose.yml overrides DATABASE_URL/REDIS_URL for the api
+    # container to point at the db/redis service names, which only resolve
+    # inside the Docker network. .env's own values are those same Docker
+    # hostnames (correct for that override, never actually read by the
+    # container itself) - a python run.py started directly on the host needs
+    # the equivalent localhost + published-port form instead, or it can
+    # never resolve "db"/"redis" at all. Mirrors docker-compose.yml's own
+    # user/password/db defaults.
+    $env = Get-EnvValues
+    $pgUser = if ($env['POSTGRES_USER']) { $env['POSTGRES_USER'] } else { 'migration' }
+    $pgPassword = if ($env['POSTGRES_PASSWORD']) { $env['POSTGRES_PASSWORD'] } else { 'migration' }
+    $pgDb = if ($env['POSTGRES_DB']) { $env['POSTGRES_DB'] } else { 'migration_agent' }
+    $pgPort = if ($env['POSTGRES_HOST_PORT']) { $env['POSTGRES_HOST_PORT'] } else { '5432' }
+    $redisPort = if ($env['REDIS_HOST_PORT']) { $env['REDIS_HOST_PORT'] } else { '6379' }
+    [PSCustomObject]@{
+        DatabaseUrl = "postgresql+psycopg://${pgUser}:${pgPassword}@localhost:${pgPort}/${pgDb}"
+        RedisUrl    = "redis://localhost:${redisPort}/0"
+    }
 }
 
 function Invoke-DockerMode {
@@ -218,6 +252,24 @@ function Stop-TrackedProcess {
     }
 }
 
+function Test-TrackedProcessAlive {
+    # A crashed process (as opposed to one this script stopped) never gets its
+    # PID file cleaned up by Stop-TrackedProcess, since nothing calls that on
+    # a crash. Without this check, a stale file from a dead process makes a
+    # plain re-run believe it's "already running" forever and never restart
+    # it. Cleans up the stale file itself so the caller can just start fresh.
+    param([string]$PidFile)
+    if (-not (Test-Path $PidFile)) {
+        return $false
+    }
+    $procId = Get-Content $PidFile -Raw
+    if (Get-Process -Id ([int]$procId) -ErrorAction SilentlyContinue) {
+        return $true
+    }
+    Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
+    return $false
+}
+
 function Invoke-LocalMode {
     Push-Location $RepoRoot
     try {
@@ -244,14 +296,56 @@ function Invoke-LocalMode {
         docker compose up -d db redis
         if ($LASTEXITCODE -ne 0) { throw "docker compose up db redis failed" }
 
-        # --- Backend ---
+        # .env's DATABASE_URL/REDIS_URL point at the Docker-internal "db"/
+        # "redis" hostnames (correct for docker-compose, which overrides them
+        # for the api container anyway) - a process started directly on the
+        # host can't resolve those. Override for this process and everything
+        # it spawns (alembic, python run.py) with the localhost + published-
+        # port equivalents instead; .env itself is never touched.
+        $localConn = Get-LocalConnectionEnv
+        $env:DATABASE_URL = $localConn.DatabaseUrl
+        $env:REDIS_URL = $localConn.RedisUrl
+
+        # --- Backend + frontend installs run in the background, in parallel -
+        # independent toolchains/directories, no reason to pay for one before
+        # starting the other. Each is gated the same way: only when missing,
+        # or -Reload was explicitly passed (matches the "picks up .env edits"
+        # contract described above - a plain re-run trusts what's already
+        # installed instead of re-resolving it every time). ---
         $venvPython = Join-Path $RepoRoot 'backend\.venv\Scripts\python.exe'
-        if (-not (Test-Path $venvPython)) {
+        $venvExisted = Test-Path $venvPython
+        if (-not $venvExisted) {
             Write-Step "Creating backend virtualenv"
             python -m venv (Join-Path $RepoRoot 'backend\.venv')
         }
-        Write-Step "Installing/updating backend dependencies"
-        & $venvPython -m pip install -q -r (Join-Path $RepoRoot 'backend\requirements-dev.txt')
+        $nodeModules = Join-Path $RepoRoot 'frontend\node_modules'
+
+        $installJobs = @()
+        if ((-not $venvExisted) -or $Reload) {
+            Write-Step "Installing/updating backend dependencies (backgrounded, alongside the frontend install)"
+            $installJobs += Start-Job -Name 'backend-install' -ScriptBlock {
+                param($VenvPython, $RequirementsFile)
+                & $VenvPython -m pip install -q -r $RequirementsFile
+                $LASTEXITCODE
+            } -ArgumentList $venvPython, (Join-Path $RepoRoot 'backend\requirements-dev.txt')
+        }
+        if ((-not (Test-Path $nodeModules)) -or $Reload) {
+            Write-Step "Installing frontend dependencies (backgrounded, alongside the backend install)"
+            $installJobs += Start-Job -Name 'frontend-install' -ScriptBlock {
+                param($FrontendDir)
+                Push-Location $FrontendDir
+                npm install
+                $LASTEXITCODE
+            } -ArgumentList (Join-Path $RepoRoot 'frontend')
+        }
+        if ($installJobs.Count -gt 0) {
+            $installJobs | Wait-Job | Out-Null
+            foreach ($job in $installJobs) {
+                $exitCode = Receive-Job -Job $job
+                Remove-Job -Job $job
+                if ($exitCode -ne 0) { throw "$($job.Name) failed (exit $exitCode) - re-run with the job's command directly to see full output" }
+            }
+        }
 
         Write-Step "Running Alembic migrations"
         Push-Location (Join-Path $RepoRoot 'backend')
@@ -259,7 +353,7 @@ function Invoke-LocalMode {
         Pop-Location
         if ($LASTEXITCODE -ne 0) { throw "alembic upgrade head failed" }
 
-        if (-not (Test-Path $backendPidFile)) {
+        if (-not (Test-TrackedProcessAlive -PidFile $backendPidFile)) {
             Write-Step "Starting backend (python run.py) - logging to .local_run\backend.log"
             $backendProc = Start-Process -FilePath $venvPython -ArgumentList 'run.py' `
                 -WorkingDirectory (Join-Path $RepoRoot 'backend') `
@@ -271,17 +365,7 @@ function Invoke-LocalMode {
             Write-Step "Backend already running (pid $(Get-Content $backendPidFile)) - pass -Reload to restart it"
         }
 
-        # --- Frontend ---
-        $nodeModules = Join-Path $RepoRoot 'frontend\node_modules'
-        if (-not (Test-Path $nodeModules) -or $Reload) {
-            Write-Step "Installing frontend dependencies"
-            Push-Location (Join-Path $RepoRoot 'frontend')
-            npm install
-            Pop-Location
-            if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
-        }
-
-        if (-not (Test-Path $frontendPidFile)) {
+        if (-not (Test-TrackedProcessAlive -PidFile $frontendPidFile)) {
             Write-Step "Starting frontend (npm run dev) - logging to .local_run\frontend.log"
             $frontendProc = Start-Process -FilePath 'npm' -ArgumentList 'run', 'dev' `
                 -WorkingDirectory (Join-Path $RepoRoot 'frontend') `
