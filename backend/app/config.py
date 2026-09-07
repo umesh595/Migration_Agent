@@ -46,7 +46,10 @@ class Settings(BaseSettings):
     # key in the comma-separated list on each call (see GeminiProvider). Leave
     # GEMINI_API_KEYS unset to skip straight to Groq (or to no fallback at all)
     # when Anthropic fails. ---
-    gemini_api_keys: Annotated[list[str] | None, NoDecode] = Field(default=None, alias="GEMINI_API_KEYS")
+    # SecretStr per key (not list[str]) so a stray `repr(settings)`/debug log
+    # masks these the same way every other credential on this class already
+    # is — a plain list[str] here would print every key in the clear.
+    gemini_api_keys: Annotated[list[SecretStr] | None, NoDecode] = Field(default=None, alias="GEMINI_API_KEYS")
     gemini_cheap_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_CHEAP_MODEL")
     gemini_strong_model: str = Field(default="gemini-2.5-pro", alias="GEMINI_STRONG_MODEL")
     # Only required for an identity-linked API key (one generated from a personal
@@ -118,18 +121,22 @@ class Settings(BaseSettings):
         default_factory=lambda: ["http://localhost:3000"], alias="CORS_ALLOW_ORIGINS"
     )
 
+    @staticmethod
+    def _split_csv(v: str) -> list[str]:
+        return [item.strip() for item in v.split(",") if item.strip()]
+
     @field_validator("cors_allow_origins", mode="before")
     @classmethod
     def _split_origins(cls, v: object) -> object:
         if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
+            return cls._split_csv(v)
         return v
 
     @field_validator("gemini_api_keys", mode="before")
     @classmethod
     def _split_gemini_keys(cls, v: object) -> object:
         if isinstance(v, str):
-            return [key.strip() for key in v.split(",") if key.strip()] or None
+            return [SecretStr(key) for key in cls._split_csv(v)] or None
         return v
 
     @model_validator(mode="after")

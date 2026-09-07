@@ -59,12 +59,12 @@ async def lifespan(app: FastAPI):
         timeout_s=settings.llm_request_timeout_s,
         workspace_id=settings.anthropic_workspace_id,
     )
-    # Gemini and Groq are an optional two-deep fallback chain behind Anthropic,
-    # unwound in that order only once Anthropic's account has no quota/credits
+    # Gemini and Groq are an optional, ordered fallback chain behind Anthropic,
+    # unwound in that order only once the tier ahead of it has no quota/credits
     # left (see FallbackLLMProvider). Unset either key to skip that stage.
     gemini_provider = (
         GeminiProvider(
-            api_keys=settings.gemini_api_keys,
+            api_keys=[key.get_secret_value() for key in settings.gemini_api_keys],
             cheap_model=settings.gemini_cheap_model,
             strong_model=settings.gemini_strong_model,
             timeout_s=settings.llm_request_timeout_s,
@@ -82,15 +82,33 @@ async def lifespan(app: FastAPI):
         if settings.groq_api_key
         else None
     )
-    fallback_chain = (
-        FallbackLLMProvider(primary=gemini_provider, fallback=groq_provider)
-        if gemini_provider is not None
-        else groq_provider
+
+    # Fold the configured optional tiers right-to-left behind Anthropic —
+    # FallbackLLMProvider(primary=anthropic, fallback=FallbackLLMProvider(
+    # primary=gemini, fallback=groq)) when both are configured — without
+    # hand-nesting a conditional per tier, so a future fourth provider is one
+    # more list entry rather than another manually-nested ternary.
+    optional_fallback_tiers = [tier for tier in (gemini_provider, groq_provider) if tier is not None]
+    accumulated_fallback = None
+    for tier in reversed(optional_fallback_tiers):
+        accumulated_fallback = tier if accumulated_fallback is None else FallbackLLMProvider(primary=tier, fallback=accumulated_fallback)
+    provider = (
+        anthropic_provider
+        if accumulated_fallback is None
+        else FallbackLLMProvider(primary=anthropic_provider, fallback=accumulated_fallback)
     )
-    provider = FallbackLLMProvider(primary=anthropic_provider, fallback=fallback_chain)
+
+    # Each optional tier past the first costs one gateway attempt to switch
+    # into (FallbackLLMProvider forces a retry to move the active provider —
+    # see its own docstring), so the cheap tier's retry budget — tuned for a
+    # single provider with no fallback chain — needs one extra attempt per
+    # configured fallback tier or it can exhaust itself switching providers
+    # before ever reaching the last one, silently escalating to the strong
+    # tier instead of actually trying it.
+    effective_cheap_tier_max_retries = settings.llm_cheap_tier_max_retries + len(optional_fallback_tiers)
     app.state.gateway = LLMGateway(
         provider,
-        cheap_tier_max_retries=settings.llm_cheap_tier_max_retries,
+        cheap_tier_max_retries=effective_cheap_tier_max_retries,
         strong_tier_max_retries=settings.llm_strong_tier_max_retries,
     )
 

@@ -61,7 +61,15 @@ def test_development_tolerates_weak_secret_for_local_convenience():
 
 def test_comma_separated_gemini_keys_parse_without_json_decoding():
     settings = _settings(JWT_SECRET="x" * 40, GEMINI_API_KEYS="key-a, key-b, key-c")
-    assert settings.gemini_api_keys == ["key-a", "key-b", "key-c"]
+    assert [k.get_secret_value() for k in settings.gemini_api_keys] == ["key-a", "key-b", "key-c"]
+
+
+def test_gemini_keys_are_masked_like_every_other_credential():
+    """Each key is a SecretStr, not a plain str — repr()/logging must not leak
+    it, the same guarantee anthropic_api_key/groq_api_key already have."""
+    settings = _settings(JWT_SECRET="x" * 40, GEMINI_API_KEYS="super-secret-key")
+    assert "super-secret-key" not in repr(settings.gemini_api_keys)
+    assert "super-secret-key" not in str(settings.gemini_api_keys)
 
 
 def test_gemini_keys_unset_by_default():

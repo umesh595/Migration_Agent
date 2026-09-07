@@ -14,7 +14,7 @@ from google.genai.errors import APIError
 from pydantic import BaseModel
 
 from app.llm.base import ModelTier, ProviderQuotaExceededError, StructuredOutputError
-from app.llm.providers.gemini_provider import GeminiProvider
+from app.llm.providers.gemini_provider import _RATE_LIMIT_COOLDOWN_S, GeminiProvider
 
 
 class _Verdict(BaseModel):
@@ -114,3 +114,44 @@ async def test_single_key_provider_round_robins_trivially_onto_itself():
     await _call(h.provider)
 
     assert h.calls[0].call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_exhausted_key_rejoins_rotation_once_its_cooldown_expires(monkeypatch):
+    """A 429 must never be a permanent "this key is dead" record — Gemini can't
+    tell a transient per-minute rate limit apart from real quota exhaustion, so
+    a key is only skipped for _RATE_LIMIT_COOLDOWN_S, then tried again."""
+
+    h = _make_provider(1)
+    h.calls[0].side_effect = [_quota_error(), _fake_response()]
+    fake_clock = {"t": 1000.0}
+    monkeypatch.setattr("app.llm.providers.gemini_provider.time.monotonic", lambda: fake_clock["t"])
+
+    with pytest.raises(ProviderQuotaExceededError):
+        await _call(h.provider)  # only key, immediately in cooldown
+
+    fake_clock["t"] += _RATE_LIMIT_COOLDOWN_S - 1
+    with pytest.raises(ProviderQuotaExceededError):
+        await _call(h.provider)  # still within cooldown, no network call made
+    assert h.calls[0].call_count == 1
+
+    fake_clock["t"] += 2  # now past the cooldown window
+    await _call(h.provider)  # succeeds — the key rejoined rotation on its own
+
+    assert h.calls[0].call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_quota_exceeded_only_reflects_keys_in_cooldown_right_now():
+    """Two keys, only one currently rate-limited: the other is still usable,
+    so this must not look like total exhaustion to FallbackLLMProvider."""
+
+    h = _make_provider(2)
+    h.calls[0].side_effect = _quota_error()
+
+    with pytest.raises(StructuredOutputError) as excinfo:
+        await _call(h.provider)  # key 0 — rate-limited, but key 1 is fine
+    assert not isinstance(excinfo.value, ProviderQuotaExceededError)
+
+    await _call(h.provider)  # key 1 — ok
+    assert h.calls[1].call_count == 1
