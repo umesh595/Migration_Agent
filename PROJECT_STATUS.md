@@ -51,7 +51,7 @@ artifacts).
 ## Changes in this branch
 
 ### Added
-- **Gemini LLM provider** — [backend/app/llm/providers/gemini_provider.py](backend/app/llm/providers/gemini_provider.py). Round-robins across every key in `GEMINI_API_KEYS` on each call; a key that comes back quota-exhausted is skipped for a time-bounded cooldown (not treated as total failure, and not permanently marked dead — see "PR self-review" #1). Slots in as an optional fallback tier behind Anthropic (primary, unchanged) and ahead of Groq. 6 tests in [backend/tests/unit/test_gemini_provider.py](backend/tests/unit/test_gemini_provider.py).
+- **Gemini LLM provider** — [backend/app/llm/providers/gemini_provider.py](backend/app/llm/providers/gemini_provider.py). Round-robins across every key in `GEMINI_API_KEYS` on each call; a key that comes back quota-exhausted is skipped for a time-bounded cooldown (not treated as total failure, and not permanently marked dead — see "PR self-review" #1). Slots in as an optional fallback tier behind Anthropic (primary, unchanged) and ahead of Groq. 8 tests in [backend/tests/unit/test_gemini_provider.py](backend/tests/unit/test_gemini_provider.py).
 - **`scripts/dev.ps1`** — single entry point for bringing the stack up via Docker or locally, idempotent, never overwrites an existing `.env`, supports `-Reload` (force-recreate so `.env` edits take effect) and `-Stop`. Also creates the personal `.devprune.json` (dev-prune config) when the `devp`/`dev-prune` CLI is installed.
 - **`project.devprune.json`** — registers the repo with [dev-prune](https://github.com/Life-Experimentalist/dev-prune) and declares `frontend/.next` (633 MiB, rebuilt via `npm --prefix frontend run build`) as a prunable directory alongside the auto-detected `backend/.venv` and `frontend/node_modules`.
 - **`PROJECT_STATUS.md`** (this file).
@@ -80,7 +80,6 @@ artifacts).
 | `@types/react`, `@types/react-dom` | 18.x | 19.2.18 / 19.2.7 | |
 | `eslint` | 9.27.0 | 10.9.1 | `eslint-plugin-react-hooks` and `typescript-eslint` both confirmed to support 10.x first |
 | `typescript` | 5.7.2 | 6.0.3 | **not** bumped to the latest 7.0.2 — `typescript-eslint@8.69.0` requires `typescript <6.1.0`, so 7.x would break linting; 6.0.3 is the newest version inside that constraint |
-| `tailwindcss` | 3.4.17 | 4.3.3 | migrated via the official `@tailwindcss/upgrade` codemod (`tailwind.config.ts` → `@theme` in `app/globals.css`, `!util` → `util!`, `autoprefixer` → `@tailwindcss/postcss`) — the codemod also rewrote a vendored, pre-built CopilotKit stylesheet it should never have touched; that file was reverted to its original committed state, nothing else outside `app/`/`components/` changed |
 | `zod` | ^3.25.76 | ^4.5.4 | not imported directly by app code — only a transitive dependency of CopilotKit's own stack, which declares `zod: >=3.25` as an open peer range |
 | `uvicorn` | 0.52.2 | 0.52.4 | |
 | `pydantic` | 2.13.4 | 2.13.5 | |
@@ -100,6 +99,7 @@ artifacts).
 | Package | Current | Latest | Why |
 |---|---|---|---|
 | `reportlab` | 4.4.4 | 5.0.1 | PDF export path not yet re-verified against the new major |
+| `tailwindcss` | 3.4.17 | 4.3.3 | split into a separate, stacked PR (`tailwind-v4-migration`, based on this branch) — the v4 migration conflicts with new UI upstream independently built while staying on v3; see "Reconciled with a parallel upstream Gemini integration" below |
 
 Every backend bump was re-verified with a full `pytest -q` run (271 passed).
 Every frontend bump was re-verified with `npm run lint`, `npx tsc --noEmit`,
@@ -163,16 +163,21 @@ failure would have propagated as a raw, unrecognized exception instead of
 the `StructuredOutputError` subclass every caller is entitled to expect.
 Now caught and reraised as `ProviderRequestError`.
 
-**Frontend conflicts are still open** — upstream `main` also independently
-built substantial new UI (a `.stat-tile`/`.chip-toggle` component system,
-large changes to `ChatPanel.tsx`/`PlanViewer.tsx`) while staying on
-Tailwind v3. This branch's Tailwind v4 migration touches nearly the same
-files for syntax reasons alone, and even the smallest conflicting file
-mixes a pure syntax change with a genuinely new upstream component — not
-safely auto-resolvable in either direction without either discarding that
-new UI work or undoing the v4 migration. Needs the migration re-applied on
-top of the new components (not the other way around) once that work is
-visible in full.
+**Frontend conflict — split into a separate, stacked PR.** Upstream `main`
+independently built substantial new UI (a `.stat-tile`/`.chip-toggle`
+component system, large changes to `ChatPanel.tsx`/`PlanViewer.tsx`) while
+staying on Tailwind v3. This branch originally included a Tailwind v4
+migration that touches nearly the same files for syntax reasons alone —
+even the smallest conflicting file mixed a pure syntax change with a
+genuinely new upstream component, not safely auto-resolvable in either
+direction without either discarding that new UI work or undoing the v4
+migration. Rather than block this PR on that reconciliation, the v4
+migration (and its dependent fix, the `--font-display` self-reference —
+see "PR self-review" #5 below) were **reverted from this branch** and moved
+to `tailwind-v4-migration`, a separate branch stacked on top of this one.
+That PR still needs the migration re-applied on top of upstream's new
+components once that work is visible in full — this branch itself is now
+conflict-free on the frontend.
 
 ---
 
@@ -262,16 +267,18 @@ An 8-angle review pass (line-by-line, removed-behavior, cross-file call-site
 tracing, reuse, simplification, efficiency, altitude, and CLAUDE.md
 conventions) against this branch's own diff, each candidate independently
 verified — including two live reproductions against the real classes and one
-empirical browser check — before being fixed. All ten survived verification;
-all ten are fixed on this branch.
+empirical browser check — before being fixed. All ten survived verification
+and were fixed; #5 (Tailwind-specific) later moved to the
+`tailwind-v4-migration` branch along with the rest of that work — see the
+table below for where each fix actually lives now.
 
 | # | Finding | Fix |
 |---|---|---|
 | 1 | `GeminiProvider` treated every 429 as permanent quota exhaustion, but Gemini can't distinguish a transient per-minute rate limit from real billing exhaustion the way every sibling provider's disambiguation logic requires | Per-key exhaustion is now time-bounded (`_exhausted_until`, 60s cooldown) instead of a permanent set — a key rejoins rotation on its own once its cooldown passes; `ProviderQuotaExceededError` only fires when every key is in cooldown *right now* |
 | 2 | `gemini_api_keys` was a plain `list[str]`, unlike every other credential field (`SecretStr`) — `repr()`/logging leaked the raw keys | Changed to `list[SecretStr] \| None`; `main.py` unwraps with `.get_secret_value()` at the one point it's needed |
 | 3 | The new 3-tier fallback chain can need two provider switches to reach the last tier, but the cheap-tier retry budget was sized for one — could silently escalate cheap-tier calls to the strong tier | `main.py` now adds one extra cheap-tier retry per configured optional fallback tier |
-| 4 | This doc's own "deliberately not bumped" table still listed `tailwindcss`/`zod` as unapplied after later commits in the same PR bumped both | Fixed here — moved to the applied-bumps table |
-| 5 | The Tailwind codemod produced a spec-invalid self-referencing `--font-display` CSS variable in `app/globals.css` (both Tailwind's `@theme` token and `next/font`'s loaded-font variable happened to be named `--font-display`) | Verified live it wasn't currently breaking anything (`next/font`'s declaration wins the cascade — computed `font-family` correctly resolved to `Outfit`), but fixed anyway since it's a latent hazard — renamed `next/font`'s own variable to `--font-outfit` (`app/layout.tsx`) so it no longer collides; Tailwind's `.font-display` utility class name is unchanged, no component edits needed |
+| 4 | This doc's own "deliberately not bumped" table still listed `tailwindcss`/`zod` as unapplied after later commits in the same PR bumped both | Fixed at the time (moved to the applied-bumps table); `tailwindcss` has since moved back — see "Reconciled with a parallel upstream Gemini integration" above — `zod` stays applied |
+| 5 | The Tailwind codemod produced a spec-invalid self-referencing `--font-display` CSS variable in `app/globals.css` (both Tailwind's `@theme` token and `next/font`'s loaded-font variable happened to be named `--font-display`) | Fixed at the time (verified live it wasn't currently breaking anything — `next/font`'s declaration won the cascade — but fixed anyway as a latent hazard); moved along with the rest of the Tailwind v4 migration to the `tailwind-v4-migration` branch, since the bug only exists in v4's `@theme` block, not the v3 config this branch reverted to |
 | 6 | `scripts/dev.ps1` local mode: a crashed backend/frontend process left a stale PID file that silently blocked the next restart | Added a liveness check (`Get-Process -Id`) before trusting an existing PID file; a dead process's stale file is now cleaned up and the process restarted automatically |
 | 7 | `config.py`'s `_split_gemini_keys` duplicated `_split_origins` almost verbatim | Extracted a shared `_split_csv` helper |
 | 8 | `GeminiProvider`'s round-robin index counter grew unboundedly instead of staying bounded | Normalized modulo `n` at the point of increment |
