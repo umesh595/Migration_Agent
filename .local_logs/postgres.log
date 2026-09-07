@@ -1078,3 +1078,128 @@
 2026-09-04 08:05:20.271 IST [82968] WARNING:  autovacuum worker started without a worker entry
 2026-09-04 08:07:26.569 IST [18904] WARNING:  autovacuum worker took too long to start; canceled
 2026-09-04 08:08:41.458 IST [218424] WARNING:  autovacuum worker started without a worker entry
+2026-09-04 12:21:14.244 IST [6080] LOG:  starting PostgreSQL 18.1 on x86_64-windows, compiled by msvc-19.44.35222, 64-bit
+2026-09-04 12:21:14.261 IST [6080] LOG:  listening on IPv6 address "::1", port 55432
+2026-09-04 12:21:14.261 IST [6080] LOG:  listening on IPv4 address "127.0.0.1", port 55432
+2026-09-04 12:21:14.539 IST [13568] LOG:  database system was interrupted; last known up at 2026-09-04 04:54:51 IST
+2026-09-04 12:21:22.814 IST [13568] LOG:  database system was not properly shut down; automatic recovery in progress
+2026-09-04 12:21:22.830 IST [13568] LOG:  redo starts at 0/4B42238
+2026-09-04 12:21:22.831 IST [13568] LOG:  invalid record length at 0/4B42378: expected at least 24, got 0
+2026-09-04 12:21:22.831 IST [13568] LOG:  redo done at 0/4B42340 system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-09-04 12:21:22.853 IST [26548] LOG:  checkpoint starting: end-of-recovery immediate wait
+2026-09-04 12:21:22.918 IST [26548] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.014 s, sync=0.016 s, total=0.073 s; sync files=2, longest=0.010 s, average=0.008 s; distance=0 kB, estimate=0 kB; lsn=0/4B42378, redo lsn=0/4B42378
+2026-09-04 12:21:22.938 IST [6080] LOG:  database system is ready to accept connections
+2026-09-04 12:26:22.929 IST [26548] LOG:  checkpoint starting: time
+2026-09-04 12:26:30.855 IST [26548] LOG:  checkpoint complete: wrote 71 buffers (0.4%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=7.839 s, sync=0.057 s, total=7.926 s; sync files=40, longest=0.005 s, average=0.002 s; distance=399 kB, estimate=399 kB; lsn=0/4BA6078, redo lsn=0/4BA6020
+2026-09-04 12:31:22.872 IST [26548] LOG:  checkpoint starting: time
+2026-09-04 12:31:26.982 IST [26548] LOG:  checkpoint complete: wrote 36 buffers (0.2%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=4.019 s, sync=0.055 s, total=4.110 s; sync files=31, longest=0.008 s, average=0.002 s; distance=213 kB, estimate=380 kB; lsn=0/4BDB4D0, redo lsn=0/4BDB478
+2026-09-04 17:00:20.511 IST [30028] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-04 17:00:20.513 IST [16164] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-04 17:00:20.514 IST [8856] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-04 17:00:20.515 IST [30068] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-04 17:00:20.519 IST [25768] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-04 17:00:20.520 IST [30820] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-04 17:00:20.520 IST [19864] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-04 17:00:21.162 IST [26548] FATAL:  could not open shared memory segment "Global/PostgreSQL.923840840": No such file or directory
+2026-09-04 17:00:32.323 IST [17948] LOG:  starting PostgreSQL 18.1 on x86_64-windows, compiled by msvc-19.44.35222, 64-bit
+2026-09-04 17:00:32.343 IST [17948] LOG:  listening on IPv6 address "::1", port 55432
+2026-09-04 17:00:32.343 IST [17948] LOG:  listening on IPv4 address "127.0.0.1", port 55432
+2026-09-04 17:00:32.670 IST [28668] LOG:  database system was interrupted; last known up at 2026-09-04 12:31:26 IST
+2026-09-04 17:00:40.803 IST [28668] LOG:  database system was not properly shut down; automatic recovery in progress
+2026-09-04 17:00:40.823 IST [28668] LOG:  redo starts at 0/4BDB478
+2026-09-04 17:00:40.823 IST [28668] LOG:  invalid record length at 0/4BDB580: expected at least 24, got 0
+2026-09-04 17:00:40.823 IST [28668] LOG:  redo done at 0/4BDB548 system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-09-04 17:00:40.849 IST [9532] LOG:  checkpoint starting: end-of-recovery immediate wait
+2026-09-04 17:00:40.916 IST [9532] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.013 s, sync=0.016 s, total=0.076 s; sync files=2, longest=0.009 s, average=0.008 s; distance=0 kB, estimate=0 kB; lsn=0/4BDB580, redo lsn=0/4BDB580
+2026-09-04 17:00:40.933 IST [17948] LOG:  database system is ready to accept connections
+2026-09-04 17:05:40.920 IST [9532] LOG:  checkpoint starting: time
+2026-09-04 17:05:45.340 IST [9532] LOG:  checkpoint complete: wrote 39 buffers (0.2%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=4.322 s, sync=0.071 s, total=4.420 s; sync files=33, longest=0.005 s, average=0.003 s; distance=245 kB, estimate=245 kB; lsn=0/4C18A88, redo lsn=0/4C189F8
+2026-09-04 17:48:12.518 IST [22020] FATAL:  could not open shared memory segment "Global/PostgreSQL.1317788758": No such file or directory
+2026-09-04 17:48:12.518 IST [7988] FATAL:  could not open shared memory segment "Global/PostgreSQL.1317788758": No such file or directory
+2026-09-04 17:48:15.264 IST [31896] LOG:  starting PostgreSQL 18.1 on x86_64-windows, compiled by msvc-19.44.35222, 64-bit
+2026-09-04 17:48:15.282 IST [31896] LOG:  listening on IPv6 address "::1", port 55432
+2026-09-04 17:48:15.282 IST [31896] LOG:  listening on IPv4 address "127.0.0.1", port 55432
+2026-09-04 17:48:15.523 IST [24616] LOG:  database system was interrupted; last known up at 2026-09-04 17:05:45 IST
+2026-09-04 17:48:17.718 IST [24616] LOG:  database system was not properly shut down; automatic recovery in progress
+2026-09-04 17:48:17.740 IST [24616] LOG:  redo starts at 0/4C189F8
+2026-09-04 17:48:17.741 IST [24616] LOG:  invalid record length at 0/4C18B38: expected at least 24, got 0
+2026-09-04 17:48:17.741 IST [24616] LOG:  redo done at 0/4C18B00 system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-09-04 17:48:17.776 IST [15092] LOG:  checkpoint starting: end-of-recovery immediate wait
+2026-09-04 17:48:17.849 IST [15092] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.016 s, sync=0.017 s, total=0.082 s; sync files=2, longest=0.011 s, average=0.009 s; distance=0 kB, estimate=0 kB; lsn=0/4C18B38, redo lsn=0/4C18B38
+2026-09-04 17:48:17.869 IST [31896] LOG:  database system is ready to accept connections
+2026-09-05 01:06:53.330 IST [33032] FATAL:  could not open shared memory segment "Global/PostgreSQL.3453822016": No such file or directory
+2026-09-05 01:06:58.454 IST [33936] LOG:  starting PostgreSQL 18.1 on x86_64-windows, compiled by msvc-19.44.35222, 64-bit
+2026-09-05 01:06:58.467 IST [33936] LOG:  listening on IPv6 address "::1", port 55432
+2026-09-05 01:06:58.467 IST [33936] LOG:  listening on IPv4 address "127.0.0.1", port 55432
+2026-09-05 01:06:58.718 IST [23180] LOG:  database system was interrupted; last known up at 2026-09-04 17:48:17 IST
+2026-09-05 01:07:02.963 IST [23180] LOG:  database system was not properly shut down; automatic recovery in progress
+2026-09-05 01:07:02.985 IST [23180] LOG:  redo starts at 0/4C18BB0
+2026-09-05 01:07:02.985 IST [23180] LOG:  invalid record length at 0/4C18BE8: expected at least 24, got 0
+2026-09-05 01:07:02.986 IST [23180] LOG:  redo done at 0/4C18BB0 system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-09-05 01:07:03.018 IST [31252] LOG:  checkpoint starting: end-of-recovery immediate wait
+2026-09-05 01:07:03.087 IST [31252] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.015 s, sync=0.016 s, total=0.079 s; sync files=2, longest=0.009 s, average=0.008 s; distance=0 kB, estimate=0 kB; lsn=0/4C18BE8, redo lsn=0/4C18BE8
+2026-09-05 01:07:03.106 IST [33936] LOG:  database system is ready to accept connections
+2026-09-05 01:12:03.094 IST [31252] LOG:  checkpoint starting: time
+2026-09-05 01:12:08.189 IST [31252] LOG:  checkpoint complete: wrote 45 buffers (0.3%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=4.990 s, sync=0.073 s, total=5.095 s; sync files=35, longest=0.007 s, average=0.003 s; distance=240 kB, estimate=240 kB; lsn=0/4C54FF0, redo lsn=0/4C54F98
+2026-09-05 01:17:03.198 IST [31252] LOG:  checkpoint starting: time
+2026-09-05 01:17:08.177 IST [31252] LOG:  checkpoint complete: wrote 44 buffers (0.3%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=4.862 s, sync=0.074 s, total=4.980 s; sync files=37, longest=0.008 s, average=0.002 s; distance=243 kB, estimate=243 kB; lsn=0/4C91E58, redo lsn=0/4C91E00
+2026-09-05 01:27:03.194 IST [31252] LOG:  checkpoint starting: time
+2026-09-05 01:27:09.500 IST [31252] LOG:  checkpoint complete: wrote 56 buffers (0.3%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=6.200 s, sync=0.072 s, total=6.306 s; sync files=36, longest=0.007 s, average=0.002 s; distance=337 kB, estimate=337 kB; lsn=0/4CE6410, redo lsn=0/4CE6380
+2026-09-05 01:57:03.552 IST [31252] LOG:  checkpoint starting: time
+2026-09-05 01:57:03.717 IST [31252] LOG:  checkpoint complete: wrote 1 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.115 s, sync=0.004 s, total=0.165 s; sync files=1, longest=0.004 s, average=0.004 s; distance=6 kB, estimate=304 kB; lsn=0/4CE7E48, redo lsn=0/4CE7DF0
+2026-09-05 02:35:04.246 IST [33936] LOG:  lock file "postmaster.pid" contains wrong PID: 18384 instead of 33936
+2026-09-05 02:35:04.247 IST [33936] LOG:  performing immediate shutdown because data directory lock file is invalid
+2026-09-05 02:35:04.249 IST [33936] LOG:  received immediate shutdown request
+2026-09-05 02:35:04.547 IST [33936] LOG:  database system is shut down
+2026-09-05 02:52:23.986 IST [21528] LOG:  starting PostgreSQL 18.1 on x86_64-windows, compiled by msvc-19.44.35222, 64-bit
+2026-09-05 02:52:24.012 IST [21528] LOG:  listening on IPv6 address "::1", port 55432
+2026-09-05 02:52:24.014 IST [21528] LOG:  listening on IPv4 address "127.0.0.1", port 55432
+2026-09-05 02:52:24.432 IST [21216] LOG:  database system was interrupted; last known up at 2026-09-04 04:54:51 IST
+2026-09-05 02:52:32.412 IST [21216] LOG:  database system was not properly shut down; automatic recovery in progress
+2026-09-05 02:52:32.428 IST [21216] LOG:  redo starts at 0/4B42238
+2026-09-05 02:52:32.429 IST [21216] LOG:  invalid record length at 0/4B42378: expected at least 24, got 0
+2026-09-05 02:52:32.429 IST [21216] LOG:  redo done at 0/4B42340 system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s
+2026-09-05 02:52:32.452 IST [14188] LOG:  checkpoint starting: end-of-recovery immediate wait
+2026-09-05 02:52:32.509 IST [14188] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.010 s, sync=0.017 s, total=0.066 s; sync files=2, longest=0.010 s, average=0.009 s; distance=0 kB, estimate=0 kB; lsn=0/4B42378, redo lsn=0/4B42378
+2026-09-05 02:52:32.525 IST [21528] LOG:  database system is ready to accept connections
+2026-09-05 02:57:32.517 IST [14188] LOG:  checkpoint starting: time
+2026-09-05 02:57:37.206 IST [14188] LOG:  checkpoint complete: wrote 39 buffers (0.2%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=4.528 s, sync=0.084 s, total=4.690 s; sync files=30, longest=0.037 s, average=0.003 s; distance=236 kB, estimate=236 kB; lsn=0/4B7D6B8, redo lsn=0/4B7D660
+2026-09-05 03:02:31.050 IST [37496] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-05 03:02:31.054 IST [3328] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-05 03:02:31.055 IST [13712] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-05 03:02:31.055 IST [15512] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-05 03:02:31.056 IST [36476] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-05 03:02:31.056 IST [25592] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-05 03:02:31.057 IST [34188] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-05 03:02:32.218 IST [14188] LOG:  checkpoint starting: time
+2026-09-05 03:02:37.906 IST [14188] LOG:  checkpoint complete: wrote 47 buffers (0.3%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=5.476 s, sync=0.109 s, total=5.689 s; sync files=28, longest=0.058 s, average=0.004 s; distance=280 kB, estimate=280 kB; lsn=0/4BC3780, redo lsn=0/4BC36F0
+2026-09-05 03:07:32.925 IST [14188] LOG:  checkpoint starting: time
+2026-09-05 03:07:39.829 IST [14188] LOG:  checkpoint complete: wrote 37 buffers (0.2%), wrote 1 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=6.368 s, sync=0.146 s, total=6.904 s; sync files=30, longest=0.044 s, average=0.005 s; distance=228 kB, estimate=275 kB; lsn=0/4BFCAB8, redo lsn=0/4BFCA60
+2026-09-05 03:12:32.856 IST [14188] LOG:  checkpoint starting: time
+2026-09-05 03:12:33.317 IST [14188] LOG:  checkpoint complete: wrote 1 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.138 s, sync=0.106 s, total=0.461 s; sync files=1, longest=0.106 s, average=0.106 s; distance=7 kB, estimate=248 kB; lsn=0/4BFE7D8, redo lsn=0/4BFE780
+2026-09-05 03:18:10.000 IST [21556] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-05 03:18:10.039 IST [28416] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-05 03:18:10.043 IST [26816] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-05 03:18:10.048 IST [12348] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-05 03:18:10.049 IST [41220] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	
+2026-09-05 03:18:10.055 IST [24272] LOG:  could not receive data from client: An existing connection was forcibly closed by the remote host.
+	

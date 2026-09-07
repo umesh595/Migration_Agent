@@ -154,88 +154,172 @@ function InternalWorkDisclosure({ nodeHistory }: { nodeHistory: NodeCompleteEven
 // generation through an LLM-invoked frontend tool (our LLM call layer uses
 // direct provider structured-output APIs, not LangChain's bind_tools(), so
 // there's no tool-calling loop to hook into) this renders the SAME
-// already-structured `questions` data as an interactive checklist instead of
-// plain bullet text, matching the step-selector reference style. The
-// checkboxes are a personal read/considered tracker (local-only state, not
-// submitted anywhere). Hypothesis Cards (`details[i].hypothesis`) and answer
-// options (`details[i].answer_options`) are real backend output
-// (generate_questions_node) — picking an option seeds the shared input box
-// via onPickOption rather than auto-sending, so the user can still edit or
-// add detail before hitting Send; free text there remains available
-// regardless, for anything the offered options don't cover.
+// already-structured `questions` data as an interactive batch-answer form
+// instead of plain bullet text. Hypothesis Cards (`details[i].hypothesis`)
+// and answer options (`details[i].answer_options`) are real backend output
+// (generate_questions_node). Picking options is multi-select per question —
+// several plausible answers can genuinely both apply — plus an optional note
+// and an explicit "I don't know" skip, all staged locally and sent as ONE
+// composed message through the existing turn pipeline once ready, matching
+// how a person would actually answer a short multi-part questionnaire rather
+// than one round-trip per question. The free-text box below the transcript
+// remains available the whole time for anything the offered options don't
+// cover — this form is additive, never the only way to answer.
+type QuestionAnswerState = { picks: string[]; note: string; skipped: boolean };
+
+function composeQuestionAnswer(state: QuestionAnswerState): string {
+  if (state.skipped && state.picks.length === 0 && !state.note.trim()) {
+    return "Not sure — proceed with your best assumption and note it as a risk.";
+  }
+  const parts = [...state.picks];
+  if (state.note.trim()) parts.push(state.note.trim());
+  return parts.join(" · ");
+}
+
 function QuestionChecklist({
   questions,
   details,
   intro,
-  onPickOption,
+  onSendBatch,
+  sending,
 }: {
   questions: string[];
   details?: GeneratedQuestion[];
   intro?: string;
-  onPickOption: (text: string) => void;
+  onSendBatch: (composedMessage: string) => void;
+  sending: boolean;
 }) {
-  const [checked, setChecked] = useState<boolean[]>(() => questions.map(() => false));
-  const doneCount = checked.filter(Boolean).length;
+  const [answers, setAnswers] = useState<Record<number, QuestionAnswerState>>({});
 
-  function toggle(i: number) {
-    setChecked((prev) => prev.map((v, idx) => (idx === i ? !v : v)));
+  function answerFor(i: number): QuestionAnswerState {
+    return answers[i] ?? { picks: [], note: "", skipped: false };
+  }
+
+  function togglePick(i: number, option: string) {
+    setAnswers((prev) => {
+      const current = answerFor(i);
+      const picks = current.picks.includes(option)
+        ? current.picks.filter((p) => p !== option)
+        : [...current.picks, option];
+      return { ...prev, [i]: { ...current, picks, skipped: false } };
+    });
+  }
+
+  function setNote(i: number, note: string) {
+    setAnswers((prev) => ({ ...prev, [i]: { ...answerFor(i), note } }));
+  }
+
+  function toggleSkip(i: number) {
+    setAnswers((prev) => {
+      const current = answerFor(i);
+      return { ...prev, [i]: { ...current, skipped: !current.skipped } };
+    });
+  }
+
+  const isAnswered = (i: number) => {
+    const a = answerFor(i);
+    return a.skipped || a.picks.length > 0 || a.note.trim().length > 0;
+  };
+  const answeredCount = questions.reduce((n, _q, i) => n + (isAnswered(i) ? 1 : 0), 0);
+  const pickCount = questions.reduce((n, _q, i) => n + answerFor(i).picks.length, 0);
+
+  function handleSend() {
+    if (sending || answeredCount === 0) return;
+    const lines = questions
+      .map((q, i) => (isAnswered(i) ? `${q} — ${composeQuestionAnswer(answerFor(i))}` : null))
+      .filter((line): line is string => line !== null);
+    if (!lines.length) return;
+    onSendBatch(lines.join("\n"));
+    setAnswers({});
   }
 
   return (
     <div className="mt-2.5 rounded-lg border border-brand-400/20 bg-brand-400/[0.04] p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold text-brand-100">{intro ?? "Questions to consider"}</span>
-        <span className="badge border-brand-400/30 bg-brand-400/10 text-brand-100 shrink-0">
-          {doneCount}/{questions.length} reviewed
-        </span>
-      </div>
-      <ul className="mt-2 space-y-1.5">
+      <span className="text-xs font-semibold text-brand-100">{intro ?? "Questions to consider"}</span>
+      <ul className="mt-2.5 space-y-2">
         {questions.map((q, i) => {
           const detail = details?.[i];
+          const a = answerFor(i);
+          const answered = isAnswered(i);
           return (
-            <li key={i} className="rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-2">
-              <button
-                type="button"
-                onClick={() => toggle(i)}
-                className="flex w-full items-start gap-2 text-left text-xs text-slate-200"
-              >
-                <span
-                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded ${
-                    checked[i] ? "bg-grad-primary" : "border border-white/20"
-                  }`}
-                >
-                  {checked[i] && <span className="text-[10px] leading-none text-white">✓</span>}
-                </span>
-                <span className={checked[i] ? "text-slate-400 line-through decoration-slate-600" : ""}>{q}</span>
-              </button>
+            <li
+              key={i}
+              className={`rounded-md border px-2.5 py-2.5 transition-colors ${
+                answered ? "border-pulse-400/30 bg-pulse-500/[0.06]" : "border-white/10 bg-white/[0.03]"
+              }`}
+            >
+              <span className="block text-xs leading-5 text-slate-200">{q}</span>
               {detail?.hypothesis && (
-                <p className="ml-6 mt-1.5 text-[11px] italic leading-4 text-brand-200/80">
-                  💡 {detail.hypothesis}
-                </p>
+                <p className="mt-1.5 text-[11px] italic leading-4 text-brand-200/80">💡 {detail.hypothesis}</p>
               )}
               {detail && detail.answer_options.length > 0 && (
-                <div className="ml-6 mt-1.5 flex flex-wrap gap-1.5">
+                <div className="mt-2 flex flex-wrap gap-1.5">
                   {detail.answer_options.map((option, optionIndex) => (
                     <button
                       key={optionIndex}
                       type="button"
-                      onClick={() => onPickOption(option)}
-                      className="rounded-full border border-white/15 bg-white/[0.05] px-2.5 py-1 text-[11px] text-slate-200 transition hover:border-brand-400/40 hover:bg-brand-400/10 hover:text-brand-100"
+                      aria-pressed={a.picks.includes(option)}
+                      onClick={() => togglePick(i, option)}
+                      className="chip-toggle"
                     >
+                      {a.picks.includes(option) && <span className="text-[10px]">✓</span>}
                       {option}
                     </button>
                   ))}
                 </div>
               )}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <input
+                  type="text"
+                  value={a.note}
+                  onChange={(e) => setNote(i, e.target.value)}
+                  placeholder="Add detail in your own words (optional)"
+                  className="input min-w-[180px] flex-1 !py-1.5 !text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => toggleSkip(i)}
+                  className={`shrink-0 rounded-md border px-2 py-1.5 text-[11px] font-medium transition ${
+                    a.skipped
+                      ? "border-pulse-400/40 bg-pulse-500/15 text-pulse-100"
+                      : "border-white/10 bg-white/[0.03] text-slate-400 hover:border-white/20"
+                  }`}
+                >
+                  {a.skipped ? "Skipped ✓" : "I don't know"}
+                </button>
+              </div>
             </li>
           );
         })}
       </ul>
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-2.5">
+        <span className="text-[11px] text-slate-400">
+          {answeredCount === 0
+            ? "No answers staged yet"
+            : `${answeredCount}/${questions.length} answered${pickCount ? ` · ${pickCount} option${pickCount === 1 ? "" : "s"} selected` : ""}`}
+        </span>
+        <button
+          type="button"
+          disabled={answeredCount === 0 || sending}
+          onClick={handleSend}
+          className="btn-primary ml-auto !px-3 !py-1.5 !text-xs disabled:!opacity-40"
+        >
+          Send answers
+        </button>
+      </div>
     </div>
   );
 }
 
-function ChatBubble({ message, onPickOption }: { message: ChatMessage; onPickOption: (text: string) => void }) {
+function ChatBubble({
+  message,
+  onSendBatch,
+  sending,
+}: {
+  message: ChatMessage;
+  onSendBatch: (composedMessage: string) => void;
+  sending: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const isLongUserMessage = message.role === "user" && message.text.length > COLLAPSE_MESSAGE_LENGTH;
   const visibleImpact =
@@ -285,7 +369,8 @@ function ChatBubble({ message, onPickOption }: { message: ChatMessage; onPickOpt
             questions={message.questions}
             details={message.questionDetails}
             intro={message.questionsIntro}
-            onPickOption={onPickOption}
+            onSendBatch={onSendBatch}
+            sending={sending}
           />
         )}
         {visibleImpact && <RequestImpactCard impact={visibleImpact} />}
@@ -491,18 +576,6 @@ export function ChatPanel({
     setMessages((prev) => [...prev, { role: "agent", text, questions }]);
   }
 
-  /** Hypothesis Cards / answer options: picking a suggested answer seeds the
-   * shared input box with it rather than sending immediately — the user can
-   * still edit or add detail before hitting Send, same box either way. */
-  function handlePickAnswerOption(text: string) {
-    if (streaming) return;
-    setInput(text);
-    window.requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(text.length, text.length);
-    });
-  }
-
   async function handleDisconnectAws() {
     if (disconnectingAws) return;
     setDisconnectingAws(true);
@@ -583,7 +656,7 @@ export function ChatPanel({
           </div>
         ) : null}
         {!historyLoading && messages.map((m, i) => (
-          <ChatBubble key={i} message={m} onPickOption={handlePickAnswerOption} />
+          <ChatBubble key={i} message={m} onSendBatch={sendMessageText} sending={streaming} />
         ))}
         {streaming && (
           <div className="flex items-start gap-2.5 animate-pop-in">

@@ -224,25 +224,27 @@ export function PlanViewer({
           The sequence is computed from the dependency graph before the LLM writes component steps. This keeps
           request-path dependencies, data dependencies, and coexistence risks from being ordered casually.
         </ExplanationBox>
-        <ol className="mt-3 space-y-2.5">
-          {plan.waves.map((w) => (
-            <li key={w.index} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-              <div className="flex items-start gap-2.5">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-brand-500/20 text-[11px] font-bold text-brand-300">
+        <ol className="mt-3">
+          {plan.waves.map((w, i) => (
+            <li key={w.index} className="relative flex gap-4">
+              <div className="flex flex-col items-center">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-grad-pulse text-sm font-bold text-white shadow-glow-pulse">
                   {w.index}
                 </span>
-                <div>
-                  <p className="text-sm font-medium text-slate-200">{w.component_ids.join(", ")}</p>
-                  <p className="mt-0.5 text-xs text-slate-500">{w.rationale}</p>
-                  {w.coexistence_groups.map((g, i) => (
-                    <p key={i} className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-300">
-                      <span>⚑</span>
-                      <span>
-                        Coexistence: {g.component_ids.join(", ")} — {g.coexistence_strategy}
-                      </span>
-                    </p>
-                  ))}
-                </div>
+                {i < plan.waves.length - 1 && <span className="my-1 w-px flex-1 bg-white/10" />}
+              </div>
+              <div className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/[0.03] p-3.5 pb-4 mb-3 backdrop-blur-xl">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Wave {w.index}</p>
+                <p className="mt-1 text-sm font-medium text-slate-200">{w.component_ids.join(", ")}</p>
+                <p className="mt-1.5 text-xs leading-5 text-slate-500">{w.rationale}</p>
+                {w.coexistence_groups.map((g, gi) => (
+                  <p key={gi} className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-300">
+                    <span>⚑</span>
+                    <span>
+                      Coexistence: {g.component_ids.join(", ")} — {g.coexistence_strategy}
+                    </span>
+                  </p>
+                ))}
               </div>
             </li>
           ))}

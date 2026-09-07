@@ -184,6 +184,47 @@ select:focus-visible,
     @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold tracking-wide;
   }
 
+  /* --- Chip toggle: a multi-select option pill (batch question answering) ---
+     Selected state uses the hot `pulse` gradient rather than the cool brand
+     teal, so "you picked this" reads as a distinct, energetic signal against
+     a page that's otherwise teal-accented throughout. */
+  .chip-toggle {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-3 py-1.5
+      text-xs font-medium text-slate-300 transition-all duration-150 ease-out
+      hover:border-white/25 hover:bg-white/[0.08] active:scale-[0.97];
+  }
+  .chip-toggle[aria-pressed="true"] {
+    @apply border-transparent bg-grad-pulse text-white shadow-glow-pulse;
+  }
+
+  /* --- Stat tile: a big number over a small label, for gate/plan/finding
+     summaries — reused wherever the app currently shows a plain <dl>. --- */
+  .stat-tile {
+    @apply relative flex flex-col items-center justify-center gap-1 rounded-xl border border-white/10
+      bg-white/[0.03] px-4 py-5 text-center backdrop-blur-xl transition-all duration-200
+      hover:border-white/20 hover:bg-white/[0.05];
+  }
+  .stat-tile-value {
+    @apply font-display text-2xl font-bold tracking-tight text-white;
+  }
+  .stat-tile-label {
+    @apply text-[11px] font-medium uppercase tracking-wide text-slate-500;
+  }
+
+  /* --- Rail card: a card with a colored 4px left accent bar, for anything
+     with a status/severity (questions, findings, audit entries, risks) so
+     the color reads as a glance-able bar rather than only a small badge. --- */
+  .rail-card {
+    @apply relative flex overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] backdrop-blur-xl
+      transition-colors duration-150 hover:border-white/20;
+  }
+  .rail-card-bar {
+    @apply w-1 flex-none;
+  }
+  .rail-card-body {
+    @apply min-w-0 flex-1 p-4;
+  }
+
   /* --- Gradient text --- */
   .text-gradient {
     @apply bg-clip-text text-transparent;
@@ -218,6 +259,18 @@ html.light .glass-nav {
 html.light .card,
 html.light .panel {
   @apply border-slate-200 bg-white/85 shadow-panel-sm;
+}
+
+html.light .stat-tile,
+html.light .rail-card,
+html.light .chip-toggle {
+  @apply border-slate-200 bg-white/85;
+}
+html.light .chip-toggle:hover {
+  @apply border-slate-300 bg-white;
+}
+html.light .stat-tile-value {
+  color: #0f172a;
 }
 
 html.light .card-glow::before {

@@ -18,6 +18,7 @@ from app.llm.base import (
     LLMProvider,
     LLMUsage,
     ModelTier,
+    ProviderRequestError,
     ProviderQuotaExceededError,
     StructuredOutputError,
     StructuredResponse,
@@ -80,11 +81,11 @@ class AnthropicProvider(LLMProvider):
             )
         except APIStatusError as exc:
             body = str(getattr(exc, "body", "") or exc)
-            if exc.status_code == 429 and any(hint in body.lower() for hint in _QUOTA_HINTS):
+            if any(hint in body.lower() for hint in _QUOTA_HINTS):
                 raise ProviderQuotaExceededError(f"Anthropic quota/credits exhausted: {exc}") from exc
-            raise StructuredOutputError(f"Anthropic API error: {exc}") from exc
+            raise ProviderRequestError(f"Anthropic API error: {exc}") from exc
         except (APITimeoutError, APIConnectionError) as exc:
-            raise StructuredOutputError(f"Anthropic request failed: {exc}") from exc
+            raise ProviderRequestError(f"Anthropic request failed: {exc}") from exc
         except ValidationError as exc:
             # The API's own constrained decoding should already guarantee schema
             # conformance, but the SDK still locally re-validates the returned

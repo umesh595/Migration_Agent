@@ -91,6 +91,14 @@ class ProviderQuotaExceededError(StructuredOutputError):
     existing catch site still treats it as a normal StructuredOutputError."""
 
 
+class ProviderRequestError(StructuredOutputError):
+    """Raised when the provider API failed before returning usable model output.
+
+    This covers account/API availability failures, transport errors, and timeouts.
+    FallbackLLMProvider can switch providers for these without hiding schema bugs.
+    """
+
+
 class TokenBudgetExceededError(Exception):
     """Raised when a session's cumulative token spend would exceed its budget."""
 

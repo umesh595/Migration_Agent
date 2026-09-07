@@ -79,24 +79,24 @@ export default function SessionArchitecturePage() {
             <aside className="space-y-4">
               <div className="card">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Model summary</p>
-                <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <dt className="text-slate-500">Version</dt>
-                    <dd className="mt-0.5 font-medium text-slate-200">v{state.model.version}</dd>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="stat-tile !py-3">
+                    <span className="stat-tile-value !text-lg">v{state.model.version}</span>
+                    <span className="stat-tile-label">Version</span>
                   </div>
-                  <div>
-                    <dt className="text-slate-500">Components</dt>
-                    <dd className="mt-0.5 font-medium text-slate-200">{state.model.components.length}</dd>
+                  <div className="stat-tile !py-3">
+                    <span className="stat-tile-value !text-lg">{state.model.components.length}</span>
+                    <span className="stat-tile-label">Components</span>
                   </div>
-                  <div>
-                    <dt className="text-slate-500">Dependencies</dt>
-                    <dd className="mt-0.5 font-medium text-slate-200">{state.model.dependencies.length}</dd>
+                  <div className="stat-tile !py-3">
+                    <span className="stat-tile-value !text-lg">{state.model.dependencies.length}</span>
+                    <span className="stat-tile-label">Dependencies</span>
                   </div>
-                  <div>
-                    <dt className="text-slate-500">Open questions</dt>
-                    <dd className="mt-0.5 font-medium text-slate-200">{unresolvedQuestions.length}</dd>
+                  <div className="stat-tile !py-3">
+                    <span className="stat-tile-value !text-lg">{unresolvedQuestions.length}</span>
+                    <span className="stat-tile-label">Open questions</span>
                   </div>
-                </dl>
+                </div>
               </div>
 
               <div className="card">

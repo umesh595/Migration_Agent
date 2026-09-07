@@ -55,9 +55,12 @@ class Settings(BaseSettings):
     llm_request_timeout_s: float = Field(default=60.0, alias="LLM_REQUEST_TIMEOUT_S")
     session_token_budget: int = Field(default=1_000_000, alias="SESSION_TOKEN_BUDGET")
 
-    # --- Groq: optional fallback only, used solely when Anthropic's account has no
-    # quota/credits left (see FallbackLLMProvider). Leave GROQ_API_KEY unset to
-    # disable the fallback entirely. ---
+    # --- Gemini: optional fallback only, used when Anthropic's API/account is unavailable. ---
+    google_ai_studio_api_key: SecretStr | None = Field(default=None, alias="GOOGLE_AI_STUDIO_API_KEY")
+    google_ai_studio_cheap_model: str = Field(default="gemini-2.5-flash", alias="GOOGLE_AI_STUDIO_CHEAP_MODEL")
+    google_ai_studio_strong_model: str = Field(default="gemini-2.5-pro", alias="GOOGLE_AI_STUDIO_STRONG_MODEL")
+
+    # --- Groq: legacy optional fallback settings; not wired in main.py now. ---
     groq_api_key: SecretStr | None = Field(default=None, alias="GROQ_API_KEY")
     # Groq's hosted catalog changes over time and varies by account — verified
     # directly against this project's own Groq account before picking these

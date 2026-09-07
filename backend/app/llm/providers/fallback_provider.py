@@ -16,7 +16,14 @@ import logging
 
 from pydantic import BaseModel
 
-from app.llm.base import LLMProvider, ModelTier, ProviderQuotaExceededError, StructuredOutputError, StructuredResponse
+from app.llm.base import (
+    LLMProvider,
+    ModelTier,
+    ProviderQuotaExceededError,
+    ProviderRequestError,
+    StructuredOutputError,
+    StructuredResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +66,7 @@ class FallbackLLMProvider(LLMProvider):
                 response_model=response_model,
                 temperature=temperature,
             )
-        except ProviderQuotaExceededError as exc:
+        except (ProviderQuotaExceededError, ProviderRequestError) as exc:
             if self._fallback is None:
                 raise
             logger.error(

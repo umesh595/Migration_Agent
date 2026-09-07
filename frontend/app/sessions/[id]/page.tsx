@@ -124,7 +124,11 @@ export default function SessionWorkspacePage() {
   return (
     <div className="min-h-screen">
       <NavBar />
-      <main className="mx-auto max-w-6xl px-4 py-8">
+      <main className="relative mx-auto max-w-6xl px-4 py-8">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-16 left-1/2 h-72 w-[36rem] -translate-x-1/2 rounded-full bg-grad-pulse-soft opacity-60 blur-3xl animate-float-slow"
+        />
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4 animate-fade-up">
           <div>
             <h1 className="font-display text-2xl font-bold tracking-tight text-white">
@@ -285,7 +289,9 @@ export default function SessionWorkspacePage() {
               )}
 
               {status === "discovery" && (
-                <div className="card-glow animate-fade-up">
+                <div className="rail-card animate-fade-up">
+                  <div className="rail-card-bar bg-grad-primary" />
+                  <div className="rail-card-body">
                   <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-slate-200">
                     Gate 1 — Accept the architecture
                   </h3>
@@ -323,26 +329,20 @@ export default function SessionWorkspacePage() {
                           {state.discovery_confidence.ready_for_planning ? "Ready for planning" : "Not ready yet"}
                         </span>
                       </div>
-                      <dl className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-                        <div className="rounded-md border border-white/[0.06] bg-white/[0.025] p-2">
-                          <dd className="text-lg font-semibold text-slate-100">
-                            {state.discovery_confidence.completeness_percent}%
-                          </dd>
-                          <dt className="mt-0.5 text-slate-500">Completeness</dt>
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <div className="stat-tile">
+                          <span className="stat-tile-value">{state.discovery_confidence.completeness_percent}%</span>
+                          <span className="stat-tile-label">Completeness</span>
                         </div>
-                        <div className="rounded-md border border-white/[0.06] bg-white/[0.025] p-2">
-                          <dd className="text-lg font-semibold text-slate-100">
-                            {state.discovery_confidence.blocking_unknowns}
-                          </dd>
-                          <dt className="mt-0.5 text-slate-500">Blocking unknowns</dt>
+                        <div className="stat-tile">
+                          <span className="stat-tile-value">{state.discovery_confidence.blocking_unknowns}</span>
+                          <span className="stat-tile-label">Blocking unknowns</span>
                         </div>
-                        <div className="rounded-md border border-white/[0.06] bg-white/[0.025] p-2">
-                          <dd className="text-lg font-semibold text-slate-100">
-                            {state.discovery_confidence.high_risk_assumptions}
-                          </dd>
-                          <dt className="mt-0.5 text-slate-500">High-risk assumptions</dt>
+                        <div className="stat-tile">
+                          <span className="stat-tile-value">{state.discovery_confidence.high_risk_assumptions}</span>
+                          <span className="stat-tile-label">High-risk assumptions</span>
                         </div>
-                      </dl>
+                      </div>
                     </div>
                   )}
                   {gate1Summary && (
@@ -369,11 +369,14 @@ export default function SessionWorkspacePage() {
                   >
                     {gateBusy ? "Accepting…" : "Accept architecture model"}
                   </button>
+                  </div>
                 </div>
               )}
 
               {status === "review" && (
-                <div className="card-glow animate-fade-up">
+                <div className="rail-card animate-fade-up">
+                  <div className={`rail-card-bar ${hasBlockingFindings ? "bg-amber-400" : "bg-grad-pulse"}`} />
+                  <div className="rail-card-body">
                   <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-slate-200">
                     Gate 2 — Approve the plan
                   </h3>
@@ -393,6 +396,7 @@ export default function SessionWorkspacePage() {
                   <button type="button" className="btn-primary" disabled={gateBusy} onClick={handleApprovePlan}>
                     {gateBusy ? "Approving…" : "Approve final plan"}
                   </button>
+                  </div>
                 </div>
               )}
               {state.migration_context && (

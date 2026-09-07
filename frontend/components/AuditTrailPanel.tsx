@@ -182,17 +182,17 @@ export function AuditTrailPanel({
         </div>
 
         <div className="grid grid-cols-3 gap-2 text-center sm:min-w-56">
-          <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-2">
-            <div className="text-lg font-semibold text-slate-100">{records.length}</div>
-            <div className="text-[11px] text-slate-500">total</div>
+          <div className="stat-tile !p-2.5">
+            <span className="stat-tile-value !text-lg">{records.length}</span>
+            <span className="stat-tile-label">total</span>
           </div>
-          <div className="rounded-lg border border-emerald-400/20 bg-emerald-400/[0.06] p-2">
-            <div className="text-lg font-semibold text-emerald-300">{appliedCount}</div>
-            <div className="text-[11px] text-emerald-300/70">accepted</div>
+          <div className="stat-tile !p-2.5">
+            <span className="stat-tile-value !text-lg text-emerald-300">{appliedCount}</span>
+            <span className="stat-tile-label">accepted</span>
           </div>
-          <div className="rounded-lg border border-rose-400/20 bg-rose-400/[0.06] p-2">
-            <div className="text-lg font-semibold text-rose-300">{rejectedCount}</div>
-            <div className="text-[11px] text-rose-300/70">rejected</div>
+          <div className="stat-tile !p-2.5">
+            <span className="stat-tile-value !text-lg text-rose-300">{rejectedCount}</span>
+            <span className="stat-tile-label">rejected</span>
           </div>
         </div>
       </div>
@@ -231,7 +231,9 @@ export function AuditTrailPanel({
             {history.map(({ record: r, index }) => (
               <li
                 key={`${index}-${summarizePatch(r.patch)}`}
-                className="grid gap-2 p-2.5 text-xs sm:grid-cols-[10rem_1fr]"
+                className={`grid gap-2 border-l-2 p-2.5 text-xs sm:grid-cols-[10rem_1fr] ${
+                  r.outcome === "applied" ? "border-l-emerald-400/60" : "border-l-rose-400/60"
+                }`}
               >
                 <div className="flex items-center gap-2">
                   {onReviewPatch && (
