@@ -8,11 +8,7 @@ import "./globals.css";
 
 const display = Outfit({
   subsets: ["latin"],
-  // Named distinctly from Tailwind's own --font-display theme token (see
-  // app/globals.css) — reusing the same name made that token self-reference
-  // itself once Tailwind v4 turned @theme entries into real CSS custom
-  // properties at :root, which is spec-invalid.
-  variable: "--font-outfit",
+  variable: "--font-display",
   weight: ["500", "600", "700", "800"],
 });
 

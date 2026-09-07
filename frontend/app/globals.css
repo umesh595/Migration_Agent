@@ -1,10 +1,7 @@
 @import 'tailwindcss';
 
 @theme {
-  /* --font-outfit is next/font's loaded-font variable (app/layout.tsx) — a
-     distinct name on purpose, so this doesn't self-reference itself the way
-     it would if both used --font-display (see layout.tsx's comment). */
-  --font-display: var(--font-outfit), ui-sans-serif, system-ui;
+  --font-display: var(--font-display), ui-sans-serif, system-ui;
   --font-sans: var(--font-body), ui-sans-serif, system-ui;
 
   --color-brand-50: #eef9ff;
