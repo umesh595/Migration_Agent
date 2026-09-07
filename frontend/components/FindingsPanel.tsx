@@ -84,7 +84,7 @@ export function FindingsPanel({
               </p>
             )}
             {(f.violated_requirement || f.suggested_fix || f.risk_if_ignored) && (
-              <div className="mt-2.5 space-y-1.5 rounded-lg border border-white/10 bg-white/3 p-3 text-xs">
+              <div className="mt-2.5 space-y-1.5 rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs">
                 {f.violated_requirement && (
                   <p>
                     <span className="font-semibold text-slate-300">Why this is flagged: </span>
@@ -105,11 +105,11 @@ export function FindingsPanel({
                 )}
               </div>
             )}
-            <div className="mt-3 flex gap-2 border-t border-white/6 pt-3">
+            <div className="mt-3 flex gap-2 border-t border-white/[0.06] pt-3">
               {f.resolution_status !== "resolved" && (
                 <button
                   type="button"
-                  className="btn-secondary px-2.5! py-1! text-xs!"
+                  className="btn-secondary !px-2.5 !py-1 !text-xs"
                   disabled={busyId === f.id}
                   onClick={() => handleSetStatus(f, "resolved")}
                 >
@@ -119,7 +119,7 @@ export function FindingsPanel({
               {f.resolution_status !== "accepted_as_risk" && (
                 <button
                   type="button"
-                  className="btn-secondary px-2.5! py-1! text-xs!"
+                  className="btn-secondary !px-2.5 !py-1 !text-xs"
                   disabled={busyId === f.id}
                   onClick={() => handleSetStatus(f, "accepted_as_risk")}
                 >
@@ -129,7 +129,7 @@ export function FindingsPanel({
               {f.resolution_status !== "open" && (
                 <button
                   type="button"
-                  className="btn-secondary px-2.5! py-1! text-xs!"
+                  className="btn-secondary !px-2.5 !py-1 !text-xs"
                   disabled={busyId === f.id}
                   onClick={() => handleSetStatus(f, "open")}
                 >

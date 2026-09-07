@@ -54,7 +54,7 @@ export default function SessionReviewFindingsPage() {
           <div>
             <Link
               href={`/sessions/${sessionId}`}
-              className="btn-secondary h-9! w-9! px-0! py-0!"
+              className="btn-secondary !h-9 !w-9 !px-0 !py-0"
               aria-label="Back to conversation"
               title="Back to conversation"
             >

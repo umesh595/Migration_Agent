@@ -42,7 +42,7 @@ export default function SessionMigrationPlanPage() {
           <div>
             <Link
               href={`/sessions/${sessionId}`}
-              className="btn-secondary h-9! w-9! px-0! py-0!"
+              className="btn-secondary !h-9 !w-9 !px-0 !py-0"
               aria-label="Back to conversation"
               title="Back to conversation"
             >
@@ -89,7 +89,7 @@ export default function SessionMigrationPlanPage() {
                   <Link
                     key={section.number}
                     href={`/sessions/${sessionId}/migration-plan/${section.number}`}
-                    className="btn-secondary justify-start px-3! py-2! text-left text-xs"
+                    className="btn-secondary justify-start !px-3 !py-2 text-left text-xs"
                   >
                     <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-brand-500/15 text-[11px] font-bold text-brand-200">
                       {section.number}

@@ -33,7 +33,7 @@ export function NavBar() {
           {user?.is_admin && (
             <Link
               href="/admin"
-              className="rounded-lg px-3 py-1.5 font-medium text-slate-300 transition-colors hover:bg-white/6 hover:text-white"
+              className="rounded-lg px-3 py-1.5 font-medium text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white"
             >
               Admin
             </Link>
@@ -41,14 +41,14 @@ export function NavBar() {
           {user && (
             <Link
               href="/account"
-              className="rounded-lg px-3 py-1.5 font-medium text-slate-400 transition-colors hover:bg-white/6 hover:text-white"
+              className="rounded-lg px-3 py-1.5 font-medium text-slate-400 transition-colors hover:bg-white/[0.06] hover:text-white"
             >
               {user.email}
             </Link>
           )}
           <button
             type="button"
-            className="btn-secondary ml-1 py-1.5! text-xs!"
+            className="btn-secondary ml-1 !py-1.5 !text-xs"
             onClick={() => {
               logout();
               router.replace("/login");

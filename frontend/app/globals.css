@@ -1,386 +1,213 @@
-@import 'tailwindcss';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-@theme {
-  --font-display: var(--font-display), ui-sans-serif, system-ui;
-  --font-sans: var(--font-body), ui-sans-serif, system-ui;
-
-  --color-brand-50: #eef9ff;
-  --color-brand-100: #d9f0fb;
-  --color-brand-200: #b7e2f3;
-  --color-brand-300: #83cce8;
-  --color-brand-400: #43abd1;
-  --color-brand-500: #1f8fb8;
-  --color-brand-600: #167396;
-  --color-brand-700: #155d79;
-  --color-brand-800: #174d64;
-  --color-brand-900: #163f53;
-
-  --color-aurora-violet: #2563eb;
-  --color-aurora-indigo: #155d79;
-  --color-aurora-cyan: #06b6d4;
-  --color-aurora-pink: #14b8a6;
-  --color-aurora-amber: #d97706;
-
-  --color-ink-500: #2a2c52;
-  --color-ink-600: #1f2140;
-  --color-ink-700: #171933;
-  --color-ink-800: #111327;
-  --color-ink-850: #0d0f20;
-  --color-ink-900: #0a0b18;
-  --color-ink-950: #05060f;
-
-  --background-image-grad-primary: linear-gradient(
-    135deg,
-    #155d79 0%,
-    #1f8fb8 58%,
-    #14b8a6 100%
-  );
-  --background-image-grad-cool: linear-gradient(
-    135deg,
-    #0f766e 0%,
-    #1f8fb8 100%
-  );
-  --background-image-grad-warm: linear-gradient(
-    135deg,
-    #d97706 0%,
-    #0f766e 100%
-  );
-  --background-image-grad-card: linear-gradient(
-    160deg,
-    rgba(255, 255, 255, 0.06),
-    rgba(255, 255, 255, 0.015)
-  );
-  --background-image-grad-mesh:
-    linear-gradient(180deg, rgba(7, 16, 24, 0.98) 0%, rgba(5, 9, 14, 1) 100%),
-    radial-gradient(at 14% 8%, rgba(31, 143, 184, 0.16) 0px, transparent 42%),
-    radial-gradient(at 86% 4%, rgba(20, 184, 166, 0.12) 0px, transparent 38%);
-
-  --shadow-glow: 0 0 32px -10px rgba(31, 143, 184, 0.45);
-  --shadow-glow-lg: 0 0 64px -18px rgba(20, 184, 166, 0.35);
-  --shadow-panel:
-    0 1px 0 0 rgba(255, 255, 255, 0.06) inset,
-    0 20px 50px -20px rgba(0, 0, 0, 0.6);
-  --shadow-panel-sm:
-    0 1px 0 0 rgba(255, 255, 255, 0.06) inset,
-    0 10px 30px -12px rgba(0, 0, 0, 0.5);
-
-  --animate-aurora-drift: aurora-drift 22s ease-in-out infinite;
-  --animate-float-slow: float-slow 8s ease-in-out infinite;
-  --animate-shimmer: shimmer 2.5s linear infinite;
-  --animate-fade-up: fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
-  --animate-pop-in: pop-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-  --animate-pulse-ring: pulse-ring 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-
-  @keyframes aurora-drift {
-    0%,
-    100% {
-      transform: translate3d(0, 0, 0) scale(1);
-    }
-    50% {
-      transform: translate3d(-2%, 3%, 0) scale(1.08);
-    }
-  }
-  @keyframes float-slow {
-    0%,
-    100% {
-      transform: translateY(0px);
-    }
-    50% {
-      transform: translateY(-10px);
-    }
-  }
-  @keyframes shimmer {
-    0% {
-      background-position: -200% 0;
-    }
-    100% {
-      background-position: 200% 0;
-    }
-  }
-  @keyframes fade-up {
-    from {
-      opacity: 0;
-      transform: translateY(14px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-  @keyframes pop-in {
-    from {
-      opacity: 0;
-      transform: scale(0.94);
-    }
-    to {
-      opacity: 1;
-      transform: scale(1);
-    }
-  }
-  @keyframes pulse-ring {
-    0% {
-      box-shadow: 0 0 0 0 rgba(31, 143, 184, 0.5);
-    }
-    70% {
-      box-shadow: 0 0 0 10px rgba(31, 143, 184, 0);
-    }
-    100% {
-      box-shadow: 0 0 0 0 rgba(31, 143, 184, 0);
-    }
-  }
+:root {
+  color-scheme: dark;
 }
 
-/*
-  The default border color has changed to `currentcolor` in Tailwind CSS v4,
-  so we've added these compatibility styles to make sure everything still
-  looks the same as it did with Tailwind CSS v3.
-
-  If we ever want to remove these styles, we need to add an explicit border
-  color utility to any element that depends on these defaults.
-*/
-@layer base {
-  *,
-  ::after,
-  ::before,
-  ::backdrop,
-  ::file-selector-button {
-    border-color: var(--color-gray-200, currentcolor);
-  }
+html.light {
+  color-scheme: light;
 }
 
-@utility btn {
+html,
+body {
+  background: #05090e;
+}
+
+body {
+  @apply min-h-screen text-slate-100;
+  font-family: var(--font-body), ui-sans-serif, system-ui;
+  position: relative;
+  isolation: isolate;
+}
+
+h1,
+h2,
+h3,
+h4,
+.font-display {
+  font-family: var(--font-display), ui-sans-serif, system-ui;
+}
+
+/* Fixed, full-viewport ambient backdrop — sits behind everything, never scrolls,
+   never intercepts clicks. Two layers: a soft animated mesh-gradient "aurora"
+   for color/depth, plus a faint grid for structure so panels read as floating
+   above something, not against a flat void. */
+.bg-aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background: #05090e;
+  background-image: theme("backgroundImage.grad-mesh");
+  filter: saturate(0.95);
+  pointer-events: none;
+}
+
+.bg-grid {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 40%, transparent 90%);
+}
+
+html.light body,
+html.light {
+  background: #f6f8fb;
+}
+
+html.light body {
+  @apply text-slate-900;
+}
+
+html.light .bg-aurora {
+  background: #f6f8fb;
+  background-image:
+    linear-gradient(180deg, rgba(246, 248, 251, 0.98) 0%, rgba(235, 241, 247, 1) 100%),
+    radial-gradient(at 15% 0%, rgba(31, 143, 184, 0.13) 0px, transparent 42%),
+    radial-gradient(at 88% 4%, rgba(20, 184, 166, 0.1) 0px, transparent 38%);
+}
+
+html.light .bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(15, 23, 42, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 23, 42, 0.06) 1px, transparent 1px);
+}
+
+/* Visible focus states everywhere (WCAG 2.1 AA) — never suppressed without a
+   replacement, just restyled for the dark palette. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  @apply outline outline-2 outline-offset-2 outline-brand-400 rounded-md;
+}
+
+::selection {
+  background: rgba(99, 102, 241, 0.35);
+}
+
+/* Scrollbars that match the theme instead of the OS default light scrollbar. */
+* {
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+@layer components {
   /* --- Buttons --- */
-  @apply relative inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold
+  .btn {
+    @apply relative inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold
       transition-all duration-200 ease-out disabled:cursor-not-allowed disabled:opacity-40
       active:scale-[0.98];
-}
+  }
 
-@utility btn-primary {
-  @apply btn text-white shadow-lg shadow-brand-900/30;
-  background-image: linear-gradient(135deg, #155d79, #1f8fb8);
-  &:hover:not(:disabled) {
+  .btn-primary {
+    @apply btn text-white shadow-lg shadow-brand-900/30;
+    background-image: linear-gradient(135deg, #155d79, #1f8fb8);
+  }
+  .btn-primary:hover:not(:disabled) {
     @apply shadow-glow;
     filter: brightness(1.08);
   }
-}
 
-@utility btn-secondary {
-  @apply btn border border-white/10 bg-white/4 text-slate-200 backdrop-blur-xs hover:bg-white/9 hover:border-white/20;
-}
+  .btn-secondary {
+    @apply btn border border-white/10 bg-white/[0.04] text-slate-200 backdrop-blur-sm hover:bg-white/[0.09] hover:border-white/20;
+  }
 
-@utility btn-danger {
-  @apply btn text-white shadow-lg shadow-rose-900/30;
-  background-image: linear-gradient(135deg, #dc2626, #b91c1c);
-  &:hover:not(:disabled) {
+  .btn-danger {
+    @apply btn text-white shadow-lg shadow-rose-900/30;
+    background-image: linear-gradient(135deg, #dc2626, #b91c1c);
+  }
+  .btn-danger:hover:not(:disabled) {
     filter: brightness(1.1);
   }
-}
 
-@utility card {
   /* --- Surfaces --- */
-  @apply relative rounded-xl border border-white/10 bg-white/[0.035] p-5 shadow-panel-sm backdrop-blur-xl;
-}
+  .card {
+    @apply relative rounded-xl border border-white/10 bg-white/[0.035] p-5 shadow-panel-sm backdrop-blur-xl;
+  }
 
-@utility card-glow {
-  @apply card;
-  &::before {
-    content: '';
+  .card-glow {
+    @apply card;
+  }
+  .card-glow::before {
+    content: "";
     position: absolute;
     inset: -1px;
     border-radius: inherit;
     padding: 1px;
-    background: linear-gradient(
-      135deg,
-      rgba(31, 143, 184, 0.35),
-      rgba(20, 184, 166, 0.12),
-      transparent 72%
-    );
-    -webkit-mask:
-      linear-gradient(#000 0 0) content-box,
-      linear-gradient(#000 0 0);
+    background: linear-gradient(135deg, rgba(31, 143, 184, 0.35), rgba(20, 184, 166, 0.12), transparent 72%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
     pointer-events: none;
   }
-}
 
-@utility panel {
-  @apply rounded-xl border border-white/10 bg-ink-900/60 shadow-panel backdrop-blur-2xl;
-}
+  .panel {
+    @apply rounded-xl border border-white/10 bg-ink-900/60 shadow-panel backdrop-blur-2xl;
+  }
 
-@utility glass-nav {
-  @apply border-b border-white/10 bg-ink-950/70 backdrop-blur-2xl;
-}
+  .glass-nav {
+    @apply border-b border-white/10 bg-ink-950/70 backdrop-blur-2xl;
+  }
 
-@utility input {
   /* --- Form controls --- */
-  @apply w-full rounded-lg border border-white/10 bg-white/4 px-3.5 py-2.5 text-sm text-slate-100
+  .input {
+    @apply w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-slate-100
       placeholder:text-slate-500 transition-colors duration-150
-      focus:border-brand-400/60 focus:bg-white/6 focus:outline-hidden;
-}
+      focus:border-brand-400/60 focus:bg-white/[0.06] focus:outline-none;
+  }
 
-@utility label {
-  @apply mb-1.5 block text-sm font-medium text-slate-300;
-}
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-slate-300;
+  }
 
-@utility badge {
   /* --- Badges --- */
-  @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold tracking-wide;
-}
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold tracking-wide;
+  }
 
-@utility text-gradient {
   /* --- Gradient text --- */
-  @apply bg-clip-text text-transparent;
-  background-image: linear-gradient(135deg, #67e8f9, #5eead4);
-}
+  .text-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, #67e8f9, #5eead4);
+  }
 
-@utility shimmer {
   /* --- Shimmer skeleton / loading sheen --- */
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0.03) 25%,
-    rgba(255, 255, 255, 0.09) 37%,
-    rgba(255, 255, 255, 0.03) 63%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 2.2s linear infinite;
-}
-
-@utility step-line {
-  /* --- Dotted connector line used behind stage steppers --- */
-  background-image: linear-gradient(
-    to right,
-    rgba(255, 255, 255, 0.25) 0 6px,
-    transparent 6px 12px
-  );
-  background-size: 12px 2px;
-  background-repeat: repeat-x;
-  background-position: center;
-}
-
-@layer utilities {
-  :root {
-    color-scheme: dark;
-  }
-
-  html.light {
-    color-scheme: light;
-  }
-
-  html,
-  body {
-    background: #05090e;
-  }
-
-  body {
-    @apply min-h-screen text-slate-100;
-    font-family: var(--font-body), ui-sans-serif, system-ui;
-    position: relative;
-    isolation: isolate;
-  }
-
-  h1,
-  h2,
-  h3,
-  h4,
-  .font-display {
-    font-family: var(--font-display), ui-sans-serif, system-ui;
-  }
-
-  /* Fixed, full-viewport ambient backdrop — sits behind everything, never scrolls,
-   never intercepts clicks. Two layers: a soft animated mesh-gradient "aurora"
-   for color/depth, plus a faint grid for structure so panels read as floating
-   above something, not against a flat void. */
-  .bg-aurora {
-    position: fixed;
-    inset: 0;
-    z-index: -2;
-    background: #05090e;
-    background-image: var(--background-image-grad-mesh);
-    filter: saturate(0.95);
-    pointer-events: none;
-  }
-
-  .bg-grid {
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    background-image:
-      linear-gradient(
-        to right,
-        rgba(255, 255, 255, 0.035) 1px,
-        transparent 1px
-      ),
-      linear-gradient(
-        to bottom,
-        rgba(255, 255, 255, 0.035) 1px,
-        transparent 1px
-      );
-    background-size: 44px 44px;
-    mask-image: radial-gradient(
-      ellipse 80% 60% at 50% 0%,
-      black 40%,
-      transparent 90%
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.03) 25%,
+      rgba(255, 255, 255, 0.09) 37%,
+      rgba(255, 255, 255, 0.03) 63%
     );
+    background-size: 200% 100%;
+    animation: shimmer 2.2s linear infinite;
   }
 
-  html.light body,
-  html.light {
-    background: #f6f8fb;
-  }
-
-  html.light body {
-    @apply text-slate-900;
-  }
-
-  html.light .bg-aurora {
-    background: #f6f8fb;
-    background-image:
-      linear-gradient(
-        180deg,
-        rgba(246, 248, 251, 0.98) 0%,
-        rgba(235, 241, 247, 1) 100%
-      ),
-      radial-gradient(at 15% 0%, rgba(31, 143, 184, 0.13) 0px, transparent 42%),
-      radial-gradient(at 88% 4%, rgba(20, 184, 166, 0.1) 0px, transparent 38%);
-  }
-
-  html.light .bg-grid {
-    background-image:
-      linear-gradient(to right, rgba(15, 23, 42, 0.06) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(15, 23, 42, 0.06) 1px, transparent 1px);
-  }
-
-  /* Visible focus states everywhere (WCAG 2.1 AA) — never suppressed without a
-   replacement, just restyled for the dark palette. */
-  a:focus-visible,
-  button:focus-visible,
-  input:focus-visible,
-  textarea:focus-visible,
-  select:focus-visible,
-  [tabindex]:focus-visible {
-    @apply outline-solid outline-2 outline-offset-2 outline-brand-400 rounded-md;
-  }
-
-  ::selection {
-    background: rgba(99, 102, 241, 0.35);
-  }
-
-  /* Scrollbars that match the theme instead of the OS default light scrollbar. */
-  * {
-    scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
-  }
-  *::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-  *::-webkit-scrollbar-thumb {
-    background: rgba(148, 163, 184, 0.3);
-    border-radius: 8px;
-  }
-  *::-webkit-scrollbar-thumb:hover {
-    background: rgba(148, 163, 184, 0.5);
+  /* --- Dotted connector line used behind stage steppers --- */
+  .step-line {
+    background-image: linear-gradient(to right, rgba(255, 255, 255, 0.25) 0 6px, transparent 6px 12px);
+    background-size: 12px 2px;
+    background-repeat: repeat-x;
+    background-position: center;
   }
 }
 

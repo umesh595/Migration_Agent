@@ -7,16 +7,16 @@ function scoreColor(score: number): string {
 }
 
 function scoreBarColor(score: number): string {
-  if (score >= 80) return "bg-linear-to-r from-emerald-500 to-emerald-400";
-  if (score >= 50) return "bg-linear-to-r from-amber-500 to-amber-400";
-  return "bg-linear-to-r from-rose-500 to-rose-400";
+  if (score >= 80) return "bg-gradient-to-r from-emerald-500 to-emerald-400";
+  if (score >= 50) return "bg-gradient-to-r from-amber-500 to-amber-400";
+  return "bg-gradient-to-r from-rose-500 to-rose-400";
 }
 
 function ScoreBar({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex items-center gap-3 text-xs">
       <span className="w-32 shrink-0 text-slate-400">{label}</span>
-      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/6">
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
         <div
           className={`h-1.5 rounded-full transition-all duration-700 ease-out ${scoreBarColor(value)}`}
           style={{ width: `${value}%` }}
@@ -73,7 +73,7 @@ export function ReviewQualityPanel({ scores }: { scores: ReviewQualityScore[] })
         <ScoreBar label="Actionability" value={latest.actionability_score} />
         <ScoreBar label="Context awareness" value={latest.context_awareness_score} />
       </div>
-      <p className="mt-3 border-t border-white/6 pt-3 text-xs text-slate-400">{latest.rationale}</p>
+      <p className="mt-3 border-t border-white/[0.06] pt-3 text-xs text-slate-400">{latest.rationale}</p>
       {latest.flagged_issues.length > 0 && (
         <ul className="mt-2 space-y-1 text-xs text-amber-300">
           {latest.flagged_issues.map((issue, i) => (

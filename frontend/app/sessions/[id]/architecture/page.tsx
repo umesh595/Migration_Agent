@@ -44,7 +44,7 @@ export default function SessionArchitecturePage() {
           <div>
             <Link
               href={`/sessions/${sessionId}`}
-              className="btn-secondary h-9! w-9! px-0! py-0!"
+              className="btn-secondary !h-9 !w-9 !px-0 !py-0"
               aria-label="Back to conversation"
               title="Back to conversation"
             >
@@ -108,13 +108,13 @@ export default function SessionArchitecturePage() {
                 {unresolvedQuestions.length > 0 ? (
                   <ul className="mt-3 space-y-2 text-sm text-slate-300">
                     {unresolvedQuestions.map((q) => (
-                      <li key={q.id} className="rounded-lg border border-amber-400/15 bg-amber-400/4.5 p-2.5">
+                      <li key={q.id} className="rounded-lg border border-amber-400/15 bg-amber-400/[0.045] p-2.5">
                         {q.text}
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="mt-3 rounded-lg border border-emerald-400/15 bg-emerald-400/4.5 p-2.5 text-sm text-emerald-200">
+                  <p className="mt-3 rounded-lg border border-emerald-400/15 bg-emerald-400/[0.045] p-2.5 text-sm text-emerald-200">
                     No unresolved architecture questions.
                   </p>
                 )}

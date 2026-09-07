@@ -136,17 +136,17 @@ export default function SessionWorkspacePage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {state && (
-              <Link href={`/sessions/${sessionId}/architecture`} className="btn-secondary py-2! text-xs">
+              <Link href={`/sessions/${sessionId}/architecture`} className="btn-secondary !py-2 text-xs">
                 Current architecture
               </Link>
             )}
             {state && (
-              <Link href={`/sessions/${sessionId}/review-findings`} className="btn-secondary py-2! text-xs">
+              <Link href={`/sessions/${sessionId}/review-findings`} className="btn-secondary !py-2 text-xs">
                 View Review Findings
               </Link>
             )}
             {state && (
-              <Link href={`/sessions/${sessionId}/migration-plan`} className="btn-secondary py-2! text-xs">
+              <Link href={`/sessions/${sessionId}/migration-plan`} className="btn-secondary !py-2 text-xs">
                 Migration Plan
               </Link>
             )}
@@ -170,7 +170,7 @@ export default function SessionWorkspacePage() {
                             ? "bg-grad-primary text-white shadow-glow"
                             : isActive
                               ? "bg-grad-primary text-white shadow-glow animate-pulse-ring"
-                              : "border border-white/15 bg-white/3 text-slate-500"
+                              : "border border-white/15 bg-white/[0.03] text-slate-500"
                         }`}
                       >
                         {isDone ? "OK" : stage.step}
@@ -184,7 +184,7 @@ export default function SessionWorkspacePage() {
                     {i < STAGES.length - 1 && (
                       <div
                         className={`mx-2 h-0.5 flex-1 rounded-full transition-colors duration-300 ${
-                          isDone ? "bg-linear-to-r from-brand-500 to-teal-400" : "bg-white/10"
+                          isDone ? "bg-gradient-to-r from-brand-500 to-teal-400" : "bg-white/10"
                         }`}
                       />
                     )}
@@ -193,12 +193,12 @@ export default function SessionWorkspacePage() {
               })}
             </div>
             {stageGuide && (
-              <div className="mt-4 grid gap-3 border-t border-white/6 pt-4 md:grid-cols-[1.25fr_1fr]">
+              <div className="mt-4 grid gap-3 border-t border-white/[0.06] pt-4 md:grid-cols-[1.25fr_1fr]">
                 <div>
                   <p className="text-sm font-semibold text-slate-100">{stageGuide.title}</p>
                   <p className="mt-1 text-sm leading-6 text-slate-400">{stageGuide.body}</p>
                 </div>
-                <div className="rounded-lg border border-brand-400/15 bg-brand-400/4.5 p-3">
+                <div className="rounded-lg border border-brand-400/15 bg-brand-400/[0.045] p-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-brand-200">What to review now</p>
                   <p className="mt-1 text-xs leading-5 text-slate-400">{stageGuide.review}</p>
                 </div>
@@ -221,7 +221,7 @@ export default function SessionWorkspacePage() {
           <>
           <div className="w-full space-y-4">
               {needsMigrationContext && (
-                <div className="card-glow border-sky-400/25 bg-sky-500/6 animate-fade-up">
+                <div className="card-glow border-sky-400/25 bg-sky-500/[0.06] animate-fade-up">
                   <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-sky-200">
                     Gate 1 passed — migration context needed
                   </h3>
@@ -232,7 +232,7 @@ export default function SessionWorkspacePage() {
                   <p className="mb-3 text-xs leading-5 text-sky-300/80">
                     After you send the goal, larger models can take a few minutes while planning and review run.
                   </p>
-                  <div className="rounded-lg border border-white/10 bg-white/3 p-3 text-xs text-slate-300">
+                  <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-300">
                     <div className="font-medium text-slate-200">Include these details:</div>
                     <ul className="mt-1 list-disc space-y-1 pl-5">
                       <li>source environment and target environment</li>
@@ -293,7 +293,7 @@ export default function SessionWorkspacePage() {
                     Migration planning is unreachable until you accept this model — this is a structural gate,
                     not a suggestion.
                   </p>
-                  <div className="mb-3 rounded-lg border border-white/6 bg-white/2.5 p-3 text-xs leading-5 text-slate-400">
+                  <div className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.025] p-3 text-xs leading-5 text-slate-400">
                     Approval means the discovered source architecture is good enough for planning. Later source changes
                     should be treated as explicit revisions because they can change sequencing, risk, effort, and rollback.
                   </div>
@@ -301,8 +301,8 @@ export default function SessionWorkspacePage() {
                     <div
                       className={`mb-3 rounded-lg border p-3 ${
                         state.discovery_confidence.ready_for_planning
-                          ? "border-emerald-400/25 bg-emerald-400/6"
-                          : "border-amber-400/25 bg-amber-400/6"
+                          ? "border-emerald-400/25 bg-emerald-400/[0.06]"
+                          : "border-amber-400/25 bg-amber-400/[0.06]"
                       }`}
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -324,19 +324,19 @@ export default function SessionWorkspacePage() {
                         </span>
                       </div>
                       <dl className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-                        <div className="rounded-md border border-white/6 bg-white/2.5 p-2">
+                        <div className="rounded-md border border-white/[0.06] bg-white/[0.025] p-2">
                           <dd className="text-lg font-semibold text-slate-100">
                             {state.discovery_confidence.completeness_percent}%
                           </dd>
                           <dt className="mt-0.5 text-slate-500">Completeness</dt>
                         </div>
-                        <div className="rounded-md border border-white/6 bg-white/2.5 p-2">
+                        <div className="rounded-md border border-white/[0.06] bg-white/[0.025] p-2">
                           <dd className="text-lg font-semibold text-slate-100">
                             {state.discovery_confidence.blocking_unknowns}
                           </dd>
                           <dt className="mt-0.5 text-slate-500">Blocking unknowns</dt>
                         </div>
-                        <div className="rounded-md border border-white/6 bg-white/2.5 p-2">
+                        <div className="rounded-md border border-white/[0.06] bg-white/[0.025] p-2">
                           <dd className="text-lg font-semibold text-slate-100">
                             {state.discovery_confidence.high_risk_assumptions}
                           </dd>
@@ -346,14 +346,14 @@ export default function SessionWorkspacePage() {
                     </div>
                   )}
                   {gate1Summary && (
-                    <div className="mb-3 rounded-lg border border-sky-400/20 bg-sky-500/5 p-3">
+                    <div className="mb-3 rounded-lg border border-sky-400/20 bg-sky-500/[0.05] p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-sky-200">
                         Understanding before Gate 1
                       </p>
                       <p className="mt-2 text-sm leading-6 text-slate-300">{gate1Summary.headline}</p>
                       <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
                         {gate1Summary.items.map((item) => (
-                          <div key={item.label} className="rounded-md border border-white/6 bg-white/2.5 p-2">
+                          <div key={item.label} className="rounded-md border border-white/[0.06] bg-white/[0.025] p-2">
                             <dt className="font-medium text-slate-200">{item.label}</dt>
                             <dd className="mt-1 leading-5 text-slate-400">{item.value}</dd>
                           </div>
@@ -386,7 +386,7 @@ export default function SessionWorkspacePage() {
                   ) : (
                     <p className="mb-3 text-xs text-slate-500">Review is complete with no open blocking findings.</p>
                   )}
-                  <div className="mb-3 rounded-lg border border-white/6 bg-white/2.5 p-3 text-xs leading-5 text-slate-400">
+                  <div className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.025] p-3 text-xs leading-5 text-slate-400">
                     Approval means you accept the target architecture, migration waves, effort and cost assumptions,
                     validation plan, cutover strategy, rollback approach, and any documented residual risks.
                   </div>
@@ -432,7 +432,7 @@ export default function SessionWorkspacePage() {
         )}
         {showGate1Confirm && state && gate1Summary && (
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-4 backdrop-blur-xs"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-4 backdrop-blur-sm"
             role="dialog"
             aria-modal="true"
             aria-labelledby="gate1-confirm-title"
@@ -459,11 +459,11 @@ export default function SessionWorkspacePage() {
                 </button>
               </div>
 
-              <div className="mt-4 rounded-lg border border-sky-400/20 bg-sky-500/5 p-3">
+              <div className="mt-4 rounded-lg border border-sky-400/20 bg-sky-500/[0.05] p-3">
                 <p className="text-sm leading-6 text-slate-300">{gate1Summary.headline}</p>
                 <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
                   {gate1Summary.items.map((item) => (
-                    <div key={item.label} className="rounded-md border border-white/6 bg-white/2.5 p-2">
+                    <div key={item.label} className="rounded-md border border-white/[0.06] bg-white/[0.025] p-2">
                       <dt className="font-medium text-slate-200">{item.label}</dt>
                       <dd className="mt-1 leading-5 text-slate-400">{item.value}</dd>
                     </div>
@@ -472,7 +472,7 @@ export default function SessionWorkspacePage() {
               </div>
 
               {state.model.open_questions.some((question) => !question.resolved) && (
-                <p className="mt-3 rounded-md border border-amber-400/20 bg-amber-500/6 p-3 text-xs leading-5 text-amber-200">
+                <p className="mt-3 rounded-md border border-amber-400/20 bg-amber-500/[0.06] p-3 text-xs leading-5 text-amber-200">
                   There are still unresolved open questions. Accept only if this source model is good enough
                   for a first planning pass.
                 </p>
