@@ -183,22 +183,38 @@ with a real Anthropic API key (not a mock). Results:
    into `allowed_msgpack_modules`) before that happens.
 4. **A disconnected SSE client appears to silently cancel in-flight planning
    work with no resumption and no error surfaced.** Observed once: a
-   plan-generation turn (long-running — sequential per-component LLM calls)
-   was accompanied by a client-side timeout partway through; the session was
-   left indefinitely in `planning` status with no plan, no error, and no
-   stale lock in Redis (ruled out as the cause). A retry with an
-   unconstrained connection completed normally. If a real browser tab losing
-   network mid-turn hits the same path, the user has no way to know the turn
-   needs to be resent rather than just still "in progress."
+   plan-generation turn was accompanied by a client-side timeout partway
+   through; the session was left indefinitely in `planning` status with no
+   plan, no error, and no stale lock in Redis (ruled out as the cause).
+   If a real browser tab loses network mid-turn and hits the same path, the
+   user has no way to know the turn needs to be resent rather than just
+   still "in progress."
 5. **No real progress feedback during multi-call turns.** A single discovery
-   or planning turn issues 1–4+ sequential LLM calls (observed range: ~10s to
-   4+ minutes depending on API conditions and retry backoff). The UI only
-   shows a static "Sending…" / "Updating the architecture model…" label with
-   no step indicator or elapsed-time cue, which reads as hung well before it
-   actually is.
+   or planning turn issues several sequential/concurrent LLM calls (observed
+   range: ~10s to 4+ minutes depending on API conditions and retry backoff).
+   The UI only shows a static "Sending…" / "Updating the architecture
+   model…" label with no step indicator or elapsed-time cue, which reads as
+   hung well before it actually is.
+6. **Per-component planning fires every component in a wave concurrently
+   (`asyncio.gather` in `per_component_planning_node`,
+   `backend/app/orchestration/nodes/planning.py:295`), and a real attempt on
+   a 10-component, single-wave-heavy architecture failed for all 10
+   components at once**, surfacing only a blunt `could not produce plans
+   for: [...]. Try again or simplify those components.` with no diagnosis of
+   *why*. Each component call independently retries up to the strong tier's
+   budget (`StructuredOutputError` after exhaustion returns `None` for that
+   component — see lines 283–285), but nothing throttles or staggers the
+   burst of simultaneous calls a single wave produces, which is a very
+   plausible way to trip a real account's rate limit and fail every
+   component in that wave together rather than each in isolation. Retrying
+   the exact same request later can succeed once the burst has cleared, but
+   the app gives no indication that's the fix — a user just sees a generic
+   failure and no path forward beyond "try again."
 
-None of these are blocking — the app is functional and the extraction
-quality is genuinely good — but items 1, 3, and 4 are worth fixing before
+Discovery is solid end to end. Planning's extraction quality on the pieces
+that do come back is good, but item 6 makes the planning stage itself
+unreliable for anything beyond a small, single-wave architecture as
+currently written — that, along with 1, 3, and 4, is worth fixing before
 relying on this for real migration planning work.
 
 ---
