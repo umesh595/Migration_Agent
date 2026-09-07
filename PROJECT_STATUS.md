@@ -32,7 +32,7 @@ strategy with a deterministic rules engine plus an LLM critic, and exports an
 
 | Check | Result |
 |---|---|
-| Backend `pytest` (`backend/`) | 268 passed, 32 skipped (integration tests, need live Postgres/Redis), 7 deselected (`live_smoke`, need a real LLM key) |
+| Backend `pytest` (`backend/`) | 271 passed, 32 skipped (integration tests, need live Postgres/Redis), 7 deselected (`live_smoke`, need a real LLM key) |
 | Alembic migration chain (`0001`→`0006`) | Clean `alembic upgrade head --sql` dry run |
 | Frontend `npm run lint` | 0 errors, 1 pre-existing warning (`app/layout.tsx:36`, `@next/next/no-css-tags`) |
 | Frontend `npx tsc --noEmit` | 0 type errors |
@@ -101,7 +101,7 @@ artifacts).
 |---|---|---|---|
 | `reportlab` | 4.4.4 | 5.0.1 | PDF export path not yet re-verified against the new major |
 
-Every backend bump was re-verified with a full `pytest -q` run (268 passed).
+Every backend bump was re-verified with a full `pytest -q` run (271 passed).
 Every frontend bump was re-verified with `npm run lint`, `npx tsc --noEmit`,
 and `npm run build`.
 
@@ -136,6 +136,43 @@ GEMINI_STRONG_MODEL=gemini-2.5-pro
 
 # GROQ_API_KEY=...                  # optional — third and final fallback
 ```
+
+### Reconciled with a parallel upstream Gemini integration
+
+Upstream `main` grew its own, independent Gemini integration while this
+branch existed (single `GOOGLE_AI_STUDIO_API_KEY`, raw `httpx` calls, no
+round-robin, Groq marked legacy/unwired) — a genuine merge conflict, not a
+mechanical one. Decision (confirmed): keep this branch's design (the
+`google-genai` SDK, multi-key round-robin, Groq kept as the third tier) —
+but pull in one real improvement from the other side rather than discard
+it: a new `ProviderRequestError` exception, distinct from a schema
+validation failure, for a provider that's genuinely unreachable
+(connection refused, timeout, a non-quota API error). `FallbackLLMProvider`
+treats it the same as `ProviderQuotaExceededError` — a permanent switch —
+which is sound, not risky: `LLMGateway`'s own retry budget has already been
+exhausted by the time either exception reaches `FallbackLLMProvider` at
+all, so a lone transient blip never gets this far in the first place.
+
+Also adopted: `AnthropicProvider`'s quota-keyword check no longer requires
+status code 429 specifically (a billing cutoff has been observed to also
+surface as other status codes with the same wording in the body).
+
+Fixed as a side effect of this reconciliation: `GeminiProvider.complete_structured`
+only ever caught `google.genai.errors.APIError` — a genuine transport-level
+failure would have propagated as a raw, unrecognized exception instead of
+the `StructuredOutputError` subclass every caller is entitled to expect.
+Now caught and reraised as `ProviderRequestError`.
+
+**Frontend conflicts are still open** — upstream `main` also independently
+built substantial new UI (a `.stat-tile`/`.chip-toggle` component system,
+large changes to `ChatPanel.tsx`/`PlanViewer.tsx`) while staying on
+Tailwind v3. This branch's Tailwind v4 migration touches nearly the same
+files for syntax reasons alone, and even the smallest conflicting file
+mixes a pure syntax change with a genuinely new upstream component — not
+safely auto-resolvable in either direction without either discarding that
+new UI work or undoing the v4 migration. Needs the migration re-applied on
+top of the new components (not the other way around) once that work is
+visible in full.
 
 ---
 
@@ -241,7 +278,7 @@ all ten are fixed on this branch.
 | 9 | `main.py`'s fallback-chain construction was hand-nested ternaries that don't scale to a future 4th provider | Rewritten as a right-to-left fold over an ordered list of optional providers |
 | 10 | `scripts/dev.ps1` local mode ran backend/frontend installs unconditionally and sequentially | `pip install` now gated the same way `npm install` already was (skipped unless missing or `-Reload`); both installs now run in parallel via background jobs |
 
-Verified after every fix: full backend `pytest -q` (268 passed — 5 new tests
+Verified after every fix: full backend `pytest -q` (271 passed — 5 new tests
 added for these fixes plus everything already there), frontend
 lint/typecheck/build clean, and a full Docker stack rebuild reaching healthy.
 
@@ -312,7 +349,7 @@ or directly: `docker compose up --build`.
 cd backend
 python -m venv .venv && .venv/Scripts/activate
 pip install -r requirements-dev.txt
-pytest -q          # 268 passed, 32 skipped, 7 deselected — expected
+pytest -q          # 271 passed, 32 skipped, 7 deselected — expected
 ```
 
 ---
