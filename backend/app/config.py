@@ -68,9 +68,9 @@ class Settings(BaseSettings):
     llm_request_timeout_s: float = Field(default=60.0, alias="LLM_REQUEST_TIMEOUT_S")
     session_token_budget: int = Field(default=1_000_000, alias="SESSION_TOKEN_BUDGET")
 
-    # --- Groq: optional fallback only, used solely when Anthropic's account has no
-    # quota/credits left (see FallbackLLMProvider). Leave GROQ_API_KEY unset to
-    # disable the fallback entirely. ---
+    # --- Groq: optional fallback only, used solely when Anthropic's (and, if
+    # configured, Gemini's) account has no quota/credits left (see
+    # FallbackLLMProvider). Leave GROQ_API_KEY unset to disable this stage. ---
     groq_api_key: SecretStr | None = Field(default=None, alias="GROQ_API_KEY")
     # Groq's hosted catalog changes over time and varies by account — verified
     # directly against this project's own Groq account before picking these

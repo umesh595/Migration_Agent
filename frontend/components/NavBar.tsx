@@ -14,7 +14,7 @@ export function NavBar() {
     <header className="glass-nav sticky top-0 z-40">
       <nav aria-label="Primary" className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3.5">
         <Link href="/sessions" className="group flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-grad-primary shadow-glow transition-transform group-hover:scale-105">
+          <span className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-grad-primary shadow-glow transition-transform group-hover:scale-105">
             <svg viewBox="0 0 24 24" fill="none" className="h-4.5 w-4.5 text-white">
               <path
                 d="M4 17V7a2 2 0 0 1 2-2h5l2 2h5a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"
@@ -23,6 +23,7 @@ export function NavBar() {
                 strokeLinejoin="round"
               />
             </svg>
+            <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-grad-pulse shadow-glow-pulse animate-pulse-ring" />
           </span>
           <span className="font-display text-[15px] font-bold tracking-tight text-white">
             <span className="text-gradient">Aether</span>

@@ -17,6 +17,12 @@ const SEVERITY_ICON: Record<Finding["severity"], string> = {
   info: "🔵",
 };
 
+const SEVERITY_BAR: Record<Finding["severity"], string> = {
+  error: "bg-rose-500",
+  warning: "bg-amber-400",
+  info: "bg-brand-400",
+};
+
 const STATUS_STYLES: Record<Finding["resolution_status"], string> = {
   open: "border-rose-400/30 bg-rose-400/10 text-rose-300",
   resolved: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
@@ -63,9 +69,11 @@ export function FindingsPanel({
         {findings.map((f, i) => (
           <li
             key={f.id}
-            className="card animate-fade-up transition-opacity"
+            className="rail-card animate-fade-up transition-opacity"
             style={{ animationDelay: `${Math.min(i, 6) * 30}ms`, opacity: busyId === f.id ? 0.6 : 1 }}
           >
+            <div className={`rail-card-bar ${SEVERITY_BAR[f.severity]}`} />
+            <div className="rail-card-body">
             <div className="flex items-center gap-2">
               <span className={`badge ${SEVERITY_STYLES[f.severity]}`}>
                 {SEVERITY_ICON[f.severity]} {f.severity}
@@ -136,6 +144,7 @@ export function FindingsPanel({
                   ↺ Reopen
                 </button>
               )}
+            </div>
             </div>
           </li>
         ))}

@@ -84,17 +84,15 @@ export default function SessionMigrationPlanPage() {
               <p className="mt-1 text-xs leading-5 text-slate-500">
                 Use these shortcuts to review one section at a time without scrolling through the full plan.
               </p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
                 {PLAN_SECTION_LINKS.map((section) => (
                   <Link
                     key={section.number}
                     href={`/sessions/${sessionId}/migration-plan/${section.number}`}
-                    className="btn-secondary justify-start !px-3 !py-2 text-left text-xs"
+                    className="stat-tile !gap-1.5 !py-3 no-underline"
                   >
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-brand-500/15 text-[11px] font-bold text-brand-200">
-                      {section.number}
-                    </span>
-                    {section.title}
+                    <span className="stat-tile-value !text-lg">{section.number}</span>
+                    <span className="stat-tile-label !normal-case !tracking-normal text-slate-400">{section.title}</span>
                   </Link>
                 ))}
               </div>

@@ -97,20 +97,20 @@ export default function SessionReviewFindingsPage() {
             <aside className="space-y-4">
               <div className="card">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Finding summary</p>
-                <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <dt className="text-slate-500">Total</dt>
-                    <dd className="mt-0.5 font-medium text-slate-200">{findings.length}</dd>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="stat-tile !py-3">
+                    <span className="stat-tile-value !text-lg">{findings.length}</span>
+                    <span className="stat-tile-label">Total</span>
                   </div>
-                  <div>
-                    <dt className="text-slate-500">Open</dt>
-                    <dd className="mt-0.5 font-medium text-slate-200">{openCount}</dd>
+                  <div className="stat-tile !py-3">
+                    <span className="stat-tile-value !text-lg">{openCount}</span>
+                    <span className="stat-tile-label">Open</span>
                   </div>
-                  <div>
-                    <dt className="text-slate-500">Errors</dt>
-                    <dd className="mt-0.5 font-medium text-slate-200">{errorCount}</dd>
+                  <div className="stat-tile !py-3 col-span-2">
+                    <span className="stat-tile-value !text-lg text-rose-300">{errorCount}</span>
+                    <span className="stat-tile-label">Errors</span>
                   </div>
-                </dl>
+                </div>
               </div>
             </aside>
           </div>
