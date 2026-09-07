@@ -19,6 +19,7 @@ from app.llm.base import (
     LLMUsage,
     ModelTier,
     ProviderQuotaExceededError,
+    ProviderRequestError,
     StructuredOutputError,
     StructuredResponse,
     normalize_llm_text,
@@ -80,11 +81,16 @@ class AnthropicProvider(LLMProvider):
             )
         except APIStatusError as exc:
             body = str(getattr(exc, "body", "") or exc)
-            if exc.status_code == 429 and any(hint in body.lower() for hint in _QUOTA_HINTS):
+            # Checked regardless of status code, not just 429 — a billing
+            # cutoff has been observed to also surface as other status codes
+            # (e.g. 400) with the same billing-specific wording in the body,
+            # and the keyword match itself is already the narrow signal (see
+            # _QUOTA_HINTS) that keeps this from firing on an ordinary error.
+            if any(hint in body.lower() for hint in _QUOTA_HINTS):
                 raise ProviderQuotaExceededError(f"Anthropic quota/credits exhausted: {exc}") from exc
-            raise StructuredOutputError(f"Anthropic API error: {exc}") from exc
+            raise ProviderRequestError(f"Anthropic API error: {exc}") from exc
         except (APITimeoutError, APIConnectionError) as exc:
-            raise StructuredOutputError(f"Anthropic request failed: {exc}") from exc
+            raise ProviderRequestError(f"Anthropic request failed: {exc}") from exc
         except ValidationError as exc:
             # The API's own constrained decoding should already guarantee schema
             # conformance, but the SDK still locally re-validates the returned

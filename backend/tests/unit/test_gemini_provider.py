@@ -13,7 +13,7 @@ import pytest
 from google.genai.errors import APIError
 from pydantic import BaseModel
 
-from app.llm.base import ModelTier, ProviderQuotaExceededError, StructuredOutputError
+from app.llm.base import ModelTier, ProviderQuotaExceededError, ProviderRequestError, StructuredOutputError
 from app.llm.providers.gemini_provider import _RATE_LIMIT_COOLDOWN_S, GeminiProvider
 
 
@@ -23,6 +23,10 @@ class _Verdict(BaseModel):
 
 def _quota_error() -> APIError:
     return APIError(code=429, response_json={"error": {"status": "RESOURCE_EXHAUSTED", "message": "quota exceeded"}})
+
+
+def _server_error() -> APIError:
+    return APIError(code=500, response_json={"error": {"status": "INTERNAL", "message": "internal error"}})
 
 
 def _fake_response(ok: bool = True) -> SimpleNamespace:
@@ -155,3 +159,31 @@ async def test_quota_exceeded_only_reflects_keys_in_cooldown_right_now():
 
     await _call(h.provider)  # key 1 — ok
     assert h.calls[1].call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_non_quota_api_error_raises_provider_request_error():
+    """A real API error response that isn't a quota/rate-limit 429 (e.g. a
+    500) means the call reached Gemini and got a genuine error back —
+    distinct from both a schema-validation failure (plain
+    StructuredOutputError) and a quota condition."""
+
+    h = _make_provider(1)
+    h.calls[0].side_effect = _server_error()
+
+    with pytest.raises(ProviderRequestError):
+        await _call(h.provider)
+
+
+@pytest.mark.asyncio
+async def test_transport_failure_raises_provider_request_error_not_a_raw_exception():
+    """A connection-level failure (refused, DNS, timeout) never reaches
+    google-genai's own APIError - it must still come out of
+    complete_structured as a StructuredOutputError subclass, per
+    LLMProvider's own contract, not propagate as a raw exception."""
+
+    h = _make_provider(1)
+    h.calls[0].side_effect = ConnectionError("connection refused")
+
+    with pytest.raises(ProviderRequestError):
+        await _call(h.provider)

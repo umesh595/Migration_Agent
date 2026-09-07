@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from app.llm.base import ModelTier, ProviderQuotaExceededError, StructuredOutputError
+from app.llm.base import ModelTier, ProviderQuotaExceededError, ProviderRequestError, StructuredOutputError
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.providers.fallback_provider import FallbackLLMProvider
 from app.llm.providers.openai_provider import MockProvider
@@ -108,6 +108,33 @@ async def test_ordinary_structured_output_failure_does_not_trigger_fallback():
     assert response.parsed.ok is True
     assert len(primary.calls) == 2
     assert fallback.calls == []
+
+
+@pytest.mark.asyncio
+async def test_provider_request_error_switches_to_fallback_same_as_quota():
+    """ProviderRequestError (the primary genuinely unreachable - connection
+    refused, timeout, a non-quota API error) triggers the same permanent
+    switch as ProviderQuotaExceededError, not just a retry against the
+    primary. By the time this reaches FallbackLLMProvider at all,
+    LLMGateway's own retry budget has already been exhausted - see
+    ProviderRequestError's own docstring for why treating it as sticky here
+    is the right call, not a new risk."""
+
+    primary = MockProvider()
+    primary.register(_Verdict, ProviderRequestError("connection refused"))
+    fallback = MockProvider()
+    fallback.register(_Verdict, _Verdict(ok=True))
+    provider = FallbackLLMProvider(primary=primary, fallback=fallback)
+    gateway = LLMGateway(provider, strong_tier_max_retries=3)
+    meter = SessionTokenMeter(budget=100_000)
+
+    response = await gateway.complete(
+        tier=ModelTier.STRONG, system_prompt="s", user_prompt="u", response_model=_Verdict, meter=meter
+    )
+
+    assert response.parsed.ok is True
+    assert len(primary.calls) == 1
+    assert len(fallback.calls) == 1
 
 
 @pytest.mark.asyncio

@@ -25,6 +25,7 @@ from app.llm.base import (
     LLMUsage,
     ModelTier,
     ProviderQuotaExceededError,
+    ProviderRequestError,
     StructuredOutputError,
     StructuredResponse,
     normalize_llm_text,
@@ -143,7 +144,19 @@ class GeminiProvider(LLMProvider):
                 # _next_client_index() and rotates onto a still-usable key.
                 # This key rejoins rotation on its own once its cooldown ends.
                 raise StructuredOutputError(f"Gemini key #{idx} rate-limited/quota-exhausted: {exc}") from exc
-            raise StructuredOutputError(f"Gemini API error: {exc}") from exc
+            # A non-quota API error status (auth failure, server error, bad
+            # request, ...) - the call reached Gemini and got a real error
+            # response back, as opposed to the broad except below, which
+            # covers the call never reaching Gemini at all.
+            raise ProviderRequestError(f"Gemini API error: {exc}") from exc
+        except Exception as exc:
+            # Anything else - connection refused, DNS failure, a timeout -
+            # happens before any APIError could even be constructed, so it's
+            # never one. Without this, such a failure would propagate as a
+            # raw, unrecognized exception instead of the StructuredOutputError
+            # subclass every caller of complete_structured is entitled to
+            # expect (see LLMProvider's own docstring).
+            raise ProviderRequestError(f"Gemini request failed: {exc}") from exc
 
         parsed = response.parsed
         if parsed is None:
