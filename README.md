@@ -6,8 +6,8 @@ strategy, and (3) reviews that strategy with an auditable rules engine before
 delivering the 11-deliverable migration package (the PoC brief's original 10, plus a
 real-pricing-backed cost estimate).
 
-**Governing principle:** the LLM *proposes and narrates*; deterministic code *decides
-and persists*. Every consequential artifact — the architecture model, the migration
+**Governing principle:** the LLM _proposes and narrates_; deterministic code _decides
+and persists_. Every consequential artifact — the architecture model, the migration
 sequence, the review findings — is either computed by code or validated by code
 before it exists.
 
@@ -106,29 +106,29 @@ the assembled plan. Dependency-order errors are prevented twice over.
 
 ## API
 
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/auth/login` · `/auth/refresh` | JWT auth (no self-service signup — FR-A5) |
-| GET | `/auth/me` | Current user id/email/admin status |
-| POST | `/auth/change-password` | Self-service password change (requires current password); also revokes every outstanding token |
-| POST | `/auth/logout-everywhere` | Revokes every outstanding access/refresh token for the caller immediately |
-| POST | `/admin/users` | **Admin** — provision a new account |
-| GET | `/admin/users` | **Admin** — list accounts |
-| PATCH | `/admin/users/{id}/active` | **Admin** — disable / re-enable an account |
-| POST | `/admin/users/{id}/reset-password` | **Admin** — issue a new temporary password; also revokes existing tokens |
-| POST | `/sessions` | Create a planning session |
-| GET | `/sessions` | List the caller's own sessions (most recent first) |
-| GET | `/sessions/{id}/state` | Current model, plan, and context |
-| POST | `/sessions/{id}/messages` | A conversation turn (SSE stream); body carries a client-generated `message_id` (FR-E6 idempotency) |
-| POST | `/sessions/{id}/model/accept` | **Gate 1** — freeze the model |
-| POST | `/sessions/{id}/plan/approve` | **Gate 2** — finalize the plan |
-| GET | `/sessions/{id}/findings` | Review findings (rule + LLM) |
-| PATCH | `/sessions/{id}/findings/{finding_id}` | Mark a finding resolved / accepted-as-risk / reopened |
-| GET | `/sessions/{id}/impact/{component_id}` | Upstream/downstream reachability analysis over the current model |
-| GET | `/sessions/{id}/audit` | Every patch proposed, applied or rejected |
-| GET | `/sessions/{id}/export?format=pdf\|docx` | The 11-deliverable package |
-| GET | `/sessions/{id}/review-quality` | LLM-as-judge scores over the semantic critic's own findings |
-| GET | `/health` · `/health/ready` | Liveness / readiness (+ tracing status) |
+| Method | Path                                     | Purpose                                                                                            |
+| ------ | ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| POST   | `/auth/login` · `/auth/refresh`          | JWT auth (no self-service signup — FR-A5)                                                          |
+| GET    | `/auth/me`                               | Current user id/email/admin status                                                                 |
+| POST   | `/auth/change-password`                  | Self-service password change (requires current password); also revokes every outstanding token     |
+| POST   | `/auth/logout-everywhere`                | Revokes every outstanding access/refresh token for the caller immediately                          |
+| POST   | `/admin/users`                           | **Admin** — provision a new account                                                                |
+| GET    | `/admin/users`                           | **Admin** — list accounts                                                                          |
+| PATCH  | `/admin/users/{id}/active`               | **Admin** — disable / re-enable an account                                                         |
+| POST   | `/admin/users/{id}/reset-password`       | **Admin** — issue a new temporary password; also revokes existing tokens                           |
+| POST   | `/sessions`                              | Create a planning session                                                                          |
+| GET    | `/sessions`                              | List the caller's own sessions (most recent first)                                                 |
+| GET    | `/sessions/{id}/state`                   | Current model, plan, and context                                                                   |
+| POST   | `/sessions/{id}/messages`                | A conversation turn (SSE stream); body carries a client-generated `message_id` (FR-E6 idempotency) |
+| POST   | `/sessions/{id}/model/accept`            | **Gate 1** — freeze the model                                                                      |
+| POST   | `/sessions/{id}/plan/approve`            | **Gate 2** — finalize the plan                                                                     |
+| GET    | `/sessions/{id}/findings`                | Review findings (rule + LLM)                                                                       |
+| PATCH  | `/sessions/{id}/findings/{finding_id}`   | Mark a finding resolved / accepted-as-risk / reopened                                              |
+| GET    | `/sessions/{id}/impact/{component_id}`   | Upstream/downstream reachability analysis over the current model                                   |
+| GET    | `/sessions/{id}/audit`                   | Every patch proposed, applied or rejected                                                          |
+| GET    | `/sessions/{id}/export?format=pdf\|docx` | The 11-deliverable package                                                                         |
+| GET    | `/sessions/{id}/review-quality`          | LLM-as-judge scores over the semantic critic's own findings                                        |
+| GET    | `/health` · `/health/ready`              | Liveness / readiness (+ tracing status)                                                            |
 
 ### Accounts (FR-A5 — no self-service registration)
 
@@ -156,19 +156,19 @@ exporter renders those fields and never generates fresh prose. Deliverable 11
 (Cost Estimate) is computed by real cloud pricing lookups, never an LLM guess —
 see `app/core/cost_estimator.py`.
 
-| # | Deliverable | Field |
-|---|---|---|
-| 1 | Current Architecture | `ArchitectureModel` |
-| 2 | Target Architecture | `target_architecture_description` |
-| 3 | Component Mapping | `component_mappings[]` |
-| 4 | Component Migration Approach | `component_plans[]` |
-| 5 | Migration Sequence | `waves[]` |
-| 6 | Risks & Assumptions | `risks[]` + model `assumptions[]` |
-| 7 | Validation Approach | `validation_summary` |
-| 8 | Cutover Strategy | `cutover_strategy` |
-| 9 | Rollback Strategy | `rollback_strategy` |
-| 10 | Migration Roadmap | `roadmap_items[]` |
-| 11 | Cost Estimate | `cost_summary` |
+| #   | Deliverable                  | Field                             |
+| --- | ---------------------------- | --------------------------------- |
+| 1   | Current Architecture         | `ArchitectureModel`               |
+| 2   | Target Architecture          | `target_architecture_description` |
+| 3   | Component Mapping            | `component_mappings[]`            |
+| 4   | Component Migration Approach | `component_plans[]`               |
+| 5   | Migration Sequence           | `waves[]`                         |
+| 6   | Risks & Assumptions          | `risks[]` + model `assumptions[]` |
+| 7   | Validation Approach          | `validation_summary`              |
+| 8   | Cutover Strategy             | `cutover_strategy`                |
+| 9   | Rollback Strategy            | `rollback_strategy`               |
+| 10  | Migration Roadmap            | `roadmap_items[]`                 |
+| 11  | Cost Estimate                | `cost_summary`                    |
 
 Deliverables 7 and 10 had no home in the original data model — they were given real
 typed fields rather than being synthesized at export time (DECISIONS.md).
@@ -177,15 +177,15 @@ typed fields rather than being synthesized at export time (DECISIONS.md).
 
 ## Review rules (zero tokens)
 
-| Rule | Checks | Severity |
-|---|---|---|
-| RULE-001 | Wave order never violates a dependency | error |
-| RULE-002 | Every component has a mapping, plan, and wave | error |
-| RULE-003 | Nothing retired while a non-retired component depends on it | error |
-| RULE-004 | Plan-level and per-component rollback present | error |
-| RULE-005 | Validation checks and cutover go/no-go criteria present | error |
-| RULE-006 | Mapping and plan dispositions agree | error |
-| RULE-007 | Cross-wave dependencies have a documented coexistence strategy | warning |
+| Rule     | Checks                                                         | Severity |
+| -------- | -------------------------------------------------------------- | -------- |
+| RULE-001 | Wave order never violates a dependency                         | error    |
+| RULE-002 | Every component has a mapping, plan, and wave                  | error    |
+| RULE-003 | Nothing retired while a non-retired component depends on it    | error    |
+| RULE-004 | Plan-level and per-component rollback present                  | error    |
+| RULE-005 | Validation checks and cutover go/no-go criteria present        | error    |
+| RULE-006 | Mapping and plan dispositions agree                            | error    |
+| RULE-007 | Cross-wave dependencies have a documented coexistence strategy | warning  |
 
 The LLM critic runs afterward and is explicitly told not to re-report any of these —
 it only reports judgment-level problems a rule can't encode.
@@ -291,16 +291,16 @@ is better than serving traffic with forgeable tokens.
 
 Key settings:
 
-| Variable | Default | Notes |
-|---|---|---|
-| `ANTHROPIC_CHEAP_MODEL` | `claude-sonnet-5` | Ingestion, question generation |
-| `ANTHROPIC_STRONG_MODEL` | `claude-opus-5` | Planning, review, strategy |
-| `LLM_CHEAP_TIER_MAX_RETRIES` | `1` | Then escalates to the strong tier |
-| `SESSION_TOKEN_BUDGET` | `1000000` | Hard per-session cap |
-| `MAX_COMPONENTS` / `MAX_DEPENDENCIES` | `50` / `200` | v1 scale envelope |
-| `MAX_REFINE_ITERATIONS` | `2` | Unresolved findings then ship as Risks |
-| `RATE_LIMIT_RPM` / `RATE_LIMIT_MESSAGES_RPM` | `30` / `10` | Per user, shared via Redis |
-| `RATE_LIMIT_FAIL_OPEN` | `false` | Fails closed by default — set true to allow requests through if Redis is unreachable |
+| Variable                                     | Default           | Notes                                                                                |
+| -------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------ |
+| `ANTHROPIC_CHEAP_MODEL`                      | `claude-sonnet-5` | Ingestion, question generation                                                       |
+| `ANTHROPIC_STRONG_MODEL`                     | `claude-opus-5`   | Planning, review, strategy                                                           |
+| `LLM_CHEAP_TIER_MAX_RETRIES`                 | `1`               | Then escalates to the strong tier                                                    |
+| `SESSION_TOKEN_BUDGET`                       | `1000000`         | Hard per-session cap                                                                 |
+| `MAX_COMPONENTS` / `MAX_DEPENDENCIES`        | `50` / `200`      | v1 scale envelope                                                                    |
+| `MAX_REFINE_ITERATIONS`                      | `2`               | Unresolved findings then ship as Risks                                               |
+| `RATE_LIMIT_RPM` / `RATE_LIMIT_MESSAGES_RPM` | `30` / `10`       | Per user, shared via Redis                                                           |
+| `RATE_LIMIT_FAIL_OPEN`                       | `false`           | Fails closed by default — set true to allow requests through if Redis is unreachable |
 
 **Provider portability.** Anthropic is the primary wired provider. Gemini, then
 Groq, are an optional two-deep fallback chain behind it, only engaged once
