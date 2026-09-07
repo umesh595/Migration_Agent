@@ -23,7 +23,7 @@ written, and why each was answered the way it was.
 cp .env.example .env
 ```
 
-Set `ANTHROPIC_API_KEY` and `BOOTSTRAP_ADMIN_EMAIL`/`BOOTSTRAP_ADMIN_PASSWORD` in `.env`
+Set `CODEVECTOR_API_KEY`, `CODEVECTOR_BASE_URL`, and `BOOTSTRAP_ADMIN_EMAIL`/`BOOTSTRAP_ADMIN_PASSWORD` in `.env`
 (there is no self-service sign-up — see FR-A5 below — so the bootstrap admin is how
 you get your first login), then:
 
@@ -293,8 +293,9 @@ Key settings:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `ANTHROPIC_CHEAP_MODEL` | `claude-sonnet-5` | Ingestion, question generation |
-| `ANTHROPIC_STRONG_MODEL` | `claude-opus-5` | Planning, review, strategy |
+| `CODEVECTOR_CHEAP_MODEL` | `kimi-k2` | Ingestion, question generation |
+| `CODEVECTOR_STRONG_MODEL` | `kimi-k2` | Planning, review, strategy |
+| `CODEVECTOR_BASE_URL` | required | CodeVector/Fision Labs OpenAI-compatible gateway URL |
 | `LLM_CHEAP_TIER_MAX_RETRIES` | `1` | Then escalates to the strong tier |
 | `SESSION_TOKEN_BUDGET` | `1000000` | Hard per-session cap |
 | `MAX_COMPONENTS` / `MAX_DEPENDENCIES` | `50` / `200` | v1 scale envelope |
@@ -302,8 +303,8 @@ Key settings:
 | `RATE_LIMIT_RPM` / `RATE_LIMIT_MESSAGES_RPM` | `30` / `10` | Per user, shared via Redis |
 | `RATE_LIMIT_FAIL_OPEN` | `false` | Fails closed by default — set true to allow requests through if Redis is unreachable |
 
-**Provider portability.** Anthropic is the primary wired provider, with Groq kept as
-an optional quota/credits fallback. The gateway remains provider-agnostic: each
+**Provider portability.** CodeVector/Fision Labs Kimi is the primary wired provider,
+with Google Gemini kept as an optional quota/credits fallback. The gateway remains provider-agnostic: each
 provider implements `LLMProvider` in `app/llm/providers/`, with no changes needed in
 the graph nodes or prompts.
 

@@ -14,7 +14,8 @@ from app.config import Settings
 
 _BASE = {
     "DATABASE_URL": "postgresql+psycopg://u:p@localhost:5432/db",
-    "ANTHROPIC_API_KEY": "sk-ant-test",
+    "CODEVECTOR_API_KEY": "codevector-test",
+    "CODEVECTOR_BASE_URL": "https://codevector.example.invalid/v1",
 }
 
 
@@ -57,3 +58,18 @@ def test_production_accepts_safe_config():
 def test_development_tolerates_weak_secret_for_local_convenience():
     settings = _settings(APP_ENV="development", JWT_SECRET="short")
     assert settings.env == "development"
+
+
+def test_codevector_accepts_fision_labs_aliases():
+    settings = _settings(
+        JWT_SECRET="x" * 40,
+        CODEVECTOR_API_KEY=None,
+        CODEVECTOR_BASE_URL=None,
+        FISION_LABS_API_KEY="fision-test",
+        FISION_LABS_BASE_URL="https://fision.example.invalid/v1",
+        FISION_LABS_KIMI_MODEL="kimi-office",
+    )
+    assert settings.active_codevector_api_key is not None
+    assert settings.active_codevector_base_url == "https://fision.example.invalid/v1"
+    assert settings.active_codevector_cheap_model == "kimi-office"
+    assert settings.active_codevector_strong_model == "kimi-office"

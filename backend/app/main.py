@@ -12,9 +12,9 @@ from app.config import get_settings
 from app.db.session import AsyncSessionLocal
 from app.integrations.rest_catalog_provider import RestCatalogProvider
 from app.llm.gateway import LLMGateway
-from app.llm.providers.anthropic_provider import AnthropicProvider
+from app.llm.providers.codevector_provider import CodeVectorProvider
 from app.llm.providers.fallback_provider import FallbackLLMProvider
-from app.llm.providers.groq_provider import GroqProvider
+from app.llm.providers.gemini_provider import GeminiProvider
 from app.observability.tracing import flush as tracing_flush
 from app.observability.tracing import tracing_status
 from app.orchestration.checkpointer import close_checkpointer, init_checkpointer
@@ -51,27 +51,35 @@ async def lifespan(app: FastAPI):
     else:
         app.state.catalog_provider = None
 
-    anthropic_provider = AnthropicProvider(
-        api_key=settings.anthropic_api_key.get_secret_value(),
-        cheap_model=settings.anthropic_cheap_model,
-        strong_model=settings.anthropic_strong_model,
+    codevector_api_key = settings.active_codevector_api_key
+    codevector_base_url = settings.active_codevector_base_url
+    if not codevector_api_key or not codevector_base_url:
+        raise RuntimeError(
+            "CodeVector/Fision Labs Kimi is the configured primary LLM provider. "
+            "Set CODEVECTOR_API_KEY and CODEVECTOR_BASE_URL, or the FISION_LABS_* / KIMI_* aliases."
+        )
+
+    codevector_provider = CodeVectorProvider(
+        api_key=codevector_api_key.get_secret_value(),
+        base_url=codevector_base_url,
+        cheap_model=settings.active_codevector_cheap_model,
+        strong_model=settings.active_codevector_strong_model,
         timeout_s=settings.llm_request_timeout_s,
-        workspace_id=settings.anthropic_workspace_id,
     )
-    # Groq is a fallback only (see FallbackLLMProvider) — activated automatically
-    # if Anthropic's account runs out of quota/credits. Unset GROQ_API_KEY to
-    # run Anthropic-only.
-    groq_provider = (
-        GroqProvider(
-            api_key=settings.groq_api_key.get_secret_value(),
-            cheap_model=settings.groq_cheap_model,
-            strong_model=settings.groq_strong_model,
+    # Gemini is a fallback only (see FallbackLLMProvider) - activated automatically
+    # if the primary gateway is unavailable/quota-limited. Unset GOOGLE_AI_STUDIO_API_KEY to
+    # run CodeVector-only.
+    gemini_provider = (
+        GeminiProvider(
+            api_key=settings.google_ai_studio_api_key.get_secret_value(),
+            cheap_model=settings.google_ai_studio_cheap_model,
+            strong_model=settings.google_ai_studio_strong_model,
             timeout_s=settings.llm_request_timeout_s,
         )
-        if settings.groq_api_key
+        if settings.google_ai_studio_api_key
         else None
     )
-    provider = FallbackLLMProvider(primary=anthropic_provider, fallback=groq_provider)
+    provider = FallbackLLMProvider(primary=codevector_provider, fallback=gemini_provider)
     app.state.gateway = LLMGateway(
         provider,
         cheap_tier_max_retries=settings.llm_cheap_tier_max_retries,

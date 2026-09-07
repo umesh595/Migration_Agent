@@ -35,8 +35,21 @@ class Settings(BaseSettings):
     bootstrap_admin_email: str | None = Field(default=None, alias="BOOTSTRAP_ADMIN_EMAIL")
     bootstrap_admin_password: SecretStr | None = Field(default=None, alias="BOOTSTRAP_ADMIN_PASSWORD")
 
-    # --- LLM gateway (Anthropic primary; Groq optional fallback) ---
-    anthropic_api_key: SecretStr = Field(alias="ANTHROPIC_API_KEY")
+    # --- LLM gateway (CodeVector/Fision Labs Kimi primary; Gemini optional fallback) ---
+    codevector_api_key: SecretStr | None = Field(default=None, alias="CODEVECTOR_API_KEY")
+    codevector_base_url: str | None = Field(default=None, alias="CODEVECTOR_BASE_URL")
+    codevector_cheap_model: str = Field(default="kimi-k2", alias="CODEVECTOR_CHEAP_MODEL")
+    codevector_strong_model: str = Field(default="kimi-k2", alias="CODEVECTOR_STRONG_MODEL")
+    # Accepted aliases for the same office gateway, so different local .env files
+    # do not need code changes.
+    fision_labs_api_key: SecretStr | None = Field(default=None, alias="FISION_LABS_API_KEY")
+    fision_labs_base_url: str | None = Field(default=None, alias="FISION_LABS_BASE_URL")
+    fision_labs_kimi_model: str | None = Field(default=None, alias="FISION_LABS_KIMI_MODEL")
+    kimi_api_key: SecretStr | None = Field(default=None, alias="KIMI_API_KEY")
+    kimi_base_url: str | None = Field(default=None, alias="KIMI_BASE_URL")
+    kimi_model: str | None = Field(default=None, alias="KIMI_MODEL")
+    # Kept so old .env files continue to load while deployments migrate providers.
+    anthropic_api_key: SecretStr | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     anthropic_cheap_model: str = Field(default="claude-sonnet-5", alias="ANTHROPIC_CHEAP_MODEL")
     anthropic_strong_model: str = Field(default="claude-opus-5", alias="ANTHROPIC_STRONG_MODEL")
     # Only required for an identity-linked API key (one generated from a personal
@@ -55,7 +68,7 @@ class Settings(BaseSettings):
     llm_request_timeout_s: float = Field(default=60.0, alias="LLM_REQUEST_TIMEOUT_S")
     session_token_budget: int = Field(default=1_000_000, alias="SESSION_TOKEN_BUDGET")
 
-    # --- Gemini: optional fallback only, used when Anthropic's API/account is unavailable. ---
+    # --- Gemini: optional fallback only, used when CodeVector's API/account is unavailable. ---
     google_ai_studio_api_key: SecretStr | None = Field(default=None, alias="GOOGLE_AI_STUDIO_API_KEY")
     google_ai_studio_cheap_model: str = Field(default="gemini-2.5-flash", alias="GOOGLE_AI_STUDIO_CHEAP_MODEL")
     google_ai_studio_strong_model: str = Field(default="gemini-2.5-pro", alias="GOOGLE_AI_STUDIO_STRONG_MODEL")
@@ -68,6 +81,22 @@ class Settings(BaseSettings):
     # standard here, not assumed from a model's name or release notes).
     groq_cheap_model: str = Field(default="openai/gpt-oss-20b", alias="GROQ_CHEAP_MODEL")
     groq_strong_model: str = Field(default="openai/gpt-oss-120b", alias="GROQ_STRONG_MODEL")
+
+    @property
+    def active_codevector_api_key(self) -> SecretStr | None:
+        return self.codevector_api_key or self.fision_labs_api_key or self.kimi_api_key
+
+    @property
+    def active_codevector_base_url(self) -> str | None:
+        return self.codevector_base_url or self.fision_labs_base_url or self.kimi_base_url
+
+    @property
+    def active_codevector_cheap_model(self) -> str:
+        return self.fision_labs_kimi_model or self.kimi_model or self.codevector_cheap_model
+
+    @property
+    def active_codevector_strong_model(self) -> str:
+        return self.fision_labs_kimi_model or self.kimi_model or self.codevector_strong_model
 
     # --- Rate limiting ---
     rate_limit_requests_per_minute: int = Field(default=30, alias="RATE_LIMIT_RPM")
