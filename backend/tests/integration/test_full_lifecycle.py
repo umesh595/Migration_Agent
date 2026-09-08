@@ -76,7 +76,7 @@ def _register_discovery(provider) -> None:
     provider.register(
         QuestionGenerationOutput,
         QuestionGenerationOutput(
-            questions=[GeneratedQuestion(text="Which environment does the storefront run in?", related_gap_description="env")],
+            questions=[GeneratedQuestion(text="Which environment does the storefront run in?")],
             narration="A detail or two would help.",
         ),
     )
@@ -96,7 +96,7 @@ def _register_correction(provider) -> None:
     provider.register(
         QuestionGenerationOutput,
         QuestionGenerationOutput(
-            questions=[GeneratedQuestion(text="How critical is the orders API?", related_gap_description="criticality")],
+            questions=[GeneratedQuestion(text="How critical is the orders API?")],
             narration="One more.",
         ),
     )
@@ -311,7 +311,7 @@ async def test_rejected_patch_is_audited_and_narrated_not_silently_dropped(app_c
     provider.register(
         QuestionGenerationOutput,
         QuestionGenerationOutput(
-            questions=[GeneratedQuestion(text="Anything else?", related_gap_description="g")], narration="n"
+            questions=[GeneratedQuestion(text="Anything else?")], narration="n"
         ),
     )
 

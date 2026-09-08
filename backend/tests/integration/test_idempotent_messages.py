@@ -29,7 +29,7 @@ async def test_duplicate_message_id_is_not_reprocessed(app_client, auth_headers)
     )
     provider.register(
         QuestionGenerationOutput,
-        QuestionGenerationOutput(questions=[GeneratedQuestion(text="q", related_gap_description="g")], narration="n"),
+        QuestionGenerationOutput(questions=[GeneratedQuestion(text="q")], narration="n"),
     )
 
     payload = {"message": "We have an API.", "message_id": "same-id-twice"}
@@ -63,7 +63,7 @@ async def test_different_message_ids_both_process(app_client, auth_headers):
     )
     provider.register(
         QuestionGenerationOutput,
-        QuestionGenerationOutput(questions=[GeneratedQuestion(text="q", related_gap_description="g")], narration="n"),
+        QuestionGenerationOutput(questions=[GeneratedQuestion(text="q")], narration="n"),
     )
 
     first = await client.post(

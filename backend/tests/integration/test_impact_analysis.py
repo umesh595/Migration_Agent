@@ -35,7 +35,7 @@ async def test_impact_analysis_returns_upstream_and_downstream(app_client, auth_
     )
     provider.register(
         QuestionGenerationOutput,
-        QuestionGenerationOutput(questions=[GeneratedQuestion(text="q", related_gap_description="g")], narration="n"),
+        QuestionGenerationOutput(questions=[GeneratedQuestion(text="q")], narration="n"),
     )
 
     async with client.stream(

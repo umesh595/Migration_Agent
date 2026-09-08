@@ -100,7 +100,7 @@ async def test_catalog_import_rejected_once_session_has_left_discovery(app_clien
     )
     provider.register(
         QuestionGenerationOutput,
-        QuestionGenerationOutput(questions=[GeneratedQuestion(text="q", related_gap_description="g")], narration="n"),
+        QuestionGenerationOutput(questions=[GeneratedQuestion(text="q")], narration="n"),
     )
     await client.post(
         f"/sessions/{session_id}/messages", headers=auth_headers,

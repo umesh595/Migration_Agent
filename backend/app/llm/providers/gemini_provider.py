@@ -39,14 +39,16 @@ class GeminiProvider(LLMProvider):
         response_model: type[T],
         temperature: float = 0.0,
     ) -> StructuredResponse[T]:
-        schema = response_model.model_json_schema()
+        schema_instruction = (
+            "\n\nRespond with a single JSON object only - no prose, no markdown fences - matching exactly "
+            f"this JSON schema:\n{json.dumps(response_model.model_json_schema())}"
+        )
         payload = {
-            "system_instruction": {"parts": [{"text": normalize_llm_text(system_prompt)}]},
+            "system_instruction": {"parts": [{"text": normalize_llm_text(system_prompt) + schema_instruction}]},
             "contents": [{"role": "user", "parts": [{"text": normalize_llm_text(user_prompt)}]}],
             "generationConfig": {
                 "temperature": temperature,
                 "response_mime_type": "application/json",
-                "response_schema": schema,
             },
         }
 

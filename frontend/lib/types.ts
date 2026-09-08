@@ -309,7 +309,6 @@ export interface RequestImpact {
 
 export interface GeneratedQuestion {
   text: string;
-  related_gap_description: string;
   hypothesis: string;
   answer_options: string[];
 }

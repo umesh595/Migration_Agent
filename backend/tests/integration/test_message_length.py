@@ -29,7 +29,7 @@ async def test_message_up_to_50k_characters_is_accepted(app_client, auth_headers
     )
     provider.register(
         QuestionGenerationOutput,
-        QuestionGenerationOutput(questions=[GeneratedQuestion(text="q", related_gap_description="g")], narration="n"),
+        QuestionGenerationOutput(questions=[GeneratedQuestion(text="q")], narration="n"),
     )
 
     long_message = "# pasted docker-compose.yml\n" + ("service_line: value\n" * 2000)  # well under 50k, over 10k

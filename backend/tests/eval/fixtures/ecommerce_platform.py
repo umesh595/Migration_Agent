@@ -58,15 +58,15 @@ SCRIPTED_PATCH_SETS = [
 
 SCRIPTED_QUESTIONS = [
     QuestionGenerationOutput(
-        questions=[GeneratedQuestion(text="Which environment does the Storefront run in?", related_gap_description="env")],
+        questions=[GeneratedQuestion(text="Which environment does the Storefront run in?")],
         narration="A few details would sharpen this.",
     ),
     QuestionGenerationOutput(
-        questions=[GeneratedQuestion(text="How business-critical is the Orders API?", related_gap_description="criticality")],
+        questions=[GeneratedQuestion(text="How business-critical is the Orders API?")],
         narration="Two more details.",
     ),
     QuestionGenerationOutput(
-        questions=[GeneratedQuestion(text="What does the recommendations service run on?", related_gap_description="tech")],
+        questions=[GeneratedQuestion(text="What does the recommendations service run on?")],
         narration="Last few.",
     ),
 ]

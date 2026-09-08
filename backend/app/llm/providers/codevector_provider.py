@@ -47,35 +47,62 @@ class CodeVectorProvider(LLMProvider):
             "\n\nRespond with a single JSON object only - no prose, no markdown fences - matching exactly "
             f"this JSON schema:\n{json.dumps(response_model.model_json_schema())}"
         )
+        schema_name = response_model.__name__
 
-        try:
-            completion = await self._create_completion(
-                model=model,
-                system_prompt=normalize_llm_text(system_prompt) + schema_instruction,
-                user_prompt=normalize_llm_text(user_prompt),
-                temperature=1.0,
-                use_json_mode=True,
-            )
-        except BadRequestError as exc:
-            body = str(getattr(exc, "body", "") or exc)
-            if "response_format" not in body.lower() and "json" not in body.lower():
-                raise self._classify_api_error(exc) from exc
+        # Three-tier degradation, most-constrained first. `json_schema` (OpenAI's
+        # "Structured Outputs") asks the gateway to constrain token generation itself
+        # against the schema server-side — the same reliability class as Anthropic's
+        # beta.messages.parse(output_format=...), and a real step up from `json_object`
+        # mode, which only guarantees syntactically-valid JSON with no guarantee it
+        # matches OUR schema at all. A weaker/cheaper model benefits from this far more
+        # than a stronger one does, since it's no longer relying purely on prompt-
+        # following to hit the shape — go straight to the ceiling and fall back only
+        # if the gateway actually rejects it, never assume it's unsupported up front.
+        attempts: list[dict] = [
+            {
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {"name": schema_name, "schema": response_model.model_json_schema(), "strict": True},
+                }
+            },
+            {"response_format": {"type": "json_object"}},
+            {},
+        ]
+
+        completion = None
+        last_bad_request: BadRequestError | None = None
+        for i, response_format_kwargs in enumerate(attempts):
             try:
                 completion = await self._create_completion(
                     model=model,
                     system_prompt=normalize_llm_text(system_prompt) + schema_instruction,
                     user_prompt=normalize_llm_text(user_prompt),
-                    temperature=1.0,
-                    use_json_mode=False,
+                    temperature=temperature,
+                    response_format_kwargs=response_format_kwargs,
                 )
-            except (APITimeoutError, APIConnectionError) as retry_exc:
-                raise ProviderRequestError(f"CodeVector request failed: {retry_exc}") from retry_exc
-            except APIError as retry_exc:
-                raise self._classify_api_error(retry_exc) from retry_exc
-        except (APITimeoutError, APIConnectionError) as exc:
-            raise ProviderRequestError(f"CodeVector request failed: {exc}") from exc
-        except APIError as exc:
-            raise self._classify_api_error(exc) from exc
+                break
+            except BadRequestError as exc:
+                last_bad_request = exc
+                body = str(getattr(exc, "body", "") or exc)
+                # A rejection unrelated to response_format/schema support (bad api key,
+                # content policy, etc.) won't be fixed by degrading the format — surface
+                # it immediately instead of burning the remaining fallback tiers on it.
+                if "response_format" not in body.lower() and "json" not in body.lower() and "schema" not in body.lower():
+                    raise self._classify_api_error(exc) from exc
+                if i == len(attempts) - 1:
+                    raise self._classify_api_error(exc) from exc
+                continue
+            except (APITimeoutError, APIConnectionError) as exc:
+                raise ProviderRequestError(f"CodeVector request failed: {exc}") from exc
+            except APIError as exc:
+                raise self._classify_api_error(exc) from exc
+
+        if completion is None:
+            # Unreachable in practice (the loop always either returns or raises), but
+            # keeps the type checker honest and fails loudly instead of silently.
+            raise self._classify_api_error(last_bad_request) if last_bad_request else StructuredOutputError(
+                "CodeVector produced no completion"
+            )
 
         message = completion.choices[0].message
         content = message.content
@@ -106,7 +133,7 @@ class CodeVectorProvider(LLMProvider):
         system_prompt: str,
         user_prompt: str,
         temperature: float,
-        use_json_mode: bool,
+        response_format_kwargs: dict,
     ):
         kwargs = {
             "model": model,
@@ -115,9 +142,8 @@ class CodeVectorProvider(LLMProvider):
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": temperature,
+            **response_format_kwargs,
         }
-        if use_json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
         return await self._client.chat.completions.create(**kwargs)
 
     def _classify_api_error(self, exc: APIError) -> StructuredOutputError:
