@@ -92,11 +92,21 @@ class ProviderQuotaExceededError(StructuredOutputError):
 
 
 class ProviderRequestError(StructuredOutputError):
-    """Raised when the provider API failed before returning usable model output.
-
-    This covers account/API availability failures, transport errors, and timeouts.
-    FallbackLLMProvider can switch providers for these without hiding schema bugs.
-    """
+    """A specific StructuredOutputError subclass: the call failed before the
+    provider ever returned model output at all — connection refused, DNS
+    failure, a timeout, or a non-quota API error status — as opposed to the
+    plain base class, which covers a response that came back but didn't
+    validate against the schema. FallbackLLMProvider treats this the same
+    way it treats ProviderQuotaExceededError (a permanent switch for the
+    process's lifetime), which is deliberate: LLMGateway's own retry budget
+    (several attempts, cheap→strong escalation) has already been exhausted
+    by the time this reaches FallbackLLMProvider at all — a lone transient
+    blip gets absorbed by that retry loop and never surfaces this far, so by
+    the time it does, the primary really isn't serving requests right now,
+    and repeating the same failure on every later call instead of falling
+    over once is strictly worse. Never raised for a schema-validation
+    failure — that stays the plain base class, so a content bug in one
+    provider's output can't look like the provider being down."""
 
 
 class TokenBudgetExceededError(Exception):

@@ -35,23 +35,24 @@ class Settings(BaseSettings):
     bootstrap_admin_email: str | None = Field(default=None, alias="BOOTSTRAP_ADMIN_EMAIL")
     bootstrap_admin_password: SecretStr | None = Field(default=None, alias="BOOTSTRAP_ADMIN_PASSWORD")
 
-    # --- LLM gateway (CodeVector/Fision Labs Kimi primary; Gemini optional fallback) ---
-    codevector_api_key: SecretStr | None = Field(default=None, alias="CODEVECTOR_API_KEY")
-    codevector_base_url: str | None = Field(default=None, alias="CODEVECTOR_BASE_URL")
-    codevector_cheap_model: str = Field(default="kimi-k2", alias="CODEVECTOR_CHEAP_MODEL")
-    codevector_strong_model: str = Field(default="kimi-k2", alias="CODEVECTOR_STRONG_MODEL")
-    # Accepted aliases for the same office gateway, so different local .env files
-    # do not need code changes.
-    fision_labs_api_key: SecretStr | None = Field(default=None, alias="FISION_LABS_API_KEY")
-    fision_labs_base_url: str | None = Field(default=None, alias="FISION_LABS_BASE_URL")
-    fision_labs_kimi_model: str | None = Field(default=None, alias="FISION_LABS_KIMI_MODEL")
-    kimi_api_key: SecretStr | None = Field(default=None, alias="KIMI_API_KEY")
-    kimi_base_url: str | None = Field(default=None, alias="KIMI_BASE_URL")
-    kimi_model: str | None = Field(default=None, alias="KIMI_MODEL")
-    # Kept so old .env files continue to load while deployments migrate providers.
-    anthropic_api_key: SecretStr | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    # --- LLM gateway (Anthropic primary; Gemini, then Groq, then CodeVector/
+    # Fision Labs Kimi as a three-deep optional fallback chain — see
+    # FallbackLLMProvider) ---
+    anthropic_api_key: SecretStr = Field(alias="ANTHROPIC_API_KEY")
     anthropic_cheap_model: str = Field(default="claude-sonnet-5", alias="ANTHROPIC_CHEAP_MODEL")
     anthropic_strong_model: str = Field(default="claude-opus-5", alias="ANTHROPIC_STRONG_MODEL")
+
+    # --- Gemini: optional fallback only, used when Anthropic's account has no
+    # quota/credits left (see FallbackLLMProvider). Round-robins across every
+    # key in the comma-separated list on each call (see GeminiProvider). Leave
+    # GEMINI_API_KEYS unset to skip straight to Groq (or to no fallback at all)
+    # when Anthropic fails. ---
+    # SecretStr per key (not list[str]) so a stray `repr(settings)`/debug log
+    # masks these the same way every other credential on this class already
+    # is — a plain list[str] here would print every key in the clear.
+    gemini_api_keys: Annotated[list[SecretStr] | None, NoDecode] = Field(default=None, alias="GEMINI_API_KEYS")
+    gemini_cheap_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_CHEAP_MODEL")
+    gemini_strong_model: str = Field(default="gemini-2.5-pro", alias="GEMINI_STRONG_MODEL")
     # Only required for an identity-linked API key (one generated from a personal
     # Console profile rather than from inside a specific workspace's own API Keys
     # tab) — such a key can't infer which workspace's budget to bill against, so
@@ -68,12 +69,9 @@ class Settings(BaseSettings):
     llm_request_timeout_s: float = Field(default=60.0, alias="LLM_REQUEST_TIMEOUT_S")
     session_token_budget: int = Field(default=1_000_000, alias="SESSION_TOKEN_BUDGET")
 
-    # --- Gemini: optional fallback only, used when CodeVector's API/account is unavailable. ---
-    google_ai_studio_api_key: SecretStr | None = Field(default=None, alias="GOOGLE_AI_STUDIO_API_KEY")
-    google_ai_studio_cheap_model: str = Field(default="gemini-2.5-flash", alias="GOOGLE_AI_STUDIO_CHEAP_MODEL")
-    google_ai_studio_strong_model: str = Field(default="gemini-2.5-pro", alias="GOOGLE_AI_STUDIO_STRONG_MODEL")
-
-    # --- Groq: legacy optional fallback settings; not wired in main.py now. ---
+    # --- Groq: optional fallback only, used solely when Anthropic's (and, if
+    # configured, Gemini's) account has no quota/credits left (see
+    # FallbackLLMProvider). Leave GROQ_API_KEY unset to disable this stage. ---
     groq_api_key: SecretStr | None = Field(default=None, alias="GROQ_API_KEY")
     # Groq's hosted catalog changes over time and varies by account — verified
     # directly against this project's own Groq account before picking these
@@ -81,6 +79,24 @@ class Settings(BaseSettings):
     # standard here, not assumed from a model's name or release notes).
     groq_cheap_model: str = Field(default="openai/gpt-oss-20b", alias="GROQ_CHEAP_MODEL")
     groq_strong_model: str = Field(default="openai/gpt-oss-120b", alias="GROQ_STRONG_MODEL")
+
+    # --- CodeVector/Fision Labs Kimi: optional fourth (deepest) fallback tier,
+    # used solely when Anthropic, Gemini, and Groq have all failed (see
+    # FallbackLLMProvider). An office-internal OpenAI-compatible gateway, so
+    # it needs both a key and a base URL — leave CODEVECTOR_API_KEY (or its
+    # FISION_LABS_*/KIMI_* aliases below) unset to disable this stage. ---
+    codevector_api_key: SecretStr | None = Field(default=None, alias="CODEVECTOR_API_KEY")
+    codevector_base_url: str | None = Field(default=None, alias="CODEVECTOR_BASE_URL")
+    codevector_cheap_model: str = Field(default="kimi-k2", alias="CODEVECTOR_CHEAP_MODEL")
+    codevector_strong_model: str = Field(default="kimi-k2", alias="CODEVECTOR_STRONG_MODEL")
+    # Accepted aliases for the same office gateway, so different local .env files
+    # do not need code changes.
+    fision_labs_api_key: SecretStr | None = Field(default=None, alias="FISION_LABS_API_KEY")
+    fision_labs_base_url: str | None = Field(default=None, alias="FISION_LABS_BASE_URL")
+    fision_labs_kimi_model: str | None = Field(default=None, alias="FISION_LABS_KIMI_MODEL")
+    kimi_api_key: SecretStr | None = Field(default=None, alias="KIMI_API_KEY")
+    kimi_base_url: str | None = Field(default=None, alias="KIMI_BASE_URL")
+    kimi_model: str | None = Field(default=None, alias="KIMI_MODEL")
 
     @property
     def active_codevector_api_key(self) -> SecretStr | None:
@@ -140,11 +156,22 @@ class Settings(BaseSettings):
         default_factory=lambda: ["http://localhost:3000"], alias="CORS_ALLOW_ORIGINS"
     )
 
+    @staticmethod
+    def _split_csv(v: str) -> list[str]:
+        return [item.strip() for item in v.split(",") if item.strip()]
+
     @field_validator("cors_allow_origins", mode="before")
     @classmethod
     def _split_origins(cls, v: object) -> object:
         if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
+            return cls._split_csv(v)
+        return v
+
+    @field_validator("gemini_api_keys", mode="before")
+    @classmethod
+    def _split_gemini_keys(cls, v: object) -> object:
+        if isinstance(v, str):
+            return [SecretStr(key) for key in cls._split_csv(v)] or None
         return v
 
     @model_validator(mode="after")

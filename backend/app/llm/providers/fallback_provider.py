@@ -1,11 +1,12 @@
 """Wraps a primary and an optional secondary LLMProvider so a quota/credits
-exhaustion on the primary switches to the secondary — without the gateway,
-graph nodes, or any prompt ever knowing a fallback exists (matches the
-extensibility boundary LLMProvider's own docstring already commits to).
+exhaustion, or the primary being genuinely unreachable, switches to the
+secondary — without the gateway, graph nodes, or any prompt ever knowing a
+fallback exists (matches the extensibility boundary LLMProvider's own
+docstring already commits to).
 
-The configured provider stays primary; this exists only to keep the app usable
-when that provider is unavailable or out of credits. The switch
-is sticky and permanent for this process's lifetime —
+Anthropic stays the primary; this exists only to keep the app usable when its
+account runs out of credits or it's down, not to run a multi-provider
+strategy. The switch is sticky and permanent for this process's lifetime —
 once the primary has proven it can't serve a request, there's no value in
 re-trying it on the next call only to pay the same failure again.
 """
@@ -70,7 +71,7 @@ class FallbackLLMProvider(LLMProvider):
             if self._fallback is None:
                 raise
             logger.error(
-                "primary LLM provider quota/credits exhausted (%s) — switching to the fallback provider "
+                "primary LLM provider unavailable (%s) — switching to the fallback provider "
                 "for the rest of this process",
                 exc,
             )

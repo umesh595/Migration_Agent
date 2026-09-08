@@ -1,7 +1,7 @@
 """Permanent live-conversation eval suite (technique #16, extended to the LLM
 boundary itself): scripted multi-turn conversations, taken directly from
 real director/lead test transcripts and live-reported bugs this project has
-hit, run against the REAL discovery graph (real CodeVector/Kimi calls) and asserted
+hit, run against the REAL discovery graph (real Anthropic calls) and asserted
 against concrete, structural outcomes.
 
 This is deliberately NOT part of the default fast suite — test_golden_fixture.py
@@ -26,7 +26,7 @@ import pytest
 from app.config import get_settings
 from app.core.request_intelligence import classify_user_request
 from app.llm.gateway import LLMGateway, SessionTokenMeter
-from app.llm.providers.codevector_provider import CodeVectorProvider
+from app.llm.providers.anthropic_provider import AnthropicProvider
 from app.orchestration.graph import build_discovery_graph
 from app.orchestration.state import Stage
 from app.schemas.architecture import ArchitectureModel, AssumptionStatus, Environment
@@ -35,7 +35,7 @@ pytestmark = pytest.mark.live_smoke
 
 
 def _real_env_value(key: str) -> str | None:
-    """tests/conftest.py deliberately sets dummy CodeVector settings (via
+    """tests/conftest.py deliberately sets a dummy ANTHROPIC_API_KEY (via
     os.environ.setdefault) so an accidentally-unmocked LLM call fails loudly
     in the normal suite instead of silently hitting the real API. This suite
     is the one place that's supposed to hit the real API, so it reads real
@@ -50,12 +50,11 @@ def _real_env_value(key: str) -> str | None:
     return None
 
 
-def _real_first_env_value(*keys: str) -> str:
-    for key in keys:
-        value = _real_env_value(key)
-        if value:
-            return value
-    raise RuntimeError(f"None of {', '.join(keys)} found (or empty) in .env")
+def _real_anthropic_api_key() -> str:
+    value = _real_env_value("ANTHROPIC_API_KEY")
+    if not value:
+        raise RuntimeError("ANTHROPIC_API_KEY not found (or empty) in .env")
+    return value
 
 
 async def _run_turns(turns: list[str]) -> tuple[ArchitectureModel, list[list[str]]]:
@@ -64,11 +63,11 @@ async def _run_turns(turns: list[str]) -> tuple[ArchitectureModel, list[list[str
     way the API layer does — see app/api/routers/sessions.py's post_message."""
 
     settings = get_settings()
-    provider = CodeVectorProvider(
-        api_key=_real_first_env_value("CODEVECTOR_API_KEY", "FISION_LABS_API_KEY", "KIMI_API_KEY"),
-        base_url=_real_first_env_value("CODEVECTOR_BASE_URL", "FISION_LABS_BASE_URL", "KIMI_BASE_URL"),
-        cheap_model=settings.active_codevector_cheap_model,
-        strong_model=settings.active_codevector_strong_model,
+    provider = AnthropicProvider(
+        api_key=_real_anthropic_api_key(),
+        cheap_model=settings.anthropic_cheap_model,
+        strong_model=settings.anthropic_strong_model,
+        workspace_id=_real_env_value("ANTHROPIC_WORKSPACE_ID"),
     )
     gateway = LLMGateway(provider)
     meter = SessionTokenMeter(budget=2_000_000)

@@ -12,9 +12,11 @@ from app.config import get_settings
 from app.db.session import AsyncSessionLocal
 from app.integrations.rest_catalog_provider import RestCatalogProvider
 from app.llm.gateway import LLMGateway
+from app.llm.providers.anthropic_provider import AnthropicProvider
 from app.llm.providers.codevector_provider import CodeVectorProvider
 from app.llm.providers.fallback_provider import FallbackLLMProvider
 from app.llm.providers.gemini_provider import GeminiProvider
+from app.llm.providers.groq_provider import GroqProvider
 from app.observability.tracing import flush as tracing_flush
 from app.observability.tracing import tracing_status
 from app.orchestration.checkpointer import close_checkpointer, init_checkpointer
@@ -51,38 +53,80 @@ async def lifespan(app: FastAPI):
     else:
         app.state.catalog_provider = None
 
-    codevector_api_key = settings.active_codevector_api_key
-    codevector_base_url = settings.active_codevector_base_url
-    if not codevector_api_key or not codevector_base_url:
-        raise RuntimeError(
-            "CodeVector/Fision Labs Kimi is the configured primary LLM provider. "
-            "Set CODEVECTOR_API_KEY and CODEVECTOR_BASE_URL, or the FISION_LABS_* / KIMI_* aliases."
-        )
-
-    codevector_provider = CodeVectorProvider(
-        api_key=codevector_api_key.get_secret_value(),
-        base_url=codevector_base_url,
-        cheap_model=settings.active_codevector_cheap_model,
-        strong_model=settings.active_codevector_strong_model,
+    anthropic_provider = AnthropicProvider(
+        api_key=settings.anthropic_api_key.get_secret_value(),
+        cheap_model=settings.anthropic_cheap_model,
+        strong_model=settings.anthropic_strong_model,
         timeout_s=settings.llm_request_timeout_s,
+        workspace_id=settings.anthropic_workspace_id,
     )
-    # Gemini is a fallback only (see FallbackLLMProvider) - activated automatically
-    # if the primary gateway is unavailable/quota-limited. Unset GOOGLE_AI_STUDIO_API_KEY to
-    # run CodeVector-only.
+    # Gemini, Groq, and CodeVector/Fision Labs Kimi are an optional, ordered
+    # fallback chain behind Anthropic, unwound in that order only once the
+    # tier ahead of it has no quota/credits left (see FallbackLLMProvider).
+    # Unset a stage's key to skip it.
     gemini_provider = (
         GeminiProvider(
-            api_key=settings.google_ai_studio_api_key.get_secret_value(),
-            cheap_model=settings.google_ai_studio_cheap_model,
-            strong_model=settings.google_ai_studio_strong_model,
+            api_keys=[key.get_secret_value() for key in settings.gemini_api_keys],
+            cheap_model=settings.gemini_cheap_model,
+            strong_model=settings.gemini_strong_model,
             timeout_s=settings.llm_request_timeout_s,
         )
-        if settings.google_ai_studio_api_key
+        if settings.gemini_api_keys
         else None
     )
-    provider = FallbackLLMProvider(primary=codevector_provider, fallback=gemini_provider)
+    groq_provider = (
+        GroqProvider(
+            api_key=settings.groq_api_key.get_secret_value(),
+            cheap_model=settings.groq_cheap_model,
+            strong_model=settings.groq_strong_model,
+            timeout_s=settings.llm_request_timeout_s,
+        )
+        if settings.groq_api_key
+        else None
+    )
+    codevector_api_key = settings.active_codevector_api_key
+    codevector_base_url = settings.active_codevector_base_url
+    codevector_provider = (
+        CodeVectorProvider(
+            api_key=codevector_api_key.get_secret_value(),
+            base_url=codevector_base_url,
+            cheap_model=settings.active_codevector_cheap_model,
+            strong_model=settings.active_codevector_strong_model,
+            timeout_s=settings.llm_request_timeout_s,
+        )
+        if codevector_api_key and codevector_base_url
+        else None
+    )
+
+    # Fold the configured optional tiers right-to-left behind Anthropic —
+    # FallbackLLMProvider(primary=anthropic, fallback=FallbackLLMProvider(
+    # primary=gemini, fallback=FallbackLLMProvider(primary=groq,
+    # fallback=codevector))) when all three are configured — without
+    # hand-nesting a conditional per tier, so a further provider is one more
+    # list entry rather than another manually-nested ternary.
+    optional_fallback_tiers = [tier for tier in (gemini_provider, groq_provider, codevector_provider) if tier is not None]
+    accumulated_fallback = None
+    for tier in reversed(optional_fallback_tiers):
+        accumulated_fallback = (
+            tier if accumulated_fallback is None else FallbackLLMProvider(primary=tier, fallback=accumulated_fallback)
+        )
+    provider = (
+        anthropic_provider
+        if accumulated_fallback is None
+        else FallbackLLMProvider(primary=anthropic_provider, fallback=accumulated_fallback)
+    )
+
+    # Each optional tier past the first costs one gateway attempt to switch
+    # into (FallbackLLMProvider forces a retry to move the active provider —
+    # see its own docstring), so the cheap tier's retry budget — tuned for a
+    # single provider with no fallback chain — needs one extra attempt per
+    # configured fallback tier or it can exhaust itself switching providers
+    # before ever reaching the last one, silently escalating to the strong
+    # tier instead of actually trying it.
+    effective_cheap_tier_max_retries = settings.llm_cheap_tier_max_retries + len(optional_fallback_tiers)
     app.state.gateway = LLMGateway(
         provider,
-        cheap_tier_max_retries=settings.llm_cheap_tier_max_retries,
+        cheap_tier_max_retries=effective_cheap_tier_max_retries,
         strong_tier_max_retries=settings.llm_strong_tier_max_retries,
     )
 

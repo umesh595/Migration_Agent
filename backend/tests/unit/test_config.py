@@ -14,8 +14,7 @@ from app.config import Settings
 
 _BASE = {
     "DATABASE_URL": "postgresql+psycopg://u:p@localhost:5432/db",
-    "CODEVECTOR_API_KEY": "codevector-test",
-    "CODEVECTOR_BASE_URL": "https://codevector.example.invalid/v1",
+    "ANTHROPIC_API_KEY": "sk-ant-test",
 }
 
 
@@ -60,11 +59,32 @@ def test_development_tolerates_weak_secret_for_local_convenience():
     assert settings.env == "development"
 
 
+def test_comma_separated_gemini_keys_parse_without_json_decoding():
+    settings = _settings(JWT_SECRET="x" * 40, GEMINI_API_KEYS="key-a, key-b, key-c")
+    assert [k.get_secret_value() for k in settings.gemini_api_keys] == ["key-a", "key-b", "key-c"]
+
+
+def test_gemini_keys_are_masked_like_every_other_credential():
+    """Each key is a SecretStr, not a plain str — repr()/logging must not leak
+    it, the same guarantee anthropic_api_key/groq_api_key already have."""
+    settings = _settings(JWT_SECRET="x" * 40, GEMINI_API_KEYS="super-secret-key")
+    assert "super-secret-key" not in repr(settings.gemini_api_keys)
+    assert "super-secret-key" not in str(settings.gemini_api_keys)
+
+
+def test_gemini_keys_unset_by_default():
+    settings = _settings(JWT_SECRET="x" * 40)
+    assert settings.gemini_api_keys is None
+
+
+def test_empty_gemini_keys_normalizes_to_unset():
+    settings = _settings(JWT_SECRET="x" * 40, GEMINI_API_KEYS="")
+    assert settings.gemini_api_keys is None
+
+
 def test_codevector_accepts_fision_labs_aliases():
     settings = _settings(
         JWT_SECRET="x" * 40,
-        CODEVECTOR_API_KEY=None,
-        CODEVECTOR_BASE_URL=None,
         FISION_LABS_API_KEY="fision-test",
         FISION_LABS_BASE_URL="https://fision.example.invalid/v1",
         FISION_LABS_KIMI_MODEL="kimi-office",
@@ -73,3 +93,9 @@ def test_codevector_accepts_fision_labs_aliases():
     assert settings.active_codevector_base_url == "https://fision.example.invalid/v1"
     assert settings.active_codevector_cheap_model == "kimi-office"
     assert settings.active_codevector_strong_model == "kimi-office"
+
+
+def test_codevector_unset_by_default():
+    settings = _settings(JWT_SECRET="x" * 40)
+    assert settings.active_codevector_api_key is None
+    assert settings.active_codevector_base_url is None

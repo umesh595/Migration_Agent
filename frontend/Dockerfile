@@ -1,7 +1,7 @@
 # NEXT_PUBLIC_* vars are inlined into the client bundle at build time, so the API
 # base URL must be a build arg, not a runtime env var — by the time a container
 # starts, it's too late to change what already got baked into the JS.
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /app
 
 ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
@@ -13,7 +13,7 @@ RUN npm install
 COPY . .
 RUN npm run build
 
-FROM node:20-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
