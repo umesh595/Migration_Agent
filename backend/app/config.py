@@ -35,8 +35,9 @@ class Settings(BaseSettings):
     bootstrap_admin_email: str | None = Field(default=None, alias="BOOTSTRAP_ADMIN_EMAIL")
     bootstrap_admin_password: SecretStr | None = Field(default=None, alias="BOOTSTRAP_ADMIN_PASSWORD")
 
-    # --- LLM gateway (Anthropic primary; Gemini then Groq as a two-deep
-    # optional fallback chain — see FallbackLLMProvider) ---
+    # --- LLM gateway (Anthropic primary; Gemini, then Groq, then CodeVector/
+    # Fision Labs Kimi as a three-deep optional fallback chain — see
+    # FallbackLLMProvider) ---
     anthropic_api_key: SecretStr = Field(alias="ANTHROPIC_API_KEY")
     anthropic_cheap_model: str = Field(default="claude-sonnet-5", alias="ANTHROPIC_CHEAP_MODEL")
     anthropic_strong_model: str = Field(default="claude-opus-5", alias="ANTHROPIC_STRONG_MODEL")
@@ -78,6 +79,40 @@ class Settings(BaseSettings):
     # standard here, not assumed from a model's name or release notes).
     groq_cheap_model: str = Field(default="openai/gpt-oss-20b", alias="GROQ_CHEAP_MODEL")
     groq_strong_model: str = Field(default="openai/gpt-oss-120b", alias="GROQ_STRONG_MODEL")
+
+    # --- CodeVector/Fision Labs Kimi: optional fourth (deepest) fallback tier,
+    # used solely when Anthropic, Gemini, and Groq have all failed (see
+    # FallbackLLMProvider). An office-internal OpenAI-compatible gateway, so
+    # it needs both a key and a base URL — leave CODEVECTOR_API_KEY (or its
+    # FISION_LABS_*/KIMI_* aliases below) unset to disable this stage. ---
+    codevector_api_key: SecretStr | None = Field(default=None, alias="CODEVECTOR_API_KEY")
+    codevector_base_url: str | None = Field(default=None, alias="CODEVECTOR_BASE_URL")
+    codevector_cheap_model: str = Field(default="kimi-k2", alias="CODEVECTOR_CHEAP_MODEL")
+    codevector_strong_model: str = Field(default="kimi-k2", alias="CODEVECTOR_STRONG_MODEL")
+    # Accepted aliases for the same office gateway, so different local .env files
+    # do not need code changes.
+    fision_labs_api_key: SecretStr | None = Field(default=None, alias="FISION_LABS_API_KEY")
+    fision_labs_base_url: str | None = Field(default=None, alias="FISION_LABS_BASE_URL")
+    fision_labs_kimi_model: str | None = Field(default=None, alias="FISION_LABS_KIMI_MODEL")
+    kimi_api_key: SecretStr | None = Field(default=None, alias="KIMI_API_KEY")
+    kimi_base_url: str | None = Field(default=None, alias="KIMI_BASE_URL")
+    kimi_model: str | None = Field(default=None, alias="KIMI_MODEL")
+
+    @property
+    def active_codevector_api_key(self) -> SecretStr | None:
+        return self.codevector_api_key or self.fision_labs_api_key or self.kimi_api_key
+
+    @property
+    def active_codevector_base_url(self) -> str | None:
+        return self.codevector_base_url or self.fision_labs_base_url or self.kimi_base_url
+
+    @property
+    def active_codevector_cheap_model(self) -> str:
+        return self.fision_labs_kimi_model or self.kimi_model or self.codevector_cheap_model
+
+    @property
+    def active_codevector_strong_model(self) -> str:
+        return self.fision_labs_kimi_model or self.kimi_model or self.codevector_strong_model
 
     # --- Rate limiting ---
     rate_limit_requests_per_minute: int = Field(default=30, alias="RATE_LIMIT_RPM")

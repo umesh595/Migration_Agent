@@ -13,6 +13,7 @@ from app.db.session import AsyncSessionLocal
 from app.integrations.rest_catalog_provider import RestCatalogProvider
 from app.llm.gateway import LLMGateway
 from app.llm.providers.anthropic_provider import AnthropicProvider
+from app.llm.providers.codevector_provider import CodeVectorProvider
 from app.llm.providers.fallback_provider import FallbackLLMProvider
 from app.llm.providers.gemini_provider import GeminiProvider
 from app.llm.providers.groq_provider import GroqProvider
@@ -59,9 +60,10 @@ async def lifespan(app: FastAPI):
         timeout_s=settings.llm_request_timeout_s,
         workspace_id=settings.anthropic_workspace_id,
     )
-    # Gemini and Groq are an optional, ordered fallback chain behind Anthropic,
-    # unwound in that order only once the tier ahead of it has no quota/credits
-    # left (see FallbackLLMProvider). Unset either key to skip that stage.
+    # Gemini, Groq, and CodeVector/Fision Labs Kimi are an optional, ordered
+    # fallback chain behind Anthropic, unwound in that order only once the
+    # tier ahead of it has no quota/credits left (see FallbackLLMProvider).
+    # Unset a stage's key to skip it.
     gemini_provider = (
         GeminiProvider(
             api_keys=[key.get_secret_value() for key in settings.gemini_api_keys],
@@ -82,16 +84,32 @@ async def lifespan(app: FastAPI):
         if settings.groq_api_key
         else None
     )
+    codevector_api_key = settings.active_codevector_api_key
+    codevector_base_url = settings.active_codevector_base_url
+    codevector_provider = (
+        CodeVectorProvider(
+            api_key=codevector_api_key.get_secret_value(),
+            base_url=codevector_base_url,
+            cheap_model=settings.active_codevector_cheap_model,
+            strong_model=settings.active_codevector_strong_model,
+            timeout_s=settings.llm_request_timeout_s,
+        )
+        if codevector_api_key and codevector_base_url
+        else None
+    )
 
     # Fold the configured optional tiers right-to-left behind Anthropic —
     # FallbackLLMProvider(primary=anthropic, fallback=FallbackLLMProvider(
-    # primary=gemini, fallback=groq)) when both are configured — without
-    # hand-nesting a conditional per tier, so a future fourth provider is one
-    # more list entry rather than another manually-nested ternary.
-    optional_fallback_tiers = [tier for tier in (gemini_provider, groq_provider) if tier is not None]
+    # primary=gemini, fallback=FallbackLLMProvider(primary=groq,
+    # fallback=codevector))) when all three are configured — without
+    # hand-nesting a conditional per tier, so a further provider is one more
+    # list entry rather than another manually-nested ternary.
+    optional_fallback_tiers = [tier for tier in (gemini_provider, groq_provider, codevector_provider) if tier is not None]
     accumulated_fallback = None
     for tier in reversed(optional_fallback_tiers):
-        accumulated_fallback = tier if accumulated_fallback is None else FallbackLLMProvider(primary=tier, fallback=accumulated_fallback)
+        accumulated_fallback = (
+            tier if accumulated_fallback is None else FallbackLLMProvider(primary=tier, fallback=accumulated_fallback)
+        )
     provider = (
         anthropic_provider
         if accumulated_fallback is None

@@ -80,3 +80,22 @@ def test_gemini_keys_unset_by_default():
 def test_empty_gemini_keys_normalizes_to_unset():
     settings = _settings(JWT_SECRET="x" * 40, GEMINI_API_KEYS="")
     assert settings.gemini_api_keys is None
+
+
+def test_codevector_accepts_fision_labs_aliases():
+    settings = _settings(
+        JWT_SECRET="x" * 40,
+        FISION_LABS_API_KEY="fision-test",
+        FISION_LABS_BASE_URL="https://fision.example.invalid/v1",
+        FISION_LABS_KIMI_MODEL="kimi-office",
+    )
+    assert settings.active_codevector_api_key is not None
+    assert settings.active_codevector_base_url == "https://fision.example.invalid/v1"
+    assert settings.active_codevector_cheap_model == "kimi-office"
+    assert settings.active_codevector_strong_model == "kimi-office"
+
+
+def test_codevector_unset_by_default():
+    settings = _settings(JWT_SECRET="x" * 40)
+    assert settings.active_codevector_api_key is None
+    assert settings.active_codevector_base_url is None
