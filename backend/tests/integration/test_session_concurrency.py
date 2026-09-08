@@ -38,7 +38,7 @@ async def test_concurrent_turns_on_same_session_one_is_rejected_not_racing(app_c
         )
         provider.register(
             QuestionGenerationOutput,
-            QuestionGenerationOutput(questions=[GeneratedQuestion(text="q", related_gap_description="g")], narration="n"),
+            QuestionGenerationOutput(questions=[GeneratedQuestion(text="q")], narration="n"),
         )
 
     async def send(message_id: str):
@@ -69,7 +69,7 @@ async def test_lock_is_released_after_a_turn_so_the_next_sequential_turn_succeed
     )
     provider.register(
         QuestionGenerationOutput,
-        QuestionGenerationOutput(questions=[GeneratedQuestion(text="q", related_gap_description="g")], narration="n"),
+        QuestionGenerationOutput(questions=[GeneratedQuestion(text="q")], narration="n"),
     )
 
     first = await client.post(
@@ -84,7 +84,7 @@ async def test_lock_is_released_after_a_turn_so_the_next_sequential_turn_succeed
     )
     provider.register(
         QuestionGenerationOutput,
-        QuestionGenerationOutput(questions=[GeneratedQuestion(text="q2", related_gap_description="g2")], narration="n"),
+        QuestionGenerationOutput(questions=[GeneratedQuestion(text="q2")], narration="n"),
     )
 
     # A second, sequential (non-overlapping) turn must succeed — the lock from

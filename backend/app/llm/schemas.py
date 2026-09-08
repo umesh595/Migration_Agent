@@ -16,7 +16,6 @@ from app.schemas.migration_plan import EfficiencyBreakdown, EffortBreakdown, Sev
 
 class GeneratedQuestion(BaseModel):
     text: str
-    related_gap_description: str = Field(description="Echo of the Gap.description this question addresses.")
     hypothesis: str = Field(
         default="",
         description="A concrete, reasoned best guess when the model/context gives enough to propose one "

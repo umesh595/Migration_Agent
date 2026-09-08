@@ -209,7 +209,7 @@ class TestSeniorArchitectPromptBehavior:
     def test_ingest_prompt_requires_intent_classification_before_patching(self):
         prompt = get_prompt("ingest_patches")
 
-        assert prompt.version == "v22"
+        assert prompt.version == "v23"
         assert "FIRST, CLASSIFY THE USER'S INTENT BEFORE PATCHING" in prompt.system
         assert "HIGH-IMPACT ARCHITECTURE DECISION" in prompt.system
         assert "NEW UNSCOPED BUSINESS CAPABILITY" in prompt.system
@@ -231,7 +231,7 @@ class TestSeniorArchitectPromptBehavior:
     def test_question_prompt_filters_out_low_value_form_questions(self):
         prompt = get_prompt("generate_questions")
 
-        assert prompt.version == "v9"
+        assert prompt.version == "v10"
         assert "Never use generic boilerplate" in prompt.system
         assert "Would a different answer change wave order" in prompt.system
         assert "do not enumerate all component names" in prompt.system
@@ -336,6 +336,49 @@ class TestSeniorArchitectPromptBehavior:
         assert "zero downtime" in prompt.system
         assert "Do NOT flag" in prompt.system
         assert "a hedge (\"maybe X\") followed by" in prompt.system
+
+    def test_high_impact_replatform_confirmation_is_crisp_not_a_wall_of_text(self):
+        """Regression test for a real bad-output live with a weaker model: the
+        high-impact-replatform confirmation question used to instruct dumping
+        effort/cost/testing/rollback/team-skill impact into one paragraph,
+        which produced exactly the wall-of-text confirmation this system
+        exists to avoid. The rule must now mirror generate_questions' own
+        one-question-plus-one-consequence discipline instead."""
+
+        prompt = get_prompt("ingest_patches")
+
+        assert prompt.version == "v23"
+        assert "NEVER a paragraph enumerating every impact" in prompt.system
+        assert "exactly two sentences" in prompt.system
+        assert "SINGLE biggest consequence of this specific change" in prompt.system
+
+    def test_question_prompt_reasons_in_known_unknown_blocker_buckets(self):
+        """Question Prioritizer upgrade: the model must silently triage gaps into
+        known/unknown/blocker-tier before writing anything, and only blocker-tier
+        unknowns (ones that would change which migration strategy is even
+        viable) become primary questions — not every computed gap treated as
+        equally urgent."""
+
+        prompt = get_prompt("generate_questions")
+
+        assert prompt.version == "v10"
+        assert "REASON IN THREE BUCKETS BEFORE WRITING ANYTHING" in prompt.system
+        assert "BLOCKER is the subset of UNKNOWN" in prompt.system
+        assert "NAMES THE DECISION IT UNLOCKS" in prompt.system
+
+    def test_question_prompt_forbids_echoing_the_gap_description_verbatim(self):
+        """Regression test for a real bad-output live with a weaker model: a
+        gap's `description` carries reasoning guidance for the LLM (e.g. how to
+        frame a question) and was observed leaking through verbatim as the
+        user-facing question text when a weaker model failed to translate it.
+        The prompt must explicitly forbid this and give the model a concrete
+        self-check to catch it before returning."""
+
+        prompt = get_prompt("generate_questions")
+
+        assert "NEVER COPY A GAP'S OWN WORDING INTO THE QUESTION YOU RETURN" in prompt.system
+        assert "BEFORE RETURNING, SILENTLY VERIFY EVERY QUESTION AGAINST THIS CHECKLIST" in prompt.system
+        assert "talk ABOUT gaps" in prompt.system
 
 
 class TestTokenBudget:

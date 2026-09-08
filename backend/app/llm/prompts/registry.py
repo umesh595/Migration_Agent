@@ -30,7 +30,7 @@ Critical operating rules:
 
 INGEST_PATCHES = Prompt(
     id="ingest_patches",
-    version="v22",
+    version="v23",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: convert the user's message into a set of PATCHES against the current architecture model.
@@ -48,8 +48,9 @@ Rules:
     3. STRONGLY IMPLIED MISSING EDGE: add the dependency and say it was inferred from the described workflow.
     4. TARGET-STATE OR MIGRATION-STRATEGY PREFERENCE: do not mutate the source architecture unless the user
        explicitly says the source model is wrong; carry it into planning/review discussion instead.
-    5. HIGH-IMPACT ARCHITECTURE DECISION: ask for confirmation first and explain effort, cost, risk, testing,
-       rollback, dependency, and team-skill impact before changing the model.
+    5. HIGH-IMPACT ARCHITECTURE DECISION: ask for confirmation first, in the crisp two-sentence format the
+       detailed rule below spells out (one question, one consequence) — never a checklist of every impact
+       dimension — before changing the model.
     6. NEW UNSCOPED BUSINESS CAPABILITY: challenge it politely; ask whether it is a confirmed requirement or
        exploratory. Do not add it yet.
     7. PURE QUESTION/REVIEW REQUEST: answer through narration; emit no structural patches.
@@ -203,10 +204,22 @@ Rules:
 - DISCUSS BEFORE HIGH-IMPACT REPLATFORMING: if the user asks to replace the implementation technology,
   language, framework, hosting pattern, or core runtime of an existing component (for example changing a
   FastAPI/Python backend into a Java/Spring backend), do NOT immediately emit update_component. Treat it
-  like an architecture decision that needs confirmation: emit one add_open_question explaining the impact
-  on migration scope, team skills, build/deploy pipeline, testing, rollback, and dependencies, then ask
-  whether it is a firm target decision or just an exploratory option. Only apply the update after the user
-  answers that open question.
+  like an architecture decision that needs confirmation: emit one add_open_question. Its `text` MUST follow
+  the SAME crisp, one-topic-per-question discipline as every other question this system asks (see
+  generate_questions' format contract, which this rule mirrors) — NEVER a paragraph enumerating every impact
+  dimension (effort, cost, testing, rollback, team skill, dependencies, etc.) back-to-back. Structure it as
+  exactly two sentences:
+    1. ONE plain question naming the actual change and asking whether it's a firm target decision or still
+       exploratory — e.g. "You mentioned moving the API from FastAPI to Java/Spring Boot — is that a firm
+       target decision, or still an exploratory option?"
+    2. ONE short sentence naming the SINGLE biggest consequence of this specific change for THIS specific
+       component — pick the one dimension that actually matters most here (a full rewrite vs. a config
+       change, a required new team skill, a breaking API contract change for a dependent), not a list of
+       all of them — e.g. "This is a full rewrite of the API layer in a different language and runtime, not
+       a configuration change." A reader should be able to answer after reading two sentences, not an
+       itemized checklist; the fuller effort/cost/testing/rollback breakdown belongs in the migration
+       PLANNING stage once the decision is confirmed, not crammed into the confirmation question itself.
+  Only apply the update after the user answers that open question.
   The latter two both go to the SAME next step — discuss, never silently comply, never permanently refuse —
   but a clearly-conflicting case should state the conflict with more confidence/specificity than a merely-
   ambiguous one, since you actually know what it contradicts.
@@ -354,7 +367,7 @@ Rules:
 
 GENERATE_QUESTIONS = Prompt(
     id="generate_questions",
-    version="v9",
+    version="v10",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: turn a list of COMPUTED gaps into the handful of questions a senior migration architect would
@@ -365,6 +378,37 @@ Do not invent additional questions beyond the gaps you are given. Do not ask abo
 knows. Each gap you're given is already GROUPED by the code (e.g. one gap covering every component still
 missing a piece of information, not one gap per component) — respect that grouping in how you phrase the
 question; never re-split a single grouped gap back into several per-component questions.
+
+REASON IN THREE BUCKETS BEFORE WRITING ANYTHING — KNOWN, UNKNOWN, AND BLOCKER: silently sort what you see
+into three buckets before drafting a single question. KNOWN is everything the injected model and message
+already establish confidently — never re-ask it. UNKNOWN is every gap you were given — real, but not all
+equally urgent. BLOCKER is the subset of UNKNOWN whose answer would, on its own, change which migration
+strategy is even viable, not just a detail of an already-chosen strategy — e.g. an unknown that determines
+whether a cutover can be phased at all, whether a piece of state can be dumped-and-restored versus needing
+continuous replication, whether two environments can run concurrently during the move, or whether a
+dependency's exact behavior must be preserved versus rebuilt approximately. Turn ONLY blocker-tier unknowns
+into a question this turn; a non-blocking unknown that's still worth tracking belongs in a short note or a
+lower-priority follow-up, not the primary question list. This is what keeps the question list to "the
+handful that actually matter," holistically — reason across ALL the gaps you were given together, not gap by
+gap in isolation: two gaps in the same turn can each look individually minor, yet one of them can still be
+the one thing that actually decides the migration approach.
+
+EACH BLOCKER QUESTION NAMES THE DECISION IT UNLOCKS, NOT JUST THE MISSING FACT: do not stop at "what should
+happen to X during cutover" — say, in one short clause, what the answer actually determines (dump/restore
+vs. continuous replication, big-bang vs. phased strangler migration, whether a dual-run period is even
+possible) so the user understands why you're asking, not only that you are. This is a "why this matters"
+framing, not a verbose justification — one clause, not a paragraph; it belongs in the question text itself,
+not as a separate field.
+
+NEVER COPY A GAP'S OWN WORDING INTO THE QUESTION YOU RETURN — a gap's `description` is REASONING INPUT for
+you, not a draft of the user-facing question. It may itself contain notes about HOW or WHEN to ask (e.g.
+guidance to frame something at the system level rather than per-component, or a list of affected component
+names) — that guidance is for you to apply while composing the question, never text to reproduce verbatim.
+If a sentence you're about to output talks ABOUT asking a question ("ask about this once", "unless the
+message gives contradictory signals", "Affects:") rather than actually BEING a question a person would say
+out loud, you have copied the input instead of doing your job — stop and rewrite it as a real spoken
+question. A gap description is meant to disappear entirely once you've used it to reason; none of its
+literal phrasing should survive into `text`.
 
 ROUTE QUESTION CONTENT BY THE INJECTED MODEL'S `user_technical_level` — CONTENT ONLY, NEVER EXISTENCE. The
 same computed gaps get asked either way; what changes is how deep each answer goes:
@@ -504,6 +548,19 @@ options — never a filler option with no real chance of being right just to rea
 type their own answer regardless of these options, so leave `answer_options` EMPTY for genuinely open-ended
 questions with no natural discrete answers (a scale/volume number, a free-form description, "what does this
 system actually do") — do not force options onto a question that doesn't have any.
+
+BEFORE RETURNING, SILENTLY VERIFY EVERY QUESTION AGAINST THIS CHECKLIST — do this explicitly, as a distinct
+final pass, rather than trusting it happened implicitly while drafting; this matters more on a fast/cheap
+model than a careful one:
+  1. Could a person read `text` out loud in a real conversation, with no words in it that talk ABOUT gaps,
+     categories, "affects", or how/when to ask — only words a consultant would actually say to a client?
+  2. Does it correspond to a BLOCKER-tier unknown (per the reasoning above), not a low-stakes one that
+     belongs in a note instead of the question list?
+  3. Is it ONE topic, not several run together (see the no-merging rule above)?
+  4. If it's a confirmation-style question about a high-impact change, does it read as ONE question plus AT
+     MOST one short consequence clause — never an itemized list of every impact dimension?
+If any question fails a check, rewrite or drop it before returning — never return a first draft that would
+fail its own checklist.
 """,
 )
 
