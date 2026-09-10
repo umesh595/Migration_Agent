@@ -50,6 +50,10 @@ class AWSProviderError(Exception):
     CatalogProviderError's contract."""
 
 
+class AWSAuthenticationError(AWSProviderError):
+    """AWS rejected the supplied API credential set."""
+
+
 def _fetch_sync(credentials: AWSCredentials) -> AWSFetchResult:
     """Synchronous — boto3 has no native asyncio support. Run via
     asyncio.to_thread from the async caller below rather than blocking the
@@ -64,6 +68,10 @@ def _fetch_sync(credentials: AWSCredentials) -> AWSFetchResult:
     resources: list[AWSResourceRecord] = []
 
     try:
+        # Authenticate first so an invalid key pair gets one clear error rather
+        # than an error from whichever resource API happened to run first.
+        session.client("sts").get_caller_identity()
+
         ec2 = session.client("ec2")
         for reservation in ec2.describe_instances().get("Reservations", []):
             for instance in reservation.get("Instances", []):
@@ -114,7 +122,24 @@ def _fetch_sync(credentials: AWSCredentials) -> AWSFetchResult:
                 AWSResourceRecord(resource_id=bucket["Name"], name=bucket["Name"], kind="s3")
             )
 
-    except (ClientError, BotoCoreError) as exc:
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code in {
+            "AuthFailure",
+            "InvalidClientTokenId",
+            "InvalidClientToken",
+            "SignatureDoesNotMatch",
+            "UnrecognizedClientException",
+            "ExpiredToken",
+            "ExpiredTokenException",
+        }:
+            raise AWSAuthenticationError(
+                "AWS rejected these API credentials. Use an active IAM Access Key ID and its matching "
+                "Secret Access Key, plus a Session Token when using temporary SSO or assumed-role credentials. "
+                "AWS Console username/password cannot be used for this scan."
+            ) from exc
+        raise AWSProviderError(f"AWS API error: {exc}") from exc
+    except BotoCoreError as exc:
         raise AWSProviderError(f"AWS API error: {exc}") from exc
 
     return AWSFetchResult(resources=resources)

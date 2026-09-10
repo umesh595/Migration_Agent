@@ -6,6 +6,13 @@ import { adminCreateUser, adminListUsers, adminResetPassword, adminSetActive, Ap
 import { useRequireAuth } from "@/lib/auth";
 import type { AdminUser } from "@/lib/types";
 import { NavBar } from "@/components/NavBar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 export default function AdminPage() {
   const { user, loading } = useRequireAuth();
@@ -83,10 +90,10 @@ export default function AdminPage() {
 
   if (!user.is_admin) {
     return (
-      <div className="min-h-screen">
+      <div className="min-h-screen bg-atlas-mist dark:bg-background">
         <NavBar />
         <main className="mx-auto max-w-3xl px-4 py-8">
-          <p role="alert" className="card text-sm text-rose-300">
+          <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
             Admin privileges are required to view this page.
           </p>
         </main>
@@ -95,138 +102,131 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-atlas-mist dark:bg-background">
       <NavBar />
       <main className="mx-auto max-w-3xl px-4 py-10">
-        <div className="animate-fade-up">
-          <h1 className="font-display text-3xl font-bold tracking-tight text-white">
+        <div className="blueprint-reveal">
+          <h1 className="font-display text-3xl font-bold tracking-tight text-foreground">
             User <span className="text-gradient">administration</span>
           </h1>
         </div>
 
         {error && (
-          <p role="alert" className="card mt-4 border-rose-500/30 bg-rose-500/10 text-sm text-rose-300">
+          <p role="alert" className="mt-4 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
             {error}
           </p>
         )}
         {notice && (
-          <p role="status" className="card mt-4 border-emerald-500/30 bg-emerald-500/10 text-sm text-emerald-300">
+          <p role="status" className="mt-4 rounded-xl border border-atlas-teal/30 bg-atlas-teal-soft p-4 text-sm text-atlas-teal">
             {notice}
           </p>
         )}
 
-        <form onSubmit={handleCreate} className="card-glow mt-6 space-y-3 animate-fade-up" style={{ animationDelay: "60ms" }}>
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-200">
-            <span className="text-base">➕</span> Provision a new account
-          </h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <label htmlFor="new-user-email" className="label">
-                Email
-              </label>
-              <input
-                id="new-user-email"
-                type="email"
-                required
-                className="input"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
+        <Card className="mt-6 blueprint-reveal" style={{ animationDelay: "60ms" }}>
+          <form onSubmit={handleCreate} className="space-y-3 p-6">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <span className="text-base">➕</span> Provision a new account
+            </h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="new-user-email" className="mb-1.5 block">
+                  Email
+                </Label>
+                <input
+                  id="new-user-email"
+                  type="email"
+                  required
+                  className="w-full rounded-md border border-input bg-background px-3.5 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="new-user-password" className="mb-1.5 block">
+                  Initial password (min 12 characters)
+                </Label>
+                <input
+                  id="new-user-password"
+                  type="text"
+                  required
+                  minLength={12}
+                  className="w-full rounded-md border border-input bg-background px-3.5 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
             </div>
-            <div>
-              <label htmlFor="new-user-password" className="label">
-                Initial password (min 12 characters)
-              </label>
-              <input
-                id="new-user-password"
-                type="text"
-                required
-                minLength={12}
-                className="input"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-          </div>
-          <label className="flex items-center gap-2 text-sm text-slate-300">
-            <input
-              type="checkbox"
-              className="h-4 w-4 accent-brand-500"
-              checked={isAdmin}
-              onChange={(e) => setIsAdmin(e.target.checked)}
-            />
-            Grant admin privileges
-          </label>
-          <button type="submit" className="btn-primary" disabled={creating}>
-            {creating ? "Creating…" : "Create account"}
-          </button>
-        </form>
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <Checkbox checked={isAdmin} onCheckedChange={(checked) => setIsAdmin(checked === true)} />
+              Grant admin privileges
+            </label>
+            <Button type="submit" className="bg-atlas-teal text-white hover:bg-atlas-teal/90" disabled={creating}>
+              {creating ? "Creating…" : "Create account"}
+            </Button>
+          </form>
+        </Card>
 
-        <div className="mt-8 animate-fade-up" style={{ animationDelay: "120ms" }}>
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-200">
+        <div className="mt-8 blueprint-reveal" style={{ animationDelay: "120ms" }}>
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
             <span className="text-base">👥</span> All accounts
           </h2>
-          <div className="panel overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b border-white/10 text-slate-400">
-                    <th className="px-4 py-3 font-medium">Email</th>
-                    <th className="px-4 py-3 font-medium">Role</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users?.map((u) => (
-                    <tr key={u.id} className="border-b border-white/[0.06] transition-colors hover:bg-white/[0.02]">
-                      <td className="px-4 py-3 text-slate-200">{u.email}</td>
-                      <td className="px-4 py-3">
-                        {u.is_admin ? (
-                          <span className="badge border-violet-400/30 bg-violet-400/10 text-violet-300">Admin</span>
-                        ) : (
-                          <span className="text-slate-400">User</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`badge ${
-                            u.is_active
-                              ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
-                              : "border-slate-400/30 bg-slate-400/10 text-slate-400"
-                          }`}
+          <Card className="overflow-hidden p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {users?.map((u) => (
+                  <TableRow key={u.id}>
+                    <TableCell className="text-foreground">{u.email}</TableCell>
+                    <TableCell>
+                      {u.is_admin ? (
+                        <Badge variant="secondary">Admin</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">User</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={u.is_active ? "teal" : "outline"} className="gap-1.5">
+                        <span className={cn("h-1.5 w-1.5 rounded-full", u.is_active ? "bg-atlas-teal" : "bg-muted-foreground")} />
+                        {u.is_active ? "Active" : "Disabled"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant={u.is_active ? "destructive" : "outline"}
+                          size="sm"
+                          className="text-xs"
+                          disabled={busyUserId === u.id}
+                          onClick={() => handleToggleActive(u)}
                         >
-                          <span className={`h-1.5 w-1.5 rounded-full ${u.is_active ? "bg-emerald-400" : "bg-slate-400"}`} />
-                          {u.is_active ? "Active" : "Disabled"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            className={u.is_active ? "btn-danger !px-2.5 !py-1 !text-xs" : "btn-secondary !px-2.5 !py-1 !text-xs"}
-                            disabled={busyUserId === u.id}
-                            onClick={() => handleToggleActive(u)}
-                          >
-                            {u.is_active ? "Disable" : "Enable"}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-secondary !px-2.5 !py-1 !text-xs"
-                            disabled={busyUserId === u.id}
-                            onClick={() => handleResetPassword(u)}
-                          >
-                            Reset password
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {users?.length === 0 && <p className="px-4 py-6 text-sm text-slate-500">No accounts yet.</p>}
-            </div>
-          </div>
+                          {u.is_active ? "Disable" : "Enable"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="text-xs"
+                          disabled={busyUserId === u.id}
+                          onClick={() => handleResetPassword(u)}
+                        >
+                          Reset password
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {users?.length === 0 && <p className="px-4 py-6 text-sm text-muted-foreground">No accounts yet.</p>}
+          </Card>
         </div>
       </main>
     </div>

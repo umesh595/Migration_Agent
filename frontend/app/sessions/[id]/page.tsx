@@ -12,6 +12,11 @@ import { ChatPanel, type ChatDraft } from "@/components/ChatPanel";
 import { ExportButtons } from "@/components/ExportButtons";
 import { NavBar } from "@/components/NavBar";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 export default function SessionWorkspacePage() {
   const { user, loading: authLoading } = useRequireAuth();
@@ -122,37 +127,37 @@ export default function SessionWorkspacePage() {
     : null;
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-atlas-mist dark:bg-background">
       <NavBar />
       <main className="relative mx-auto max-w-6xl px-4 py-8">
         <div
           aria-hidden
-          className="pointer-events-none absolute -top-16 left-1/2 h-72 w-[36rem] -translate-x-1/2 rounded-full bg-grad-pulse-soft opacity-60 blur-3xl animate-float-slow"
+          className="pointer-events-none absolute -top-16 left-1/2 h-72 w-[36rem] -translate-x-1/2 rounded-full bg-atlas-teal-soft opacity-60 blur-3xl animate-float-slow"
         />
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4 animate-fade-up">
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4 blueprint-reveal">
           <div>
-            <h1 className="font-display text-2xl font-bold tracking-tight text-white">
+            <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
               {state?.session.name ?? "Loading…"}
             </h1>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-muted-foreground">
               Model v{state?.model.version} · {state?.model.components.length ?? 0} components
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {state && (
-              <Link href={`/sessions/${sessionId}/architecture`} className="btn-secondary !py-2 text-xs">
-                Current architecture
-              </Link>
+              <Button asChild variant="outline" size="sm" className="text-xs">
+                <Link href={`/sessions/${sessionId}/architecture`}>Current architecture</Link>
+              </Button>
             )}
             {state && (
-              <Link href={`/sessions/${sessionId}/review-findings`} className="btn-secondary !py-2 text-xs">
-                View Review Findings
-              </Link>
+              <Button asChild variant="outline" size="sm" className="text-xs">
+                <Link href={`/sessions/${sessionId}/review-findings`}>View Review Findings</Link>
+              </Button>
             )}
             {state && (
-              <Link href={`/sessions/${sessionId}/migration-plan`} className="btn-secondary !py-2 text-xs">
-                Migration Plan
-              </Link>
+              <Button asChild variant="outline" size="sm" className="text-xs">
+                <Link href={`/sessions/${sessionId}/migration-plan`}>Migration Plan</Link>
+              </Button>
             )}
             {status && <StatusBadge status={status} pulse />}
           </div>
@@ -160,7 +165,7 @@ export default function SessionWorkspacePage() {
 
         {/* Stage stepper — a visual spine showing where this study is in the pipeline */}
         {status && (
-          <div className="card mb-6 animate-fade-up" style={{ animationDelay: "40ms" }}>
+          <Card className="mb-6 p-5 blueprint-reveal" style={{ animationDelay: "40ms" }}>
             <div className="flex items-center">
               {STAGES.map((stage, i) => {
                 const isDone = i < currentStageIndex;
@@ -169,27 +174,32 @@ export default function SessionWorkspacePage() {
                   <div key={stage.key} className="flex flex-1 items-center last:flex-none">
                     <div className="flex flex-col items-center gap-1.5">
                       <div
-                        className={`flex h-9 w-9 items-center justify-center rounded-full text-sm transition-all duration-300 ${
+                        className={cn(
+                          "flex h-9 w-9 items-center justify-center rounded-full text-sm transition-all duration-300",
                           isDone
-                            ? "bg-grad-primary text-white shadow-glow"
+                            ? "bg-atlas-teal text-white shadow-glow"
                             : isActive
-                              ? "bg-grad-primary text-white shadow-glow animate-pulse-ring"
-                              : "border border-white/15 bg-white/[0.03] text-slate-500"
-                        }`}
+                              ? "bg-atlas-teal text-white shadow-glow agent-pulse"
+                              : "border border-border bg-muted text-muted-foreground"
+                        )}
                       >
                         {isDone ? "OK" : stage.step}
                       </div>
                       <span
-                        className={`text-[11px] font-medium ${isActive ? "text-white" : isDone ? "text-slate-300" : "text-slate-500"}`}
+                        className={cn(
+                          "text-[11px] font-medium",
+                          isActive ? "text-foreground" : isDone ? "text-muted-foreground" : "text-muted-foreground/60"
+                        )}
                       >
                         {stage.label}
                       </span>
                     </div>
                     {i < STAGES.length - 1 && (
                       <div
-                        className={`mx-2 h-0.5 flex-1 rounded-full transition-colors duration-300 ${
-                          isDone ? "bg-gradient-to-r from-brand-500 to-teal-400" : "bg-white/10"
-                        }`}
+                        className={cn(
+                          "mx-2 h-0.5 flex-1 rounded-full transition-colors duration-300",
+                          isDone ? "bg-atlas-teal" : "bg-border"
+                        )}
                       />
                     )}
                   </div>
@@ -197,70 +207,70 @@ export default function SessionWorkspacePage() {
               })}
             </div>
             {stageGuide && (
-              <div className="mt-4 grid gap-3 border-t border-white/[0.06] pt-4 md:grid-cols-[1.25fr_1fr]">
+              <div className="mt-4 grid gap-3 border-t border-border pt-4 md:grid-cols-[1.25fr_1fr]">
                 <div>
-                  <p className="text-sm font-semibold text-slate-100">{stageGuide.title}</p>
-                  <p className="mt-1 text-sm leading-6 text-slate-400">{stageGuide.body}</p>
+                  <p className="text-sm font-semibold text-foreground">{stageGuide.title}</p>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">{stageGuide.body}</p>
                 </div>
-                <div className="rounded-lg border border-brand-400/15 bg-brand-400/[0.045] p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-brand-200">What to review now</p>
-                  <p className="mt-1 text-xs leading-5 text-slate-400">{stageGuide.review}</p>
+                <div className="rounded-lg border border-atlas-teal/20 bg-atlas-teal-soft p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-atlas-teal">What to review now</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{stageGuide.review}</p>
                 </div>
               </div>
             )}
-          </div>
+          </Card>
         )}
 
         {error && (
-          <p role="alert" className="card mb-4 border-rose-500/30 bg-rose-500/10 text-sm text-rose-300 animate-fade-up">
+          <p role="alert" className="mb-4 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive blueprint-reveal">
             {error}
           </p>
         )}
 
         {!state ? (
           <div className="w-full">
-            <div className="card min-h-[62vh] shimmer" />
+            <div className="min-h-[62vh] animate-pulse rounded-xl bg-muted" />
           </div>
         ) : (
           <>
           <div className="w-full space-y-4">
               {needsMigrationContext && (
-                <div className="card-glow border-sky-400/25 bg-sky-500/[0.06] animate-fade-up">
-                  <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-sky-200">
+                <Card className="border-atlas-sky/40 bg-atlas-sky/20 p-5 blueprint-reveal">
+                  <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-foreground">
                     Gate 1 passed — migration context needed
                   </h3>
-                  <p className="mb-3 text-xs leading-5 text-sky-300/80">
+                  <p className="mb-3 text-xs leading-5 text-muted-foreground">
                     The architecture model is frozen. Send the migration goal so the Planning Agent can build the
                     target architecture, sequence, cutover, rollback, and review package.
                   </p>
-                  <p className="mb-3 text-xs leading-5 text-sky-300/80">
+                  <p className="mb-3 text-xs leading-5 text-muted-foreground">
                     After you send the goal, larger models can take a few minutes while planning and review run.
                   </p>
-                  <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-300">
-                    <div className="font-medium text-slate-200">Include these details:</div>
-                    <ul className="mt-1 list-disc space-y-1 pl-5">
+                  <div className="rounded-lg border border-border bg-background/60 p-3 text-xs text-foreground">
+                    <div className="font-medium">Include these details:</div>
+                    <ul className="mt-1 list-disc space-y-1 pl-5 text-muted-foreground">
                       <li>source environment and target environment</li>
                       <li>target platform or cloud services you prefer</li>
                       <li>downtime tolerance or maintenance window</li>
                       <li>constraints such as compliance, timeline, budget, or services that must remain unchanged</li>
                     </ul>
-                    <div className="mt-2 text-slate-500">
+                    <div className="mt-2 text-muted-foreground">
                       Example: Move this AWS-hosted platform to GCP Cloud Run and Cloud Storage. A 4-hour
                       maintenance window is acceptable. Keep user authentication behavior unchanged and preserve
                       private document access.
                     </div>
                   </div>
-                </div>
+                </Card>
               )}
 
               {status === "exported" ? (
-                <div className="card-glow flex flex-col items-center gap-3 py-10 text-center animate-fade-up">
-                  <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/15 text-3xl ring-1 ring-emerald-400/30">
+                <Card className="flex flex-col items-center gap-3 py-10 text-center blueprint-reveal">
+                  <span className="flex h-14 w-14 items-center justify-center rounded-full bg-atlas-teal-soft text-3xl ring-1 ring-atlas-teal/30">
                     ✅
                   </span>
                   <div>
-                    <h3 className="font-display text-lg font-semibold text-white">Export ready</h3>
-                    <p className="mt-1 max-w-sm text-sm text-slate-400">
+                    <h3 className="font-display text-lg font-semibold text-foreground">Export ready</h3>
+                    <p className="mt-1 max-w-sm text-sm text-muted-foreground">
                       This plan has been reviewed, approved, and finalized — no further turns are accepted. Download
                       the full 10-deliverable package below.
                     </p>
@@ -268,7 +278,7 @@ export default function SessionWorkspacePage() {
                   <div className="mt-2 w-full max-w-sm">
                     <ExportButtons sessionId={sessionId} />
                   </div>
-                </div>
+                </Card>
               ) : (
                 <div id="conversation-panel">
                 <ChatPanel
@@ -289,45 +299,41 @@ export default function SessionWorkspacePage() {
               )}
 
               {status === "discovery" && (
-                <div className="rail-card animate-fade-up">
-                  <div className="rail-card-bar bg-grad-primary" />
+                <div className="rail-card blueprint-reveal">
+                  <div className="rail-card-bar bg-atlas-teal" />
                   <div className="rail-card-body">
-                  <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-slate-200">
+                  <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-foreground">
                     Gate 1 — Accept the architecture
                   </h3>
-                  <p className="mb-3 text-xs text-slate-500">
+                  <p className="mb-3 text-xs text-muted-foreground">
                     Migration planning is unreachable until you accept this model — this is a structural gate,
                     not a suggestion.
                   </p>
-                  <div className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.025] p-3 text-xs leading-5 text-slate-400">
+                  <div className="mb-3 rounded-lg border border-border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
                     Approval means the discovered source architecture is good enough for planning. Later source changes
                     should be treated as explicit revisions because they can change sequencing, risk, effort, and rollback.
                   </div>
                   {state.discovery_confidence && (
                     <div
-                      className={`mb-3 rounded-lg border p-3 ${
+                      className={cn(
+                        "mb-3 rounded-lg border p-3",
                         state.discovery_confidence.ready_for_planning
-                          ? "border-emerald-400/25 bg-emerald-400/[0.06]"
-                          : "border-amber-400/25 bg-amber-400/[0.06]"
-                      }`}
+                          ? "border-atlas-teal/30 bg-atlas-teal-soft"
+                          : "border-atlas-amber/30 bg-atlas-amber-soft"
+                      )}
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <p
-                          className={`text-xs font-semibold uppercase tracking-wide ${
-                            state.discovery_confidence.ready_for_planning ? "text-emerald-200" : "text-amber-200"
-                          }`}
+                          className={cn(
+                            "text-xs font-semibold uppercase tracking-wide",
+                            state.discovery_confidence.ready_for_planning ? "text-atlas-teal" : "text-atlas-amber"
+                          )}
                         >
                           Discovery confidence
                         </p>
-                        <span
-                          className={`badge ${
-                            state.discovery_confidence.ready_for_planning
-                              ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
-                              : "border-amber-400/30 bg-amber-400/10 text-amber-200"
-                          }`}
-                        >
+                        <Badge variant={state.discovery_confidence.ready_for_planning ? "teal" : "amber"}>
                           {state.discovery_confidence.ready_for_planning ? "Ready for planning" : "Not ready yet"}
-                        </span>
+                        </Badge>
                       </div>
                       <div className="mt-3 grid grid-cols-3 gap-2">
                         <div className="stat-tile">
@@ -346,163 +352,140 @@ export default function SessionWorkspacePage() {
                     </div>
                   )}
                   {gate1Summary && (
-                    <div className="mb-3 rounded-lg border border-sky-400/20 bg-sky-500/[0.05] p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-sky-200">
+                    <div className="mb-3 rounded-lg border border-atlas-sky/40 bg-atlas-sky/20 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-foreground">
                         Understanding before Gate 1
                       </p>
-                      <p className="mt-2 text-sm leading-6 text-slate-300">{gate1Summary.headline}</p>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">{gate1Summary.headline}</p>
                       <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
                         {gate1Summary.items.map((item) => (
-                          <div key={item.label} className="rounded-md border border-white/[0.06] bg-white/[0.025] p-2">
-                            <dt className="font-medium text-slate-200">{item.label}</dt>
-                            <dd className="mt-1 leading-5 text-slate-400">{item.value}</dd>
+                          <div key={item.label} className="rounded-md border border-border bg-background/60 p-2">
+                            <dt className="font-medium text-foreground">{item.label}</dt>
+                            <dd className="mt-1 leading-5 text-muted-foreground">{item.value}</dd>
                           </div>
                         ))}
                       </dl>
                     </div>
                   )}
-                  <button
-                    type="button"
-                    className="btn-primary"
+                  <Button
+                    className="bg-atlas-teal text-white hover:bg-atlas-teal/90"
                     disabled={gateBusy || state.model.components.length === 0}
                     onClick={() => setShowGate1Confirm(true)}
                   >
                     {gateBusy ? "Accepting…" : "Accept architecture model"}
-                  </button>
+                  </Button>
                   </div>
                 </div>
               )}
 
               {status === "review" && (
-                <div className="rail-card animate-fade-up">
-                  <div className={`rail-card-bar ${hasBlockingFindings ? "bg-amber-400" : "bg-grad-pulse"}`} />
+                <div className="rail-card blueprint-reveal">
+                  <div className={cn("rail-card-bar", hasBlockingFindings ? "bg-atlas-amber" : "bg-atlas-teal")} />
                   <div className="rail-card-body">
-                  <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-slate-200">
+                  <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-foreground">
                     Gate 2 — Approve the plan
                   </h3>
                   {hasBlockingFindings ? (
-                    <p className="mb-3 text-xs text-amber-300">
+                    <p className="mb-3 text-xs text-atlas-amber">
                       There are still open error-severity findings below. You can approve anyway — the
                       remaining review-refinement budget for this plan has been used and unresolved
                       findings ship as documented risks — but check them first.
                     </p>
                   ) : (
-                    <p className="mb-3 text-xs text-slate-500">Review is complete with no open blocking findings.</p>
+                    <p className="mb-3 text-xs text-muted-foreground">Review is complete with no open blocking findings.</p>
                   )}
-                  <div className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.025] p-3 text-xs leading-5 text-slate-400">
+                  <div className="mb-3 rounded-lg border border-border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
                     Approval means you accept the target architecture, migration waves, effort and cost assumptions,
                     validation plan, cutover strategy, rollback approach, and any documented residual risks.
                   </div>
-                  <button type="button" className="btn-primary" disabled={gateBusy} onClick={handleApprovePlan}>
+                  <Button className="bg-atlas-teal text-white hover:bg-atlas-teal/90" disabled={gateBusy} onClick={handleApprovePlan}>
                     {gateBusy ? "Approving…" : "Approve final plan"}
-                  </button>
+                  </Button>
                   </div>
                 </div>
               )}
               {state.migration_context && (
-                <div className="card">
-                  <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-200">
+                <Card className="p-5">
+                  <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
                     Migration context
                   </h3>
                   <dl className="grid grid-cols-2 gap-y-2 text-sm">
-                    <dt className="text-slate-500">Source</dt>
-                    <dd className="text-slate-200">{state.migration_context.source_environment}</dd>
-                    <dt className="text-slate-500">Target</dt>
-                    <dd className="text-slate-200">
+                    <dt className="text-muted-foreground">Source</dt>
+                    <dd className="text-foreground">{state.migration_context.source_environment}</dd>
+                    <dt className="text-muted-foreground">Target</dt>
+                    <dd className="text-foreground">
                       {state.migration_context.target_environment} — {state.migration_context.target_platform_description}
                     </dd>
-                    <dt className="text-slate-500">Downtime tolerance</dt>
-                    <dd className="text-slate-200">{state.migration_context.downtime_tolerance.replace(/_/g, " ")}</dd>
+                    <dt className="text-muted-foreground">Downtime tolerance</dt>
+                    <dd className="text-foreground">{state.migration_context.downtime_tolerance.replace(/_/g, " ")}</dd>
                   </dl>
                   {state.migration_context.constraints.length > 0 && (
-                    <ul className="mt-3 space-y-1 border-t border-white/10 pt-3 text-xs text-slate-400">
+                    <ul className="mt-3 space-y-1 border-t border-border pt-3 text-xs text-muted-foreground">
                       {state.migration_context.constraints.map((c, i) => (
                         <li key={i} className="flex gap-2">
-                          <span className="text-brand-400">•</span> {c}
+                          <span className="text-atlas-teal">•</span> {c}
                         </li>
                       ))}
                     </ul>
                   )}
-                </div>
+                </Card>
               )}
           </div>
-          <div className="mt-6 animate-fade-up">
-            <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-200">
+          <div className="mt-6 blueprint-reveal">
+            <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-foreground">
               Patch audit trail
             </h3>
             <AuditTrailPanel records={auditRecords} onReviewPatch={status === "exported" ? undefined : handleReviewPatch} />
           </div>
           </>
         )}
-        {showGate1Confirm && state && gate1Summary && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 px-4 backdrop-blur-sm"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="gate1-confirm-title"
-          >
-            <div className="w-full max-w-2xl rounded-lg border border-white/10 bg-slate-950 p-5 shadow-2xl">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h2 id="gate1-confirm-title" className="text-base font-semibold text-white">
-                    Confirm Gate 1 acceptance
-                  </h2>
-                  <p className="mt-1 text-sm leading-6 text-slate-400">
+        <Dialog open={showGate1Confirm && !!state && !!gate1Summary} onOpenChange={(open) => !gateBusy && setShowGate1Confirm(open)}>
+          <DialogContent className="max-w-2xl">
+            {state && gate1Summary && (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Confirm Gate 1 acceptance</DialogTitle>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
                     Accepting freezes this source architecture for planning. Review this summary once before
                     moving forward.
                   </p>
+                </DialogHeader>
+
+                <div className="rounded-lg border border-atlas-sky/40 bg-atlas-sky/20 p-3">
+                  <p className="text-sm leading-6 text-foreground">{gate1Summary.headline}</p>
+                  <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+                    {gate1Summary.items.map((item) => (
+                      <div key={item.label} className="rounded-md border border-border bg-background/60 p-2">
+                        <dt className="font-medium text-foreground">{item.label}</dt>
+                        <dd className="mt-1 leading-5 text-muted-foreground">{item.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
                 </div>
-                <button
-                  type="button"
-                  className="rounded-md border border-white/10 px-2 py-1 text-sm text-slate-400 hover:text-white"
-                  onClick={() => setShowGate1Confirm(false)}
-                  disabled={gateBusy}
-                  aria-label="Close confirmation"
-                >
-                  x
-                </button>
-              </div>
 
-              <div className="mt-4 rounded-lg border border-sky-400/20 bg-sky-500/[0.05] p-3">
-                <p className="text-sm leading-6 text-slate-300">{gate1Summary.headline}</p>
-                <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
-                  {gate1Summary.items.map((item) => (
-                    <div key={item.label} className="rounded-md border border-white/[0.06] bg-white/[0.025] p-2">
-                      <dt className="font-medium text-slate-200">{item.label}</dt>
-                      <dd className="mt-1 leading-5 text-slate-400">{item.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </div>
+                {state.model.open_questions.some((question) => !question.resolved) && (
+                  <p className="rounded-md border border-atlas-amber/30 bg-atlas-amber-soft p-3 text-xs leading-5 text-atlas-amber">
+                    There are still unresolved open questions. Accept only if this source model is good enough
+                    for a first planning pass.
+                  </p>
+                )}
 
-              {state.model.open_questions.some((question) => !question.resolved) && (
-                <p className="mt-3 rounded-md border border-amber-400/20 bg-amber-500/[0.06] p-3 text-xs leading-5 text-amber-200">
-                  There are still unresolved open questions. Accept only if this source model is good enough
-                  for a first planning pass.
-                </p>
-              )}
-
-              <div className="mt-5 flex flex-wrap justify-end gap-2">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setShowGate1Confirm(false)}
-                  disabled={gateBusy}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={handleAcceptModel}
-                  disabled={gateBusy || state.model.components.length === 0}
-                >
-                  {gateBusy ? "Accepting..." : "Confirm and accept Gate 1"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowGate1Confirm(false)} disabled={gateBusy}>
+                    Cancel
+                  </Button>
+                  <Button
+                    className="bg-atlas-teal text-white hover:bg-atlas-teal/90"
+                    onClick={handleAcceptModel}
+                    disabled={gateBusy || state.model.components.length === 0}
+                  >
+                    {gateBusy ? "Accepting..." : "Confirm and accept Gate 1"}
+                  </Button>
+                </DialogFooter>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );

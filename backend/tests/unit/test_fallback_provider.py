@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from app.llm.base import ModelTier, ProviderQuotaExceededError, StructuredOutputError
+from app.llm.base import ModelTier, ProviderQuotaExceededError, ProviderRequestError, StructuredOutputError
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.providers.fallback_provider import FallbackLLMProvider
 from app.llm.providers.openai_provider import MockProvider
@@ -17,6 +17,25 @@ from app.llm.providers.openai_provider import MockProvider
 
 class _Verdict(BaseModel):
     ok: bool
+
+
+@pytest.mark.asyncio
+async def test_transient_timeout_does_not_permanently_abandon_primary():
+    primary = MockProvider()
+    primary.register(_Verdict, ProviderRequestError("timeout"), _Verdict(ok=True))
+    fallback = MockProvider()
+    fallback.register(_Verdict, ProviderRequestError("fallback also unavailable"))
+    gateway = LLMGateway(FallbackLLMProvider(primary, fallback))
+    with pytest.raises(ProviderRequestError):
+        await gateway.complete(
+            tier=ModelTier.STRONG, system_prompt="s", user_prompt="u", response_model=_Verdict,
+        )
+    result = await gateway.complete(
+        tier=ModelTier.STRONG, system_prompt="s", user_prompt="u2", response_model=_Verdict,
+    )
+    assert result.parsed.ok
+    assert len(primary.calls) == 2
+    assert len(fallback.calls) == 1
 
 
 @pytest.mark.asyncio
@@ -44,7 +63,7 @@ async def test_quota_exhaustion_switches_to_fallback_within_the_same_call():
     fallback = MockProvider()
     fallback.register(_Verdict, _Verdict(ok=True))
     provider = FallbackLLMProvider(primary=primary, fallback=fallback)
-    gateway = LLMGateway(provider, strong_tier_max_retries=3)
+    gateway = LLMGateway(provider, strong_tier_max_retries=0)
     meter = SessionTokenMeter(budget=100_000)
 
     response = await gateway.complete(

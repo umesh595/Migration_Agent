@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import unicodedata
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -72,6 +73,15 @@ class StructuredResponse[T: BaseModel]:
     usage: LLMUsage
     model: str
     attempts: int
+    # A reasoning-model provider (e.g. CodeVector's DeepSeek route) may return a
+    # separate chain-of-thought trace alongside the final structured `parsed`
+    # output — the model's own working, not part of the schema it's scored
+    # against. None for a provider/model that doesn't produce one (every other
+    # provider leaves this at its default). Callers use it opportunistically:
+    # logged for observability, and fed to a critic/verifier call as "here is
+    # what the generator was actually thinking" so the second opinion can
+    # scrutinize the REASONING, not just the final answer.
+    reasoning: str | None = None
 
 
 class StructuredOutputError(Exception):
@@ -113,10 +123,19 @@ class LLMProvider(ABC):
         user_prompt: str,
         response_model: type[T],
         temperature: float = 0.0,
+        on_delta: Callable[[str], Awaitable[None]] | None = None,
     ) -> StructuredResponse[T]:
         """One structured-output call. Must raise StructuredOutputError if the
         provider returns content that doesn't validate against response_model —
-        the retry/escalation policy lives in the gateway, not here."""
+        the retry/escalation policy lives in the gateway, not here.
+
+        `on_delta`, when given, is a reasoning-model provider's opportunity to
+        call it with each chain-of-thought text fragment AS IT STREAMS IN,
+        before the full response is done — purely a perceived-latency win
+        (the same total call either way), and purely optional: a provider
+        that doesn't support streaming or doesn't produce reasoning text is
+        free to ignore this parameter and behave exactly as if it were None.
+        """
 
     @abstractmethod
     def model_for_tier(self, tier: ModelTier) -> str: ...

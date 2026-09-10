@@ -65,6 +65,8 @@ async def lifespan(app: FastAPI):
         cheap_model=settings.active_codevector_cheap_model,
         strong_model=settings.active_codevector_strong_model,
         timeout_s=settings.llm_request_timeout_s,
+        response_format=settings.codevector_response_format,
+        fallback_model=settings.codevector_fallback_model,
     )
     # Gemini is a fallback only (see FallbackLLMProvider) - activated automatically
     # if the primary gateway is unavailable/quota-limited. Unset GOOGLE_AI_STUDIO_API_KEY to
@@ -84,6 +86,8 @@ async def lifespan(app: FastAPI):
         provider,
         cheap_tier_max_retries=settings.llm_cheap_tier_max_retries,
         strong_tier_max_retries=settings.llm_strong_tier_max_retries,
+        call_timeout_s=settings.llm_call_timeout_s,
+        critic_timeout_s=settings.llm_critic_timeout_s,
     )
 
     await init_checkpointer()

@@ -363,3 +363,49 @@ async def test_zero_gaps_produces_an_explicit_closing_message_not_silence():
     closing = result["narration"].replace("Previous turn's narration.", "").strip()
     assert len(closing) > 20
     assert "accept" in closing.lower() or "planning" in closing.lower()
+
+
+@pytest.mark.asyncio
+async def test_fast_mode_still_reasons_dynamically_never_a_hardcoded_shortcut():
+    """Regression test for a real latency-driven regression: generate_questions_node
+    used to special-case discovery_fast_mode by skipping the LLM entirely and
+    returning a fixed string keyed off the gap's category (or the raw gap
+    description itself for anything else) — the same class of bug as echoing a
+    gap description verbatim, just baked into Python instead of a bad model
+    output, and a direct violation of this project's standing "never hardcode
+    the reasoning" rule. Fast mode must still be a REAL, dynamic LLM call — just
+    a smaller prompt on a cheaper tier, mirroring ingest_node's own fast path."""
+
+    from app.core.gap_analyzer import Gap, GapCategory
+    from app.llm.base import ModelTier
+    from app.llm.gateway import LLMGateway, SessionTokenMeter
+    from app.llm.providers.openai_provider import MockProvider
+    from app.llm.schemas import GeneratedQuestion, QuestionGenerationOutput
+
+    provider = MockProvider()
+    provider.register(
+        QuestionGenerationOutput,
+        QuestionGenerationOutput(
+            questions=[GeneratedQuestion(text="Is the current hosting on-prem, cloud, or hybrid?")],
+            narration="One detail will help.",
+        ),
+    )
+    gateway = LLMGateway(provider)
+    meter = SessionTokenMeter(budget=100_000)
+
+    state = {
+        "_gaps": [
+            Gap(category=GapCategory.MISSING_ENVIRONMENT, description="env unknown", priority=60),
+        ],
+        "model": ArchitectureModel(),
+        "narration": "",
+        "user_message": "short reply",
+        "previous_agent_message": None,
+    }
+
+    result = await generate_questions_node(state, gateway=gateway, meter=meter)
+
+    assert len(provider.calls) == 1, "must call the LLM even in fast mode, never bypass it"
+    assert provider.calls[0]["model"] == f"mock-{ModelTier.CHEAP}", "fast mode must use the cheap tier, not skip reasoning"
+    assert "condensed, low-latency form" in provider.calls[0]["system"], "fast mode must use the shorter dynamic prompt"
+    assert result["pending_questions"] == ["Is the current hosting on-prem, cloud, or hybrid?"]

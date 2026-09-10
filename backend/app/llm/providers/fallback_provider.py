@@ -5,14 +5,14 @@ extensibility boundary LLMProvider's own docstring already commits to).
 
 The configured provider stays primary; this exists only to keep the app usable
 when that provider is unavailable or out of credits. The switch
-is sticky and permanent for this process's lifetime —
-once the primary has proven it can't serve a request, there's no value in
-re-trying it on the next call only to pay the same failure again.
+is sticky for quota exhaustion. A transient transport failure tries the
+fallback for this call, without permanently abandoning a healthy primary.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 
 from pydantic import BaseModel
 
@@ -21,7 +21,6 @@ from app.llm.base import (
     ModelTier,
     ProviderQuotaExceededError,
     ProviderRequestError,
-    StructuredOutputError,
     StructuredResponse,
 )
 
@@ -48,6 +47,7 @@ class FallbackLLMProvider(LLMProvider):
         user_prompt: str,
         response_model: type[T],
         temperature: float = 0.0,
+        on_delta: Callable[[str], Awaitable[None]] | None = None,
     ) -> StructuredResponse[T]:
         if self._using_fallback and self._fallback is not None:
             return await self._fallback.complete_structured(
@@ -56,6 +56,7 @@ class FallbackLLMProvider(LLMProvider):
                 user_prompt=user_prompt,
                 response_model=response_model,
                 temperature=temperature,
+                on_delta=on_delta,
             )
 
         try:
@@ -65,20 +66,23 @@ class FallbackLLMProvider(LLMProvider):
                 user_prompt=user_prompt,
                 response_model=response_model,
                 temperature=temperature,
+                on_delta=on_delta,
             )
         except (ProviderQuotaExceededError, ProviderRequestError) as exc:
             if self._fallback is None:
                 raise
             logger.error(
-                "primary LLM provider quota/credits exhausted (%s) — switching to the fallback provider "
-                "for the rest of this process",
+                "primary LLM provider unavailable (%s) - trying the fallback provider",
                 exc,
             )
-            self._using_fallback = True
-            # Raise a plain StructuredOutputError (not the quota subclass) so
-            # LLMGateway's own retry loop treats this exactly like any other
-            # failed attempt and retries — on that retry it re-reads
-            # model_for_tier(), which now returns the fallback provider's
-            # model name, so the next complete_structured() call above
-            # routes to `self._fallback` correctly.
-            raise StructuredOutputError(f"switched to fallback provider after: {exc}") from exc
+            self._using_fallback = isinstance(exc, ProviderQuotaExceededError)
+            # Fallback is transport recovery, independent of JSON repair attempts.
+            tier = ModelTier.STRONG if model == self._primary.model_for_tier(ModelTier.STRONG) else ModelTier.CHEAP
+            return await self._fallback.complete_structured(
+                model=self._fallback.model_for_tier(tier),
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                response_model=response_model,
+                temperature=temperature,
+                on_delta=on_delta,
+            )

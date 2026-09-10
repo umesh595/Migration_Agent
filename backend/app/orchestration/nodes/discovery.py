@@ -12,6 +12,7 @@ import re
 
 from langgraph.types import interrupt
 
+from app.config import get_settings
 from app.core.cloud_discovery import apply_cloud_discovery
 from app.core.gap_analyzer import Gap, GapCategory, analyze_gaps
 from app.core.patch_applier import apply_patch_set
@@ -19,7 +20,7 @@ from app.core.patch_validator import patches_requiring_confirmation
 from app.core.request_intelligence import RequestIntent, render_request_impact_for_prompt
 from app.integrations import aws_session_cache
 from app.integrations.aws_provider import AWSProviderError, fetch_aws_inventory
-from app.llm.base import ModelTier, StructuredOutputError
+from app.llm.base import ModelTier, ProviderQuotaExceededError, ProviderRequestError, StructuredOutputError
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.prompts.registry import get_prompt
 from app.llm.schemas import (
@@ -29,7 +30,11 @@ from app.llm.schemas import (
     RequirementCoverageOutput,
     RequirementCoverageVerdict,
 )
-from app.llm.state_injection import render_gaps_for_prompt, render_model_for_prompt
+from app.llm.state_injection import (
+    render_gaps_for_prompt,
+    render_generator_reasoning_for_prompt,
+    render_model_for_prompt,
+)
 from app.observability.tracing import trace_node
 from app.orchestration.state import GraphState, Stage
 from app.schemas.architecture import ArchitectureModel, AssumptionStatus, DependencyKind, Environment, WorkloadType
@@ -73,19 +78,31 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
     """LLM: user text -> proposed patches. Closed-world: sees only the current model
     plus this message."""
 
-    prompt = get_prompt("ingest_patches")
+    settings = get_settings()
+    fast_turn = settings.discovery_fast_mode and len(state.get("user_message", "")) < settings.discovery_full_prompt_min_chars
+    prompt = get_prompt("ingest_patches_fast" if fast_turn else "ingest_patches")
     impact = state.get("request_impact")
     impact_section = (
         f"DETERMINISTIC REQUEST CLASSIFICATION:\n{render_request_impact_for_prompt(impact)}\n\n"
         if impact is not None
         else ""
     )
-    user_prompt = (
-        f"{impact_section}CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}\n\n"
-        f"USER MESSAGE HISTORY FOR THIS SESSION:\n{state.get('conversation_context') or '(none)'}\n\n"
-        f"PREVIOUS AGENT MESSAGE, IF THE USER IS ANSWERING IT:\n{state.get('previous_agent_message') or '(none)'}\n\n"
-        f"USER MESSAGE:\n{state['user_message']}"
-    )
+    if fast_turn:
+        # The canonical model carries durable history. For a short conversational
+        # reply, the previous question is the only transcript context needed to
+        # resolve a terse answer such as "yes" without resending the whole chat.
+        user_prompt = (
+            f"{impact_section}CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}\n\n"
+            f"PREVIOUS AGENT MESSAGE:\n{state.get('previous_agent_message') or '(none)'}\n\n"
+            f"USER MESSAGE:\n{state['user_message']}"
+        )
+    else:
+        user_prompt = (
+            f"{impact_section}CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}\n\n"
+            f"USER MESSAGE HISTORY FOR THIS SESSION:\n{state.get('conversation_context') or '(none)'}\n\n"
+            f"PREVIOUS AGENT MESSAGE, IF THE USER IS ANSWERING IT:\n{state.get('previous_agent_message') or '(none)'}\n\n"
+            f"USER MESSAGE:\n{state['user_message']}"
+        )
 
     try:
         # STRONG tier, not CHEAP: extracting dependency edges that are only implied
@@ -96,13 +113,38 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
         # both tiers on a real multi-section architecture document before this
         # change (see ingest_patches prompt's dependency-extraction rules).
         response = await gateway.complete(
-            tier=ModelTier.STRONG,
+            tier=ModelTier.CHEAP if fast_turn else ModelTier.STRONG,
             system_prompt=prompt.system,
             user_prompt=user_prompt,
             response_model=PatchSet,
             meter=meter,
             node_name="discovery.ingest",
         )
+    except (ProviderRequestError, ProviderQuotaExceededError) as exc:
+        logger.warning("discovery provider unavailable for session %s: %s", state.get("session_id"), exc)
+        # A deadline exceeded is NOT the same situation as the provider being
+        # genuinely down — the model may well have been about to answer. Say
+        # so plainly rather than implying an outage; "unavailable" reads as
+        # broken, which just makes a slow-but-healthy backend look worse than
+        # it is and pushes the user toward an immediate retry that repeats the
+        # exact same slow call from scratch.
+        notice = (
+            "That took longer than expected, so I stopped waiting rather than leave you without a response — "
+            "the AI service itself is still up. Sending the same message again usually goes through; if it "
+            "happens repeatedly, the message may just need to be shorter."
+            if "exceeded its" in str(exc) and "response deadline" in str(exc)
+            else "The AI service is unavailable right now. Please retry shortly."
+        )
+        return {
+            "model": state["model"],
+            "_patch_set": None,
+            "_gaps": None,
+            "pending_questions": [],
+            "question_details": [],
+            "last_patch_results": [],
+            "narration": notice,
+            "error": notice,
+        }
     except StructuredOutputError as exc:
         # State untouched — this is the documented failure branch (Doc 3 §3.2).
         if getattr(impact, "intent", None) == RequestIntent.SPARSE_INTAKE:
@@ -156,9 +198,16 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
     patch_set = capture_unpatched_factual_answer_as_assumption(
         state["model"], state.get("user_message", ""), state.get("request_impact"), patch_set
     )
-    patch_set = await critique_ingest_completeness(
-        state["model"], state.get("user_message", ""), patch_set, gateway, meter, session_id=state.get("session_id", "")
-    )
+    if not fast_turn:
+        patch_set = await critique_ingest_completeness(
+            state["model"],
+            state.get("user_message", ""),
+            patch_set,
+            gateway,
+            meter,
+            session_id=state.get("session_id", ""),
+            generator_reasoning=response.reasoning,
+        )
     patch_set = auto_confirm_directly_stated_assumptions(state["model"], state.get("request_impact"), patch_set)
     return {"_patch_set": patch_set, "error": None}
 
@@ -204,6 +253,7 @@ async def critique_ingest_completeness(
     meter: SessionTokenMeter,
     *,
     session_id: str = "",
+    generator_reasoning: str | None = None,
 ) -> PatchSet:
     """Second-opinion pass modeled on the review stage's rules->critic->judge
     pattern (technique #8), applied to discovery ingestion instead of plan
@@ -231,6 +281,7 @@ async def critique_ingest_completeness(
         "NARRATION ABOUT TO BE SHOWN (reference only — narration is NOT captured in the model, "
         "only the patches above are):\n"
         f"{patch_set.narration}"
+        f"{render_generator_reasoning_for_prompt(generator_reasoning)}"
     )
 
     try:
@@ -1114,14 +1165,24 @@ async def gap_analysis_node(state: GraphState, gateway: LLMGateway, meter: Sessi
         model, cloud_scan_notes = await _apply_cloud_discovery_if_connected(model, session_id)
 
     deterministic_gaps = analyze_gaps(model)
-    requirement_gaps, model = await assess_dynamic_requirement_coverage(
-        model,
-        gateway,
-        meter,
-        user_message=state.get("user_message", ""),
-        conversation_context=state.get("conversation_context") or "",
-        session_id=state.get("session_id", ""),
-    )
+    settings = get_settings()
+    # Same length-based gate ingest_node uses for its own fast path (never a
+    # blanket "fast mode always skips this" switch) — a short reply stays fast,
+    # but a substantial message still gets the full requirement-coverage
+    # generator/critic pass instead of silently losing that entire dimension of
+    # analysis regardless of how much the user actually wrote.
+    fast_turn = settings.discovery_fast_mode and len(state.get("user_message", "")) < settings.discovery_full_prompt_min_chars
+    if fast_turn:
+        requirement_gaps = []
+    else:
+        requirement_gaps, model = await assess_dynamic_requirement_coverage(
+            model,
+            gateway,
+            meter,
+            user_message=state.get("user_message", ""),
+            conversation_context=state.get("conversation_context") or "",
+            session_id=state.get("session_id", ""),
+        )
     # 5, not 3: requirement-coverage gaps are now one-per-topic (see
     # assess_dynamic_requirement_coverage) rather than one merged bundle, so a
     # system with several genuinely distinct high-impact unknowns needs more
@@ -1221,6 +1282,7 @@ async def assess_dynamic_requirement_coverage(
         meter,
         conversation_context=conversation_context,
         session_id=session_id,
+        generator_reasoning=response.reasoning,
     )
     trace_node(
         node_name="discovery.requirement_coverage",
@@ -1319,6 +1381,7 @@ async def _critique_requirement_coverage(
     *,
     conversation_context: str = "",
     session_id: str = "",
+    generator_reasoning: str | None = None,
 ) -> list[RequirementCoverageVerdict]:
     """The critic half of the generator/critic pair — see
     assess_dynamic_requirement_coverage's docstring. Additive-only in effect
@@ -1333,6 +1396,7 @@ async def _critique_requirement_coverage(
         f"USER MESSAGE HISTORY FOR THIS SESSION:\n{conversation_context or user_message or '(none)'}\n\n"
         f"LATEST USER MESSAGE:\n{user_message or '(none)'}\n\n"
         f"GENERATOR'S VERDICTS TO REVIEW:\n{json.dumps([v.model_dump() for v in verdicts], indent=2)}"
+        f"{render_generator_reasoning_for_prompt(generator_reasoning)}"
     )
 
     try:
@@ -1466,7 +1530,18 @@ async def generate_questions_node(state: GraphState, gateway: LLMGateway, meter:
             "error": None,
         }
 
-    prompt = get_prompt("generate_questions")
+    settings = get_settings()
+    # Same "short message -> smaller prompt, cheaper tier" lever ingest_node uses,
+    # applied here too — a condensed PROMPT and a faster tier are a legitimate
+    # latency win because the reasoning is still real and dynamic. A hardcoded
+    # if/category->fixed-string shortcut used to live here instead; it was faster
+    # only because it skipped reasoning entirely, which is exactly the tradeoff
+    # this project has repeatedly rejected (see generate_questions' own anti-echo
+    # rule — a fixed string per category is the same class of bug as echoing a
+    # gap's raw description, just baked into Python instead of a bad model
+    # output). Never bring that shortcut back; make the real call fast instead.
+    fast_turn = settings.discovery_fast_mode and len(state.get("user_message", "")) < settings.discovery_full_prompt_min_chars
+    prompt = get_prompt("generate_questions_fast" if fast_turn else "generate_questions")
     user_prompt = (
         f"CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}\n\n"
         f"LATEST USER MESSAGE:\n{state.get('user_message', '')}\n\n"
@@ -1475,13 +1550,14 @@ async def generate_questions_node(state: GraphState, gateway: LLMGateway, meter:
     )
 
     try:
-        # STRONG tier: proposing a plausible caller for an orphan component (rather
-        # than asking a blank "does this connect to anything?") needs the same
-        # cross-section reasoning over the injected model that ingestion needs —
-        # this call is small (a handful of gaps, not a full document), so the
-        # marginal cost of matching ingestion's tier here is low.
+        # STRONG tier normally: proposing a plausible caller for an orphan
+        # component (rather than asking a blank "does this connect to anything?")
+        # needs the same cross-section reasoning over the injected model that
+        # ingestion needs. On the fast path (short message, same gate ingest_node
+        # uses), CHEAP tier + the condensed prompt above trade a little of that
+        # depth for real latency — never for a fixed non-answer.
         response = await gateway.complete(
-            tier=ModelTier.STRONG,
+            tier=ModelTier.CHEAP if fast_turn else ModelTier.STRONG,
             system_prompt=prompt.system,
             user_prompt=user_prompt,
             response_model=QuestionGenerationOutput,
@@ -1507,3 +1583,5 @@ async def generate_questions_node(state: GraphState, gateway: LLMGateway, meter:
         "_gaps": None,
         "error": None,
     }
+
+

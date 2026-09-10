@@ -10,6 +10,7 @@ it, so malformed/mis-nested tool input was an observed live failure mode)."""
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 
 from anthropic import APIConnectionError, APIStatusError, APITimeoutError, AsyncAnthropic
 from pydantic import BaseModel, ValidationError
@@ -58,6 +59,7 @@ class AnthropicProvider(LLMProvider):
         user_prompt: str,
         response_model: type[T],
         temperature: float = 0.0,  # noqa: ARG002 — see comment below on why this isn't forwarded
+        on_delta: Callable[[str], Awaitable[None]] | None = None,  # noqa: ARG002 — Claude has no reasoning-trace stream to feed it
     ) -> StructuredResponse[T]:
         try:
             # `temperature` is deliberately not forwarded: newer models (e.g.

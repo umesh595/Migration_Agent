@@ -10,6 +10,8 @@ import type { SessionState } from "@/lib/types";
 import { NavBar } from "@/components/NavBar";
 import { PLAN_SECTION_LINKS, PlanViewer, type PlanSectionNumber } from "@/components/PlanViewer";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 
 const VALID_SECTIONS = new Set<number>(PLAN_SECTION_LINKS.map((section) => section.number));
 
@@ -45,23 +47,25 @@ export default function MigrationPlanSectionPage() {
   const isValidSection = VALID_SECTIONS.has(sectionNumber);
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-atlas-mist dark:bg-background">
       <NavBar />
       <main className="mx-auto max-w-6xl px-4 py-8">
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4 animate-fade-up">
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4 blueprint-reveal">
           <div>
-            <Link
-              href={`/sessions/${sessionId}/migration-plan`}
-              className="btn-secondary !h-9 !w-9 !px-0 !py-0"
+            <Button
+              asChild
+              variant="outline"
+              size="icon"
+              className="h-9 w-9"
               aria-label="Back to migration plan"
               title="Back to migration plan"
             >
-              ←
-            </Link>
-            <h1 className="mt-4 font-display text-2xl font-bold tracking-tight text-white">
+              <Link href={`/sessions/${sessionId}/migration-plan`}>←</Link>
+            </Button>
+            <h1 className="mt-4 font-display text-2xl font-bold tracking-tight text-foreground">
               {section ? `${section.number}. ${section.title}` : "Migration plan section"}
             </h1>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-400">
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
               Review this migration plan section separately, then return to the full plan when ready.
             </p>
           </div>
@@ -69,37 +73,35 @@ export default function MigrationPlanSectionPage() {
         </div>
 
         {error && (
-          <p role="alert" className="card mb-4 border-rose-500/30 bg-rose-500/10 text-sm text-rose-300">
-            {error}
-          </p>
+          <Card className="mb-4 border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">{error}</Card>
         )}
 
         {!isValidSection ? (
-          <div className="card max-w-2xl">
-            <p className="text-sm font-semibold text-slate-200">Unknown migration plan section.</p>
-            <p className="mt-1 text-sm leading-6 text-slate-500">
+          <Card className="max-w-2xl p-5">
+            <p className="text-sm font-semibold text-foreground">Unknown migration plan section.</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
               Use the Migration Plan page to open sections 2 through 10.
             </p>
-          </div>
+          </Card>
         ) : !state ? (
           <div className="space-y-4">
-            <div className="card h-40 shimmer" />
-            <div className="card h-72 shimmer" />
+            <Card className="h-40 shimmer" />
+            <Card className="h-72 shimmer" />
           </div>
         ) : !state.plan ? (
-          <div className="card max-w-2xl">
-            <p className="text-sm font-semibold text-slate-200">Migration plan has not been generated yet.</p>
-            <p className="mt-1 text-sm leading-6 text-slate-500">
+          <Card className="max-w-2xl p-5">
+            <p className="text-sm font-semibold text-foreground">Migration plan has not been generated yet.</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
               Accept the architecture model and provide migration context in the conversation page first.
             </p>
-          </div>
+          </Card>
         ) : sectionNumber === 10 && !state.plan.cost_summary ? (
-          <div className="card max-w-2xl">
-            <p className="text-sm font-semibold text-slate-200">Cost estimate not generated yet.</p>
-            <p className="mt-1 text-sm leading-6 text-slate-500">
+          <Card className="max-w-2xl p-5">
+            <p className="text-sm font-semibold text-foreground">Cost estimate not generated yet.</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
               This plan does not currently include a cost summary section.
             </p>
-          </div>
+          </Card>
         ) : (
           <PlanViewer
             plan={state.plan}

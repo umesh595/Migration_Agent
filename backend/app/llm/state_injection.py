@@ -186,3 +186,24 @@ def render_plan_for_review(model: ArchitectureModel, plan: MigrationPlan, contex
         "existing_risks": [{"description": r.description, "severity": str(r.severity)} for r in plan.risks],
     }
     return json.dumps(payload, indent=2)
+
+
+def render_generator_reasoning_for_prompt(reasoning: str | None) -> str:
+    """Formats a reasoning-model's own chain-of-thought (when the provider
+    returns one — see StructuredResponse.reasoning) as a labeled section for a
+    critic/verifier prompt to scrutinize, or an empty string when there is
+    none (a non-reasoning model/provider) — callers can always concatenate
+    this directly with no conditional at the call site. Capped, not
+    truncated to nothing: enough for the critic to actually evaluate the
+    generator's stated logic without letting a long trace dominate the
+    critic's own (deliberately small, fast) prompt budget.
+    """
+
+    if not reasoning:
+        return ""
+    trimmed = reasoning.strip()[:3000]
+    return (
+        "\n\nGENERATOR'S OWN REASONING FOR THIS TURN (its internal working, not shown to the user — "
+        "scrutinize whether this reasoning actually holds up, not just whether the final output looks "
+        f"plausible on its own):\n{trimmed}"
+    )

@@ -10,18 +10,23 @@ catch — spending a strong-model call there is cheaper than three failed cheap 
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 
 from pydantic import BaseModel
 
 from app.llm.base import (
     LLMProvider,
     ModelTier,
+    ProviderQuotaExceededError,
+    ProviderRequestError,
     StructuredOutputError,
     StructuredResponse,
     TokenBudgetExceededError,
     normalize_llm_text,
 )
+from app.llm.streaming import get_reasoning_sink
 from app.observability.tracing import trace_llm_call
 
 logger = logging.getLogger(__name__)
@@ -60,12 +65,44 @@ class LLMGateway:
         *,
         cheap_tier_max_retries: int = 1,
         strong_tier_max_retries: int = 3,
+        call_timeout_s: float | None = None,
+        critic_timeout_s: float | None = None,
     ) -> None:
         self._provider = provider
         self._cheap_retries = cheap_tier_max_retries
         self._strong_retries = strong_tier_max_retries
+        self._call_timeout_s = call_timeout_s
+        self._critic_timeout_s = critic_timeout_s
 
     async def complete[T: BaseModel](
+        self,
+        *,
+        tier: ModelTier,
+        system_prompt: str,
+        user_prompt: str,
+        response_model: type[T],
+        meter: SessionTokenMeter | None = None,
+        node_name: str = "unknown",
+        temperature: float = 0.0,
+    ) -> StructuredResponse[T]:
+        timeout = self._call_timeout_s
+        if node_name in {"discovery.ingest_completeness_critic", "discovery.requirement_coverage_critic"}:
+            timeout = self._critic_timeout_s or timeout
+        started = time.perf_counter()
+        logger.info("LLM started node=%s tier=%s timeout_s=%s", node_name, tier, timeout)
+        try:
+            # One deadline includes format repair, tier escalation, and provider fallback.
+            async with asyncio.timeout(timeout):
+                return await self._complete_with_retries(
+                    tier=tier, system_prompt=system_prompt, user_prompt=user_prompt,
+                    response_model=response_model, meter=meter, node_name=node_name, temperature=temperature,
+                )
+        except TimeoutError as exc:
+            raise ProviderRequestError(f"node '{node_name}' exceeded its {timeout}s response deadline") from exc
+        finally:
+            logger.info("LLM finished node=%s elapsed_s=%.2f", node_name, time.perf_counter() - started)
+
+    async def _complete_with_retries[T: BaseModel](
         self,
         *,
         tier: ModelTier,
@@ -85,6 +122,16 @@ class LLMGateway:
         last_error: Exception | None = None
         error_feedback = ""
 
+        # The gateway is the one layer that knows BOTH node_name (for labeling
+        # in the UI) and whether a turn wants live reasoning at all (the
+        # ContextVar, set by the SSE endpoint — see app/llm/streaming.py). A
+        # provider that supports it streams a delta the instant it's
+        # generated; one that doesn't just never calls this and nothing
+        # changes for it. Never set for a turn with no sink registered
+        # (e.g. every existing test, every non-streaming caller).
+        raw_sink = get_reasoning_sink()
+        on_delta = (lambda text: raw_sink(node_name, text)) if raw_sink is not None else None
+
         for attempt in range(max_attempts):
             if meter:
                 meter.check_before_call()
@@ -98,7 +145,11 @@ class LLMGateway:
                     user_prompt=normalize_llm_text(user_prompt + error_feedback),
                     response_model=response_model,
                     temperature=temperature,
+                    on_delta=on_delta,
                 )
+            except (ProviderRequestError, ProviderQuotaExceededError):
+                # API failures cannot be repaired by asking for different JSON.
+                raise
             except StructuredOutputError as exc:
                 last_error = exc
                 error_feedback = (
@@ -117,13 +168,16 @@ class LLMGateway:
                 prompt_tokens=response.usage.prompt_tokens,
                 completion_tokens=response.usage.completion_tokens,
                 attempts=attempts_used,
+                reasoning=response.reasoning,
             )
             response.attempts = attempts_used
+            logger.info("LLM result node=%s model=%s attempts=%d tokens=%d", node_name, response.model,
+                        attempts_used, response.usage.total_tokens)
             return response
 
         if tier == ModelTier.CHEAP:
             logger.warning("cheap tier exhausted for node=%s, escalating to strong tier", node_name)
-            escalated = await self.complete(
+            escalated = await self._complete_with_retries(
                 tier=ModelTier.STRONG,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,

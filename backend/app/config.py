@@ -2,7 +2,7 @@
 secrets or environment-specific values elsewhere in the codebase."""
 
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field, PostgresDsn, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -66,6 +66,14 @@ class Settings(BaseSettings):
     llm_cheap_tier_max_retries: int = Field(default=1, alias="LLM_CHEAP_TIER_MAX_RETRIES")
     llm_strong_tier_max_retries: int = Field(default=3, alias="LLM_STRONG_TIER_MAX_RETRIES")
     llm_request_timeout_s: float = Field(default=60.0, alias="LLM_REQUEST_TIMEOUT_S")
+    codevector_response_format: Literal["json_schema", "json_object"] = Field(
+        default="json_schema", alias="CODEVECTOR_RESPONSE_FORMAT"
+    )
+    codevector_fallback_model: str | None = Field(default=None, alias="CODEVECTOR_FALLBACK_MODEL")
+    llm_call_timeout_s: float = Field(default=210.0, gt=0, alias="LLM_CALL_TIMEOUT_S")
+    llm_critic_timeout_s: float = Field(default=60.0, gt=0, alias="LLM_CRITIC_TIMEOUT_S")
+    discovery_fast_mode: bool = Field(default=True, alias="DISCOVERY_FAST_MODE")
+    discovery_full_prompt_min_chars: int = Field(default=3_500, ge=1, alias="DISCOVERY_FULL_PROMPT_MIN_CHARS")
     session_token_budget: int = Field(default=1_000_000, alias="SESSION_TOKEN_BUDGET")
 
     # --- Gemini: optional fallback only, used when CodeVector's API/account is unavailable. ---

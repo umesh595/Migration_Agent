@@ -1,17 +1,22 @@
 import type { SessionStatus } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
+// Restyled onto the ported "Atlas" token set (vivid-insights-hub) — same
+// status->color mapping as before, just using the new semantic colors:
+// discovery=amber (needs attention), planning=sky, review=cyan (no atlas
+// equivalent, kept as a distinct 4th hue), exported=teal (done).
 const STYLES: Record<SessionStatus, string> = {
-  discovery: "border-amber-400/30 bg-amber-400/10 text-amber-300",
-  planning: "border-sky-400/30 bg-sky-400/10 text-sky-300",
-  review: "border-cyan-400/30 bg-cyan-400/10 text-cyan-300",
-  exported: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
+  discovery: "border-transparent bg-atlas-amber-soft text-atlas-amber",
+  planning: "border-transparent bg-atlas-sky/60 text-sky-700 dark:text-sky-200",
+  review: "border-transparent bg-cyan-400/10 text-cyan-300",
+  exported: "border-transparent bg-atlas-teal-soft text-atlas-teal",
 };
 
 const DOT_STYLES: Record<SessionStatus, string> = {
-  discovery: "bg-amber-400",
-  planning: "bg-sky-400",
+  discovery: "bg-atlas-amber",
+  planning: "bg-sky-500",
   review: "bg-cyan-400",
-  exported: "bg-emerald-400",
+  exported: "bg-atlas-teal",
 };
 
 const LABELS: Record<SessionStatus, string> = {
@@ -23,8 +28,8 @@ const LABELS: Record<SessionStatus, string> = {
 
 export function StatusBadge({ status, pulse = false }: { status: SessionStatus; pulse?: boolean }) {
   return (
-    <span className={`badge ${STYLES[status]}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${DOT_STYLES[status]} ${pulse ? "animate-pulse-ring" : ""}`} />
+    <span className={cn("badge", STYLES[status])}>
+      <span className={cn("h-1.5 w-1.5 rounded-full", DOT_STYLES[status], pulse && "agent-pulse")} />
       {LABELS[status]}
     </span>
   );

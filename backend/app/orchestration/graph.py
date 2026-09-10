@@ -32,7 +32,12 @@ def build_discovery_graph(gateway: LLMGateway, meter: SessionTokenMeter):
     graph.add_node("generate_questions", partial(discovery.generate_questions_node, gateway=gateway, meter=meter))
 
     graph.add_edge(START, "ingest")
-    graph.add_edge("ingest", "apply_patches")
+    # No useful follow-up can be generated from an input that failed extraction.
+    graph.add_conditional_edges(
+        "ingest",
+        lambda state: END if state.get("error") and state.get("_patch_set") is None else "apply_patches",
+        {END: END, "apply_patches": "apply_patches"},
+    )
     graph.add_edge("apply_patches", "gap_analysis")
     graph.add_edge("gap_analysis", "generate_questions")
     graph.add_edge("generate_questions", END)

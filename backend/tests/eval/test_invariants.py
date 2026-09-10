@@ -294,7 +294,7 @@ class TestSeniorArchitectPromptBehavior:
 
         prompt = get_prompt("ingest_completeness_critic")
 
-        assert prompt.version == "v3"
+        assert prompt.version == "v4"
         assert "DO NOT flag a component's `criticality` field as invented merely because" in prompt.system
         assert "expected, correct behavior, not a gap" in prompt.system
         assert "Absence of an add_assumption patch is never itself a defect" in prompt.system
@@ -318,8 +318,26 @@ class TestSeniorArchitectPromptBehavior:
         assert "never ask about a category from an example above that this system" in generator.system
 
         critic = get_prompt("requirement_coverage_critic")
-        assert critic.version == "v4"
+        assert critic.version == "v5"
         assert "Also re-check risk_score itself on every verdict you keep" in critic.system
+
+    def test_critic_prompts_know_how_to_use_a_generator_reasoning_trace(self):
+        """DeepSeek (verified live via the CodeVector gateway) returns a genuine
+        chain-of-thought trace alongside its structured output — previously
+        discarded entirely. Both critic prompts must treat an included
+        reasoning trace as evidence to cross-examine (did the stated logic
+        actually support the output?), never as an authority that settles the
+        question on its own, and must degrade cleanly when it's absent (a
+        non-reasoning model/provider)."""
+
+        ingest_critic = get_prompt("ingest_completeness_critic")
+        assert ingest_critic.version == "v4"
+        assert "WHEN THE GENERATOR'S OWN REASONING IS INCLUDED" in ingest_critic.system
+        assert "cross-examine, not a summary to trust" in ingest_critic.system
+
+        requirement_critic = get_prompt("requirement_coverage_critic")
+        assert "WHEN THE GENERATOR'S OWN REASONING IS INCLUDED" in requirement_critic.system
+        assert "not as an authority that settles the question" in requirement_critic.system
 
     def test_ingest_completeness_critic_detects_contradictions_not_just_gaps(self):
         """The Contradiction Detector upgrade: same LLM call as the completeness
@@ -379,6 +397,18 @@ class TestSeniorArchitectPromptBehavior:
         assert "NEVER COPY A GAP'S OWN WORDING INTO THE QUESTION YOU RETURN" in prompt.system
         assert "BEFORE RETURNING, SILENTLY VERIFY EVERY QUESTION AGAINST THIS CHECKLIST" in prompt.system
         assert "talk ABOUT gaps" in prompt.system
+
+    def test_generate_questions_fast_prompt_is_still_dynamic_never_a_shortcut(self):
+        """The condensed, low-latency prompt used on the fast discovery path must
+        keep the two load-bearing rules a hardcoded shortcut would otherwise
+        silently drop: business-language phrasing and the ban on echoing a
+        gap's raw internal description into the question shown to the user."""
+
+        prompt = get_prompt("generate_questions_fast")
+
+        assert prompt.version == "v1"
+        assert "ASK IN BUSINESS LANGUAGE" in prompt.system
+        assert "REASONING INPUT ONLY, never a draft of the question" in prompt.system
 
 
 class TestTokenBudget:

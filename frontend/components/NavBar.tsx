@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 export function NavBar() {
@@ -14,7 +15,7 @@ export function NavBar() {
     <header className="glass-nav sticky top-0 z-40">
       <nav aria-label="Primary" className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3.5">
         <Link href="/sessions" className="group flex items-center gap-2.5">
-          <span className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-grad-primary shadow-glow transition-transform group-hover:scale-105">
+          <span className="relative flex h-8 w-8 items-center justify-center rounded-lg bg-atlas-teal shadow-glow transition-transform group-hover:scale-105">
             <svg viewBox="0 0 24 24" fill="none" className="h-4.5 w-4.5 text-white">
               <path
                 d="M4 17V7a2 2 0 0 1 2-2h5l2 2h5a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"
@@ -23,9 +24,9 @@ export function NavBar() {
                 strokeLinejoin="round"
               />
             </svg>
-            <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-grad-pulse shadow-glow-pulse animate-pulse-ring" />
+            <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-atlas-coral agent-pulse" />
           </span>
-          <span className="font-display text-[15px] font-bold tracking-tight text-white">
+          <span className="font-display text-[15px] font-bold tracking-tight text-foreground">
             <span className="text-gradient">Aether</span>
           </span>
         </Link>
@@ -34,7 +35,7 @@ export function NavBar() {
           {user?.is_admin && (
             <Link
               href="/admin"
-              className="rounded-lg px-3 py-1.5 font-medium text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white"
+              className="rounded-lg px-3 py-1.5 font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               Admin
             </Link>
@@ -42,21 +43,23 @@ export function NavBar() {
           {user && (
             <Link
               href="/account"
-              className="rounded-lg px-3 py-1.5 font-medium text-slate-400 transition-colors hover:bg-white/[0.06] hover:text-white"
+              className="rounded-lg px-3 py-1.5 font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               {user.email}
             </Link>
           )}
-          <button
+          <Button
             type="button"
-            className="btn-secondary ml-1 !py-1.5 !text-xs"
+            variant="outline"
+            size="sm"
+            className="ml-1 text-xs"
             onClick={() => {
               logout();
               router.replace("/login");
             }}
           >
             Sign out
-          </button>
+          </Button>
         </div>
       </nav>
     </header>
