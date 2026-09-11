@@ -394,6 +394,7 @@ export function ChatPanel({
   componentCount,
   draft,
   onTurnComplete,
+  embedded = false,
 }: {
   sessionId: string;
   placeholder: string;
@@ -401,6 +402,10 @@ export function ChatPanel({
   componentCount?: number;
   draft?: ChatDraft | null;
   onTurnComplete: () => void;
+  /** Renders without its own card border/header chrome so it can be embedded
+   * inside another panel (e.g. the workspace's agent rail) that already
+   * supplies a header and outer frame. All streaming/state logic is unchanged. */
+  embedded?: boolean;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -413,24 +418,28 @@ export function ChatPanel({
   const [awsConnection, setAwsConnection] = useState<{ resourceCount: number } | null>(null);
   const [disconnectingAws, setDisconnectingAws] = useState(false);
   const [startChoiceDismissed, setStartChoiceDismissed] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Restores the conversation after a refresh (or a return visit) — previously
   // `messages` started empty every time and there was nothing server-side to
-  // rehydrate it from, so the whole history vanished on reload.
+  // rehydrate it from, so the whole history vanished on reload. A failed fetch
+  // (e.g. a transient 429) is surfaced as an explicit error instead of silently
+  // falling through to the "start a new conversation" onboarding screen, which
+  // would misrepresent a real, non-empty conversation as wiped.
   useEffect(() => {
     let cancelled = false;
     setHistoryLoading(true);
+    setHistoryError(false);
     getConversation(sessionId)
       .then(({ turns }) => {
         if (cancelled) return;
         setMessages(turns.map((t) => ({ role: t.role, text: t.text })));
       })
       .catch(() => {
-        // A failed history fetch shouldn't block sending new messages — the
-        // conversation just starts this tab looking empty, same as before.
+        if (!cancelled) setHistoryError(true);
       })
       .finally(() => {
         if (!cancelled) setHistoryLoading(false);
@@ -605,34 +614,72 @@ export function ChatPanel({
       ? `${elapsedSeconds}s`
       : `${Math.floor(elapsedSeconds / 60)}m ${String(elapsedSeconds % 60).padStart(2, "0")}s`;
 
-  return (
-    <div className="flex h-[calc(100vh-22rem)] min-h-[620px] flex-col overflow-hidden rounded-xl border border-border bg-card blueprint-reveal">
-      <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-4 py-3">
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-atlas-teal text-[11px] font-bold text-white">AI</span>
-        <div>
-          <h3 className="font-display text-sm font-semibold text-foreground">Conversation</h3>
-          <p className="text-[11px] text-muted-foreground">Ask questions, review recommendations, or provide missing architecture context.</p>
-        </div>
-        {awsConnection && (
-          <button
-            type="button"
-            className="ml-auto flex items-center gap-1.5 rounded-full border border-atlas-teal/25 bg-atlas-teal-soft px-2.5 py-1 text-[11px] font-medium text-atlas-teal transition hover:border-atlas-coral/30 hover:bg-atlas-coral-soft hover:text-atlas-coral disabled:opacity-60"
-            disabled={disconnectingAws}
-            title="Click to disconnect this AWS account"
-            onClick={handleDisconnectAws}
-          >
-            <span className="h-1.5 w-1.5 rounded-full bg-atlas-teal" />
-            AWS connected · {awsConnection.resourceCount} resources
-          </button>
-        )}
-        {streaming && <span className={cn("h-2 w-2 rounded-full bg-atlas-teal agent-pulse", !awsConnection && "ml-auto")} />}
-      </div>
+  const awsOrStreamingStrip = (awsConnection || streaming) && (
+    <div className="flex items-center gap-2 px-1 pb-2">
+      {awsConnection && (
+        <button
+          type="button"
+          className="flex items-center gap-1.5 rounded-full border border-atlas-teal/25 bg-atlas-teal-soft px-2.5 py-1 text-[11px] font-medium text-atlas-teal transition hover:border-atlas-coral/30 hover:bg-atlas-coral-soft hover:text-atlas-coral disabled:opacity-60"
+          disabled={disconnectingAws}
+          title="Click to disconnect this AWS account"
+          onClick={handleDisconnectAws}
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-atlas-teal" />
+          AWS connected · {awsConnection.resourceCount} resources
+        </button>
+      )}
+      {streaming && <span className={cn("h-2 w-2 rounded-full bg-atlas-teal agent-pulse", !awsConnection && "ml-auto")} />}
+    </div>
+  );
 
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4" aria-live="polite">
+  return (
+    <div
+      className={cn(
+        "flex flex-col overflow-hidden",
+        embedded ? "h-full min-h-0" : "h-[calc(100vh-22rem)] min-h-[620px] rounded-xl border border-border bg-card blueprint-reveal"
+      )}
+    >
+      {embedded ? (
+        awsOrStreamingStrip
+      ) : (
+        <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-4 py-3">
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-atlas-teal text-[11px] font-bold text-white">AI</span>
+          <div>
+            <h3 className="font-display text-sm font-semibold text-foreground">Conversation</h3>
+            <p className="text-[11px] text-muted-foreground">Ask questions, review recommendations, or provide missing architecture context.</p>
+          </div>
+          {awsConnection && (
+            <button
+              type="button"
+              className="ml-auto flex items-center gap-1.5 rounded-full border border-atlas-teal/25 bg-atlas-teal-soft px-2.5 py-1 text-[11px] font-medium text-atlas-teal transition hover:border-atlas-coral/30 hover:bg-atlas-coral-soft hover:text-atlas-coral disabled:opacity-60"
+              disabled={disconnectingAws}
+              title="Click to disconnect this AWS account"
+              onClick={handleDisconnectAws}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-atlas-teal" />
+              AWS connected · {awsConnection.resourceCount} resources
+            </button>
+          )}
+          {streaming && <span className={cn("h-2 w-2 rounded-full bg-atlas-teal agent-pulse", !awsConnection && "ml-auto")} />}
+        </div>
+      )}
+
+      <div
+        ref={scrollRef}
+        className={cn("flex-1 space-y-3 overflow-y-auto", embedded ? "px-1 py-2" : "px-4 py-4")}
+        aria-live="polite"
+      >
         {historyLoading ? (
           <div className="space-y-3">
             <div className="ml-auto h-9 w-2/3 max-w-[85%] animate-pulse rounded-xl rounded-tr-md bg-muted" />
             <div className="h-14 w-3/4 max-w-[85%] animate-pulse rounded-xl rounded-tl-md bg-muted" />
+          </div>
+        ) : historyError && messages.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+            <p className="max-w-xs text-sm text-destructive">
+              Could not load the conversation history. Your existing conversation is safe — reload the page to try
+              again.
+            </p>
           </div>
         ) : messages.length === 0 && workflowStatus === "discovery" && !startChoiceDismissed ? (
           <StartDiscoveryChoice
@@ -718,17 +765,26 @@ export function ChatPanel({
         )}
       </div>
 
-      <div className="mx-4">
+      <div className={embedded ? "mx-1" : "mx-4"}>
         <InterruptApprovalCard />
       </div>
 
       {attachError && (
-        <p role="alert" className="mx-4 mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+        <p
+          role="alert"
+          className={cn(
+            "mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive",
+            embedded ? "mx-1" : "mx-4"
+          )}
+        >
           {attachError}
         </p>
       )}
 
-      <form onSubmit={handleSubmit} className="flex gap-2 border-t border-border bg-muted/40 p-3">
+      <form
+        onSubmit={handleSubmit}
+        className={cn("flex gap-2", embedded ? "pt-2" : "border-t border-border bg-muted/40 p-3")}
+      >
         <label htmlFor="chat-input" className="sr-only">
           Message
         </label>
