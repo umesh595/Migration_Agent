@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.llm.base import ProviderRequestError
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.providers.openai_provider import MockProvider
 from app.orchestration.nodes.discovery import (
@@ -120,3 +121,70 @@ async def test_full_turn_error_survives_through_apply_patches_after_total_ingest
 
     assert apply_result["error"] is not None
     assert apply_result["error"] == ingest_result["error"]
+
+
+class _SlowProvider:
+    """Never actually responds — used to trigger a REAL gateway deadline
+    (asyncio.timeout), not a hand-constructed exception, so this test proves
+    the exact live-reported path: a call that's merely slow, not broken."""
+
+    def model_for_tier(self, tier):
+        return "slow-model"
+
+    async def complete_structured(self, **kwargs):
+        import asyncio
+
+        await asyncio.sleep(10)
+        raise AssertionError("should have been cancelled by the gateway's own deadline first")
+
+
+@pytest.mark.asyncio
+async def test_a_deadline_exceeded_reads_as_slow_not_broken():
+    """Live-reported: a call that was merely slow (one prior call to the same
+    node finished fine in under 20s; the next one hit the deadline and got
+    killed) surfaced as 'The AI service is unavailable' — which reads as an
+    outage and pushes the user to retry immediately, when the honest state is
+    'still healthy, just slow this time.' The message shown for a genuine
+    deadline timeout must say so plainly and distinctly from an actual
+    provider failure."""
+
+    gateway = LLMGateway(_SlowProvider(), call_timeout_s=0.05)
+    meter = SessionTokenMeter(budget=100_000)
+    message = "just a simple web app, postgres db, email login, admin sees bookings, on-prem now, want gcp"
+
+    result = await ingest_node(
+        {"session_id": "s1", "stage": Stage.DISCOVERY, "model": ArchitectureModel(), "user_message": message, "request_impact": None},
+        gateway=gateway,
+        meter=meter,
+    )
+
+    assert "still up" in result["error"]
+    assert "unavailable" not in result["error"].lower()
+
+
+class _BrokenProvider:
+    """Fails immediately with a genuine transport error — the OTHER branch of
+    the same except clause, which must keep its distinct 'actually down'
+    wording rather than collapsing into the slow-but-healthy message above."""
+
+    def model_for_tier(self, tier):
+        return "broken-model"
+
+    async def complete_structured(self, **kwargs):
+        raise ProviderRequestError("CodeVector request failed: connection refused")
+
+
+@pytest.mark.asyncio
+async def test_a_genuine_provider_failure_still_reads_as_unavailable():
+    gateway = LLMGateway(_BrokenProvider(), strong_tier_max_retries=0)
+    meter = SessionTokenMeter(budget=100_000)
+    message = "just a simple web app, postgres db, email login, admin sees bookings, on-prem now, want gcp"
+
+    result = await ingest_node(
+        {"session_id": "s1", "stage": Stage.DISCOVERY, "model": ArchitectureModel(), "user_message": message, "request_impact": None},
+        gateway=gateway,
+        meter=meter,
+    )
+
+    assert "unavailable" in result["error"].lower()
+    assert "still up" not in result["error"]

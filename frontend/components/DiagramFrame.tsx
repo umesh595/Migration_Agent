@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { Background, BackgroundVariant, Controls, ReactFlow, type Edge, type Node } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
+import { Button } from "@/components/ui/button";
+
 /** Shared canvas chrome for both the current- and target-architecture diagrams:
  * a taller default viewport than a bare ReactFlow box gets you, plus a REAL
  * fullscreen mode (a fixed-position overlay, not just the "fit view" control
@@ -51,19 +53,19 @@ export function DiagramFrame({
       maxZoom={1.75}
       proOptions={{ hideAttribution: true }}
     >
-      <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="rgba(255,255,255,0.08)" />
+      <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="var(--border)" />
       <Controls />
     </ReactFlow>
   );
 
   if (fullscreen) {
     return (
-      <div className="fixed inset-0 z-50 flex flex-col bg-[#05060f] animate-fade-up" role="img" aria-label={ariaLabel}>
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-3">
-          <p className="text-sm font-medium text-slate-200">{title}</p>
-          <button type="button" className="btn-secondary !px-3 !py-1.5 !text-xs" onClick={() => setFullscreen(false)}>
+      <div className="blueprint-grid fixed inset-0 z-50 flex flex-col bg-background blueprint-reveal" role="img" aria-label={ariaLabel}>
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <p className="text-sm font-medium text-foreground">{title}</p>
+          <Button type="button" variant="outline" size="sm" className="text-xs" onClick={() => setFullscreen(false)}>
             ✕ Close (Esc)
-          </button>
+          </Button>
         </div>
         <div className="flex-1">{canvas}</div>
       </div>
@@ -71,15 +73,17 @@ export function DiagramFrame({
   }
 
   return (
-    <div style={{ height }} className="card relative overflow-hidden !p-0" role="img" aria-label={ariaLabel}>
-      <button
+    <div style={{ height }} className="relative overflow-hidden rounded-xl border border-border bg-card" role="img" aria-label={ariaLabel}>
+      <Button
         type="button"
-        className="btn-secondary absolute right-3 top-3 z-10 !px-2.5 !py-1.5 !text-xs"
+        variant="outline"
+        size="sm"
+        className="absolute right-3 top-3 z-10 text-xs"
         title="Expand to fullscreen"
         onClick={() => setFullscreen(true)}
       >
         ⛶ Fullscreen
-      </button>
+      </Button>
       {canvas}
     </div>
   );

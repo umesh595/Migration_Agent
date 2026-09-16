@@ -6,6 +6,9 @@ import { MarkerType, type Edge, type Node } from "@xyflow/react";
 import { DiagramFrame } from "@/components/DiagramFrame";
 import { layoutPositions } from "@/lib/graphLayout";
 import type { ArchitectureModel, MigrationPlan, SevenR } from "@/lib/types";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 
 /** Distinct per-disposition styling so the diagram itself communicates what's
  * happening to each component at a glance — retiring looks retired, a like-for-like
@@ -71,7 +74,7 @@ export function TargetArchitectureCanvas({ model, plan }: { model: ArchitectureM
             width: 220,
             background: style.bg,
             color: style.text,
-            boxShadow: "0 4px 16px -6px rgba(0,0,0,0.5)",
+            boxShadow: "0 4px 16px -6px rgba(0,0,0,0.35)",
           },
         };
       }),
@@ -86,10 +89,10 @@ export function TargetArchitectureCanvas({ model, plan }: { model: ArchitectureM
         target: d.target_id,
         label: d.kind.replace(/_/g, " "),
         type: "smoothstep",
-        style: { stroke: "#34d399", strokeWidth: 1.5, opacity: 0.85 },
-        markerEnd: { type: MarkerType.ArrowClosed, color: "#34d399", width: 16, height: 16 },
-        labelStyle: { fontSize: 10, fill: "#6ee7b7" },
-        labelBgStyle: { fill: "#0d1f1a" },
+        style: { stroke: "var(--teal)", strokeWidth: 1.5, opacity: 0.85 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: "var(--teal)", width: 16, height: 16 },
+        labelStyle: { fontSize: 10, fill: "var(--teal)" },
+        labelBgStyle: { fill: "var(--card)" },
       })),
     [model.dependencies]
   );
@@ -106,28 +109,29 @@ export function TargetArchitectureCanvas({ model, plan }: { model: ArchitectureM
     <div>
       <div className="mb-2 flex items-center justify-between gap-3">
         <div>
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <span className="text-base">🎯</span> Target architecture (migrated)
           </h3>
-          <p className="mt-0.5 text-xs text-slate-500">
+          <p className="mt-0.5 text-xs text-muted-foreground">
             What the system becomes — computed sequencing, per-component target decisions.
           </p>
         </div>
-        <button
+        <Button
           type="button"
-          className="btn-secondary shrink-0 !px-2.5 !py-1.5 !text-xs"
+          variant="outline"
+          size="sm"
+          className="shrink-0 text-xs"
           aria-pressed={showText}
           onClick={() => setShowText((v) => !v)}
         >
           {showText ? "📋 Text" : "🖼️ Diagram"}
-        </button>
+        </Button>
       </div>
 
       <div className="mb-3 flex flex-wrap gap-1.5">
         {[...dispositionCounts.entries()].map(([disposition, count]) => (
-          <span
+          <Badge
             key={disposition}
-            className="badge"
             style={{
               background: DISPOSITION_STYLE[disposition].bg,
               color: DISPOSITION_STYLE[disposition].text,
@@ -135,20 +139,19 @@ export function TargetArchitectureCanvas({ model, plan }: { model: ArchitectureM
             }}
           >
             {DISPOSITION_LABEL[disposition]}: {count}
-          </span>
+          </Badge>
         ))}
       </div>
 
       {showText ? (
-        <div className="card max-h-[520px] overflow-y-auto text-sm">
+        <Card className="max-h-[520px] overflow-y-auto p-4 text-sm">
           <ul className="space-y-3">
             {plan.component_mappings.map((m) => {
               const component = model.components.find((c) => c.id === m.component_id);
               return (
-                <li key={m.component_id} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <li key={m.component_id} className="rounded-xl border border-border bg-background/50 p-3">
                   <div className="flex items-center gap-2">
-                    <span
-                      className="badge"
+                    <Badge
                       style={{
                         background: DISPOSITION_STYLE[m.disposition].bg,
                         color: DISPOSITION_STYLE[m.disposition].text,
@@ -156,15 +159,15 @@ export function TargetArchitectureCanvas({ model, plan }: { model: ArchitectureM
                       }}
                     >
                       {DISPOSITION_LABEL[m.disposition]}
-                    </span>
-                    <span className="font-medium text-slate-100">{component?.name ?? m.component_id}</span>
+                    </Badge>
+                    <span className="font-medium text-foreground">{component?.name ?? m.component_id}</span>
                   </div>
-                  <p className="mt-1.5 text-slate-400">{m.target_description}</p>
+                  <p className="mt-1.5 text-muted-foreground">{m.target_description}</p>
                 </li>
               );
             })}
           </ul>
-        </div>
+        </Card>
       ) : (
         <DiagramFrame
           nodes={nodes}

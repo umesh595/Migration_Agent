@@ -73,15 +73,25 @@ def trace_llm_call(
     completion_tokens: int,
     attempts: int,
     session_id: str | None = None,
+    reasoning: str | None = None,
 ) -> None:
     """Records one LLM generation with token usage, for per-node cost/latency
-    attribution (technique #15)."""
+    attribution (technique #15). `reasoning` is a reasoning-model's own
+    chain-of-thought trace, when the provider returns one — surfaced here so a
+    quality question ("why did it decide this?") is answerable from the trace
+    itself rather than only from the final structured output."""
 
     client = _client()
     if client is None:
         return
 
     try:  # pragma: no cover - external service
+        metadata = {"tier": tier, "attempts": attempts, "session_id": session_id}
+        if reasoning:
+            # Capped, not truncated silently to nothing — enough to actually read
+            # the gist of the reasoning in the Langfuse UI without ballooning
+            # every trace event with a full multi-KB chain-of-thought dump.
+            metadata["reasoning"] = reasoning[:4000]
         observation = client.start_observation(
             name=node_name,
             as_type="generation",
@@ -91,7 +101,7 @@ def trace_llm_call(
                 "output": completion_tokens,
                 "total": prompt_tokens + completion_tokens,
             },
-            metadata={"tier": tier, "attempts": attempts, "session_id": session_id},
+            metadata=metadata,
         )
         observation.end()
     except Exception as exc:

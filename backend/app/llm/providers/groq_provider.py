@@ -14,6 +14,7 @@ technique #10 already uses everywhere else in this codebase.
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 
 from openai import APIError, AsyncOpenAI
 from pydantic import BaseModel, ValidationError
@@ -42,6 +43,7 @@ class GroqProvider(LLMProvider):
         user_prompt: str,
         response_model: type[T],
         temperature: float = 0.0,
+        on_delta: Callable[[str], Awaitable[None]] | None = None,
     ) -> StructuredResponse[T]:
         schema_instruction = (
             "\n\nRespond with a single JSON object only — no prose, no markdown fences — matching exactly "

@@ -4,12 +4,15 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
-import { ApiError, getFindings, getSessionState } from "@/lib/api";
+import { ApiError, getFindings, getReviewQuality, getSessionState } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
-import type { Finding, SessionState } from "@/lib/types";
+import type { Finding, ReviewQualityScore, SessionState } from "@/lib/types";
 import { FindingsPanel } from "@/components/FindingsPanel";
 import { NavBar } from "@/components/NavBar";
+import { ReviewQualityPanel } from "@/components/ReviewQualityPanel";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 
 export default function SessionReviewFindingsPage() {
   const { user, loading: authLoading } = useRequireAuth();
@@ -18,6 +21,7 @@ export default function SessionReviewFindingsPage() {
 
   const [state, setState] = useState<SessionState | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
+  const [reviewQualityScores, setReviewQualityScores] = useState<ReviewQualityScore[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -26,10 +30,15 @@ export default function SessionReviewFindingsPage() {
       setState(nextState);
 
       if (nextState.plan) {
-        const { findings: nextFindings } = await getFindings(sessionId);
+        const [{ findings: nextFindings }, { scores }] = await Promise.all([
+          getFindings(sessionId),
+          getReviewQuality(sessionId),
+        ]);
         setFindings(nextFindings);
+        setReviewQualityScores(scores);
       } else {
         setFindings([]);
+        setReviewQualityScores([]);
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "Could not load review findings.");
@@ -47,23 +56,18 @@ export default function SessionReviewFindingsPage() {
   const errorCount = findings.filter((f) => f.severity === "error").length;
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-atlas-mist dark:bg-background">
       <NavBar />
       <main className="mx-auto max-w-5xl px-4 py-8">
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4 animate-fade-up">
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4 blueprint-reveal">
           <div>
-            <Link
-              href={`/sessions/${sessionId}`}
-              className="btn-secondary !h-9 !w-9 !px-0 !py-0"
-              aria-label="Back to conversation"
-              title="Back to conversation"
-            >
-              ←
-            </Link>
-            <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-white">
+            <Button asChild variant="outline" size="icon" className="h-9 w-9" aria-label="Back to conversation" title="Back to conversation">
+              <Link href={`/sessions/${sessionId}`}>←</Link>
+            </Button>
+            <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-foreground">
               Review findings
             </h1>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-400">
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
               Review what the rule engine and semantic critic challenged before Gate 2 approval. Findings can be
               resolved, reopened, or accepted as documented migration risks.
             </p>
@@ -72,31 +76,29 @@ export default function SessionReviewFindingsPage() {
         </div>
 
         {error && (
-          <p role="alert" className="card mb-4 border-rose-500/30 bg-rose-500/10 text-sm text-rose-300">
-            {error}
-          </p>
+          <Card className="mb-4 border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">{error}</Card>
         )}
 
         {!state ? (
           <div className="grid gap-4 lg:grid-cols-[1fr_18rem]">
-            <div className="card h-72 shimmer" />
-            <div className="card h-48 shimmer" />
+            <Card className="h-72 shimmer" />
+            <Card className="h-48 shimmer" />
           </div>
         ) : !state.plan ? (
-          <div className="card max-w-2xl">
-            <p className="text-sm font-semibold text-slate-200">Review has not run yet.</p>
-            <p className="mt-1 text-sm leading-6 text-slate-500">
+          <Card className="max-w-2xl p-5">
+            <p className="text-sm font-semibold text-foreground">Review has not run yet.</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
               Generate a migration plan first. Review findings appear after planning and review complete.
             </p>
-          </div>
+          </Card>
         ) : (
           <div className="grid gap-4 lg:grid-cols-[1fr_18rem]">
             <div>
               <FindingsPanel findings={findings} sessionId={sessionId} onChanged={refresh} />
             </div>
             <aside className="space-y-4">
-              <div className="card">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Finding summary</p>
+              <Card className="p-5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Finding summary</p>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <div className="stat-tile !py-3">
                     <span className="stat-tile-value !text-lg">{findings.length}</span>
@@ -107,11 +109,12 @@ export default function SessionReviewFindingsPage() {
                     <span className="stat-tile-label">Open</span>
                   </div>
                   <div className="stat-tile !py-3 col-span-2">
-                    <span className="stat-tile-value !text-lg text-rose-300">{errorCount}</span>
+                    <span className="stat-tile-value !text-lg text-atlas-coral">{errorCount}</span>
                     <span className="stat-tile-label">Errors</span>
                   </div>
                 </div>
-              </div>
+              </Card>
+              {reviewQualityScores.length > 0 && <ReviewQualityPanel scores={reviewQualityScores} />}
             </aside>
           </div>
         )}

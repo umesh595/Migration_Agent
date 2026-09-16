@@ -93,6 +93,8 @@ async def lifespan(app: FastAPI):
             cheap_model=settings.active_codevector_cheap_model,
             strong_model=settings.active_codevector_strong_model,
             timeout_s=settings.llm_request_timeout_s,
+            response_format=settings.codevector_response_format,
+            fallback_model=settings.codevector_fallback_model,
         )
         if codevector_api_key and codevector_base_url
         else None
@@ -116,18 +118,12 @@ async def lifespan(app: FastAPI):
         else FallbackLLMProvider(primary=anthropic_provider, fallback=accumulated_fallback)
     )
 
-    # Each optional tier past the first costs one gateway attempt to switch
-    # into (FallbackLLMProvider forces a retry to move the active provider —
-    # see its own docstring), so the cheap tier's retry budget — tuned for a
-    # single provider with no fallback chain — needs one extra attempt per
-    # configured fallback tier or it can exhaust itself switching providers
-    # before ever reaching the last one, silently escalating to the strong
-    # tier instead of actually trying it.
-    effective_cheap_tier_max_retries = settings.llm_cheap_tier_max_retries + len(optional_fallback_tiers)
     app.state.gateway = LLMGateway(
         provider,
-        cheap_tier_max_retries=effective_cheap_tier_max_retries,
+        cheap_tier_max_retries=settings.llm_cheap_tier_max_retries,
         strong_tier_max_retries=settings.llm_strong_tier_max_retries,
+        call_timeout_s=settings.llm_call_timeout_s,
+        critic_timeout_s=settings.llm_critic_timeout_s,
     )
 
     await init_checkpointer()

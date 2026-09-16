@@ -122,11 +122,11 @@ function OptionCard({
     <button
       type="button"
       onClick={onClick}
-      className="card flex flex-col items-start gap-1.5 !p-4 text-left transition hover:border-brand-400/40 hover:bg-white/[0.06]"
+      className="card flex flex-col items-start gap-1.5 !p-4 text-left transition hover:border-atlas-teal/40 hover:bg-muted"
     >
       <span className="text-xl">{icon}</span>
-      <span className="text-sm font-semibold text-slate-100">{title}</span>
-      <span className="text-xs leading-5 text-slate-400">{description}</span>
+      <span className="text-sm font-semibold text-foreground">{title}</span>
+      <span className="text-xs leading-5 text-muted-foreground">{description}</span>
     </button>
   );
 }
@@ -243,7 +243,7 @@ export function StartDiscoveryChoice({
   if (mode === "choices") {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 px-2 py-6">
-        <p className="max-w-sm text-center text-sm text-slate-500">{placeholder}</p>
+        <p className="max-w-sm text-center text-sm text-muted-foreground">{placeholder}</p>
         <div className="grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-3">
           <OptionCard
             icon="📝"
@@ -267,7 +267,7 @@ export function StartDiscoveryChoice({
         <button
           type="button"
           onClick={() => setMode("aws")}
-          className="mt-1 flex items-center gap-1.5 text-xs font-medium text-brand-200 underline-offset-2 hover:text-brand-100 hover:underline"
+          className="mt-1 flex items-center gap-1.5 text-xs font-medium text-atlas-teal underline-offset-2 hover:text-atlas-teal/80 hover:underline"
         >
           🔗 Optional: connect a live AWS account so I can cross-reference real infrastructure as we go
         </button>
@@ -278,15 +278,15 @@ export function StartDiscoveryChoice({
   if (mode === "document") {
     return (
       <div className="mx-auto flex h-full w-full max-w-md flex-col justify-center gap-3 py-6">
-        <button type="button" onClick={() => setMode("choices")} className="self-start text-xs text-slate-500 hover:text-slate-300">
+        <button type="button" onClick={() => setMode("choices")} className="self-start text-xs text-muted-foreground hover:text-foreground">
           ← Back
         </button>
-        <h4 className="text-sm font-semibold text-slate-100">Upload an architecture document</h4>
-        <p className="text-xs leading-5 text-slate-400">
+        <h4 className="text-sm font-semibold text-foreground">Upload an architecture document</h4>
+        <p className="text-xs leading-5 text-muted-foreground">
           PDF, DOCX, or plain text. I'll read it exactly the way I'd read a typed description — same questions apply
           afterward.
         </p>
-        <label className="card flex cursor-pointer flex-col items-center gap-2 !p-6 text-center text-xs text-slate-400 hover:border-brand-400/40">
+        <label className="card flex cursor-pointer flex-col items-center gap-2 !p-6 text-center text-xs text-muted-foreground hover:border-atlas-teal/40">
           <input
             type="file"
             accept=".pdf,.docx,.doc,.txt,.md,application/pdf,text/plain"
@@ -298,13 +298,13 @@ export function StartDiscoveryChoice({
           />
           <span className="text-2xl">📄</span>
           {selectedFile ? (
-            <span className="font-medium text-slate-200">{selectedFile.name}</span>
+            <span className="font-medium text-foreground">{selectedFile.name}</span>
           ) : (
             <span>Click to choose a file</span>
           )}
         </label>
         {documentError && (
-          <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">
+          <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
             {documentError}
           </p>
         )}
@@ -318,19 +318,23 @@ export function StartDiscoveryChoice({
   if (mode === "aws") {
     return (
       <div className="mx-auto flex h-full w-full max-w-md flex-col justify-center gap-3 py-6">
-        <button type="button" onClick={() => setMode("choices")} className="self-start text-xs text-slate-500 hover:text-slate-300">
+        <button type="button" onClick={() => setMode("choices")} className="self-start text-xs text-muted-foreground hover:text-foreground">
           ← Back
         </button>
-        <h4 className="text-sm font-semibold text-slate-100">Connect your AWS account</h4>
-        <p className="text-xs leading-5 text-slate-400">
+        <h4 className="text-sm font-semibold text-foreground">Connect your AWS account</h4>
+        <p className="text-xs leading-5 text-muted-foreground">
           Read-only. Used once to scan EC2, RDS, Lambda, and S3, then kept in memory only for the rest of this
           session so I can cross-reference live infrastructure instead of asking questions the scan can already
           answer — never written to a database, never logged.
         </p>
+        <p className="text-xs leading-5 text-atlas-amber">
+          Use an IAM Access Key ID and its matching Secret Access Key. Do not enter your AWS Console username or
+          password. If these are temporary SSO credentials, paste the Session Token too.
+        </p>
         <div className="space-y-2">
           <input
             className="input"
-            placeholder="Access key ID"
+            placeholder="IAM access key ID (for example, AKIA...)"
             value={awsAccessKeyId}
             onChange={(e) => setAwsAccessKeyId(e.target.value)}
             autoComplete="off"
@@ -338,7 +342,7 @@ export function StartDiscoveryChoice({
           <input
             className="input"
             type="password"
-            placeholder="Secret access key"
+            placeholder="Matching secret access key"
             value={awsSecretAccessKey}
             onChange={(e) => setAwsSecretAccessKey(e.target.value)}
             autoComplete="off"
@@ -358,7 +362,7 @@ export function StartDiscoveryChoice({
           />
         </div>
         {awsError && (
-          <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-300">
+          <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
             {awsError}
           </p>
         )}
@@ -377,11 +381,11 @@ export function StartDiscoveryChoice({
   // mode === "form"
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col gap-3 overflow-y-auto py-4">
-      <button type="button" onClick={() => setMode("choices")} className="self-start text-xs text-slate-500 hover:text-slate-300">
+      <button type="button" onClick={() => setMode("choices")} className="self-start text-xs text-muted-foreground hover:text-foreground">
         ← Back
       </button>
-      <h4 className="text-sm font-semibold text-slate-100">Describe your architecture as a form</h4>
-      <p className="text-xs leading-5 text-slate-400">
+      <h4 className="text-sm font-semibold text-foreground">Describe your architecture as a form</h4>
+      <p className="text-xs leading-5 text-muted-foreground">
         Add each component you have, then how they connect. Submitting reads this into the same conversation as if
         you'd typed it — I'll still ask about anything important that's missing.
       </p>
@@ -479,7 +483,7 @@ export function StartDiscoveryChoice({
                     </option>
                   ))}
                 </select>
-                <span className="shrink-0 text-slate-500">→</span>
+                <span className="shrink-0 text-muted-foreground">→</span>
                 <select
                   className="input flex-1 text-sm"
                   value={d.targetKey}

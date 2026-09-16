@@ -4,6 +4,7 @@ schema conformance is enforced by the provider, not by post-hoc regex on prose."
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 
 from openai import APIError, AsyncOpenAI
 from pydantic import BaseModel, ValidationError
@@ -42,6 +43,7 @@ class OpenAIProvider(LLMProvider):
         user_prompt: str,
         response_model: type[T],
         temperature: float = 0.0,
+        on_delta: Callable[[str], Awaitable[None]] | None = None,
     ) -> StructuredResponse[T]:
         try:
             # Stable path in openai>=1.92 (`beta.chat.completions.parse` is the
@@ -107,6 +109,7 @@ class MockProvider(LLMProvider):
         user_prompt: str,
         response_model: type[T],
         temperature: float = 0.0,
+        on_delta: Callable[[str], Awaitable[None]] | None = None,
     ) -> StructuredResponse[T]:
         self.calls.append({"model": model, "system": system_prompt, "user": user_prompt})
 

@@ -2,6 +2,8 @@
 
 import { useInterrupt } from "@copilotkit/react-core/v2";
 
+import { Button } from "@/components/ui/button";
+
 interface PatchDetail {
   op: string;
   summary: string;
@@ -29,32 +31,35 @@ export function InterruptApprovalCard() {
       const patches = raw?.patches ?? [];
 
       return (
-        <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/[0.06] p-3 text-sm text-slate-200 animate-pop-in">
-          <p className="font-semibold text-amber-100">Confirmation needed</p>
-          <p className="mt-1 text-xs leading-5 text-slate-300">{interrupt?.message}</p>
+        <div className="mt-3 rounded-lg border border-atlas-amber/30 bg-atlas-amber-soft p-3 text-sm text-foreground blueprint-reveal">
+          <p className="font-semibold text-atlas-amber">Confirmation needed</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{interrupt?.message}</p>
           <ul className="mt-2 space-y-1.5">
             {patches.map((p, i) => (
-              <li key={i} className="rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-xs text-slate-300">
-                <span className="font-mono text-amber-200">{p.op}</span>
-                {p.summary && <span className="ml-1.5 text-slate-400">— {p.summary}</span>}
+              <li key={i} className="rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-muted-foreground">
+                <span className="font-mono text-atlas-amber">{p.op}</span>
+                {p.summary && <span className="ml-1.5 text-muted-foreground">— {p.summary}</span>}
               </li>
             ))}
           </ul>
           <div className="mt-3 flex gap-2">
-            <button
+            <Button
               type="button"
-              className="btn-primary !py-1.5 !px-3 text-xs"
+              size="sm"
+              className="bg-atlas-teal text-xs text-white hover:bg-atlas-teal/90"
               onClick={() => resolve({ approved: true })}
             >
               Approve
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="btn-secondary !py-1.5 !px-3 text-xs"
+              variant="outline"
+              size="sm"
+              className="text-xs"
               onClick={() => resolve({ approved: false })}
             >
               Reject
-            </button>
+            </Button>
           </div>
         </div>
       );

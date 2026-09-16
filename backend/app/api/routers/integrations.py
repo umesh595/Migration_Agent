@@ -35,7 +35,13 @@ from app.core.patch_applier import apply_patch_set
 from app.core.request_intelligence import classify_user_request
 from app.db.models import SessionStatus
 from app.integrations import aws_session_cache
-from app.integrations.aws_provider import AWSCredentials, AWSProviderError, fetch_aws_inventory, map_aws_inventory_to_patch_set
+from app.integrations.aws_provider import (
+    AWSAuthenticationError,
+    AWSCredentials,
+    AWSProviderError,
+    fetch_aws_inventory,
+    map_aws_inventory_to_patch_set,
+)
 from app.integrations.catalog_provider import CatalogProviderError
 from app.integrations.document_extractor import DocumentExtractionError, extract_text
 from app.integrations.mapper import map_catalog_result_to_patch_set
@@ -302,6 +308,9 @@ async def import_from_aws(
         )
         try:
             fetch_result = await fetch_aws_inventory(credentials)
+        except AWSAuthenticationError as exc:
+            logger.warning("AWS import authentication failed for session %s", session_id)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
         except AWSProviderError as exc:
             # Never log `exc` at a level/sink that could echo the credentials
             # back — AWSProviderError wraps botocore's own exception message,
@@ -311,7 +320,7 @@ async def import_from_aws(
             logger.warning("AWS import failed for session %s", session_id)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"AWS API error: {exc}",
+                detail=str(exc),
             ) from exc
         finally:
             del credentials
@@ -399,9 +408,12 @@ async def connect_aws(
     )
     try:
         inventory = await fetch_aws_inventory(credentials)
+    except AWSAuthenticationError as exc:
+        logger.warning("AWS connect authentication failed for session %s", session_id)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
     except AWSProviderError as exc:
         logger.warning("AWS connect failed for session %s", session_id)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"AWS API error: {exc}") from exc
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
     session_id_str = str(session.id)
     aws_session_cache.connect(session_id_str, credentials)

@@ -4,19 +4,121 @@
 
 :root {
   color-scheme: dark;
+
+  /* --- shadcn/ui + "Atlas" design-system tokens, ported from
+     vivid-insights-hub (github.com/Umesh594/vivid-insights-hub). That repo
+     defaults :root to ITS light theme and overrides in .dark; this app
+     defaults to DARK and overrides in html.light, so the values are swapped
+     accordingly — this block carries the reference's `.dark` values verbatim
+     as our default. Exact oklch() values, unmodified. */
+  --radius: 0.625rem;
+  --background: oklch(0.129 0.042 264.695);
+  --foreground: oklch(0.984 0.003 247.858);
+  --card: oklch(0.208 0.042 265.755);
+  --card-foreground: oklch(0.984 0.003 247.858);
+  --popover: oklch(0.208 0.042 265.755);
+  --popover-foreground: oklch(0.984 0.003 247.858);
+  --primary: oklch(0.929 0.013 255.508);
+  --primary-foreground: oklch(0.208 0.042 265.755);
+  --secondary: oklch(0.279 0.041 260.031);
+  --secondary-foreground: oklch(0.984 0.003 247.858);
+  --muted: oklch(0.279 0.041 260.031);
+  --muted-foreground: oklch(0.704 0.04 256.788);
+  --accent: oklch(0.279 0.041 260.031);
+  --accent-foreground: oklch(0.984 0.003 247.858);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.551 0.027 264.364);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  /* Signature "Atlas" accent scale — ink=near-black-teal text/surface,
+     teal=primary/done, coral=high-risk/danger, amber=warning/selected,
+     mist=page-background wash, mint/sky=light callout accents. */
+  --ink: oklch(0.92 0.02 210);
+  --sub: oklch(0.7 0.03 210);
+  --teal: oklch(0.7 0.12 175);
+  --teal-soft: oklch(0.25 0.05 175);
+  --coral: oklch(0.72 0.16 34);
+  --coral-soft: oklch(0.3 0.06 34);
+  --amber: oklch(0.8 0.13 80);
+  --amber-soft: oklch(0.3 0.07 80);
+  --mist: oklch(0.2 0.025 210);
+  --mint: oklch(0.27 0.06 155);
+  --sky: oklch(0.25 0.045 220);
 }
 
 html.light {
   color-scheme: light;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.129 0.042 264.695);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.129 0.042 264.695);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.129 0.042 264.695);
+  --primary: oklch(0.208 0.042 265.755);
+  --primary-foreground: oklch(0.984 0.003 247.858);
+  --secondary: oklch(0.968 0.007 247.896);
+  --secondary-foreground: oklch(0.208 0.042 265.755);
+  --muted: oklch(0.968 0.007 247.896);
+  --muted-foreground: oklch(0.554 0.046 257.417);
+  --accent: oklch(0.968 0.007 247.896);
+  --accent-foreground: oklch(0.208 0.042 265.755);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --border: oklch(0.929 0.013 255.508);
+  --input: oklch(0.929 0.013 255.508);
+  --ring: oklch(0.704 0.04 256.788);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --ink: oklch(0.19 0.025 210);
+  --sub: oklch(0.48 0.035 210);
+  --teal: oklch(0.48 0.12 175);
+  --teal-soft: oklch(0.93 0.045 175);
+  --coral: oklch(0.58 0.18 34);
+  --coral-soft: oklch(0.95 0.045 34);
+  --amber: oklch(0.68 0.14 75);
+  --amber-soft: oklch(0.95 0.065 85);
+  --mist: oklch(0.96 0.012 210);
+  --mint: oklch(0.92 0.065 155);
+  --sky: oklch(0.93 0.04 220);
+}
+
+/* Signature "Atlas" utilities, ported verbatim from vivid-insights-hub. */
+@keyframes agent-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.86); }
+  50% { opacity: 1; transform: scale(1); }
+}
+@keyframes blueprint-reveal {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.agent-pulse {
+  animation: agent-pulse 1.6s ease-in-out infinite;
+}
+.blueprint-reveal {
+  animation: blueprint-reveal 420ms ease-out both;
+}
+.blueprint-grid {
+  background-image: radial-gradient(color-mix(in oklab, var(--ink) 10%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px;
 }
 
 html,
 body {
-  background: #05090e;
+  background: var(--background);
 }
 
 body {
-  @apply min-h-screen text-slate-100;
+  @apply min-h-screen text-foreground;
   font-family: var(--font-body), ui-sans-serif, system-ui;
   position: relative;
   isolation: isolate;
@@ -38,9 +140,7 @@ h4,
   position: fixed;
   inset: 0;
   z-index: -2;
-  background: #05090e;
-  background-image: theme("backgroundImage.grad-mesh");
-  filter: saturate(0.95);
+  background: var(--background);
   pointer-events: none;
 }
 
@@ -49,34 +149,9 @@ h4,
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background-image:
-    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-  background-size: 44px 44px;
+  background-image: radial-gradient(color-mix(in oklab, var(--ink) 10%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px;
   mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 40%, transparent 90%);
-}
-
-html.light body,
-html.light {
-  background: #f6f8fb;
-}
-
-html.light body {
-  @apply text-slate-900;
-}
-
-html.light .bg-aurora {
-  background: #f6f8fb;
-  background-image:
-    linear-gradient(180deg, rgba(246, 248, 251, 0.98) 0%, rgba(235, 241, 247, 1) 100%),
-    radial-gradient(at 15% 0%, rgba(31, 143, 184, 0.13) 0px, transparent 42%),
-    radial-gradient(at 88% 4%, rgba(20, 184, 166, 0.1) 0px, transparent 38%);
-}
-
-html.light .bg-grid {
-  background-image:
-    linear-gradient(to right, rgba(15, 23, 42, 0.06) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(15, 23, 42, 0.06) 1px, transparent 1px);
 }
 
 /* Visible focus states everywhere (WCAG 2.1 AA) — never suppressed without a
@@ -119,8 +194,7 @@ select:focus-visible,
   }
 
   .btn-primary {
-    @apply btn text-white shadow-lg shadow-brand-900/30;
-    background-image: linear-gradient(135deg, #155d79, #1f8fb8);
+    @apply btn bg-atlas-teal text-white shadow-sm;
   }
   .btn-primary:hover:not(:disabled) {
     @apply shadow-glow;
@@ -128,12 +202,11 @@ select:focus-visible,
   }
 
   .btn-secondary {
-    @apply btn border border-white/10 bg-white/[0.04] text-slate-200 backdrop-blur-sm hover:bg-white/[0.09] hover:border-white/20;
+    @apply btn border border-border bg-card text-foreground hover:bg-muted;
   }
 
   .btn-danger {
-    @apply btn text-white shadow-lg shadow-rose-900/30;
-    background-image: linear-gradient(135deg, #dc2626, #b91c1c);
+    @apply btn bg-destructive text-destructive-foreground shadow-sm;
   }
   .btn-danger:hover:not(:disabled) {
     filter: brightness(1.1);
@@ -141,7 +214,7 @@ select:focus-visible,
 
   /* --- Surfaces --- */
   .card {
-    @apply relative rounded-xl border border-white/10 bg-white/[0.035] p-5 shadow-panel-sm backdrop-blur-xl;
+    @apply relative rounded-xl border border-border bg-card p-5 text-card-foreground shadow-sm;
   }
 
   .card-glow {
@@ -153,7 +226,7 @@ select:focus-visible,
     inset: -1px;
     border-radius: inherit;
     padding: 1px;
-    background: linear-gradient(135deg, rgba(31, 143, 184, 0.35), rgba(20, 184, 166, 0.12), transparent 72%);
+    background: linear-gradient(135deg, color-mix(in oklch, var(--teal) 45%, transparent), color-mix(in oklch, var(--teal) 15%, transparent), transparent 72%);
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
@@ -161,22 +234,23 @@ select:focus-visible,
   }
 
   .panel {
-    @apply rounded-xl border border-white/10 bg-ink-900/60 shadow-panel backdrop-blur-2xl;
+    @apply rounded-xl border border-border bg-card shadow-sm;
   }
 
   .glass-nav {
-    @apply border-b border-white/10 bg-ink-950/70 backdrop-blur-2xl;
+    @apply border-b border-border bg-card backdrop-blur-2xl;
+    background-color: color-mix(in oklch, var(--card) 70%, transparent);
   }
 
   /* --- Form controls --- */
   .input {
-    @apply w-full rounded-lg border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-slate-100
-      placeholder:text-slate-500 transition-colors duration-150
-      focus:border-brand-400/60 focus:bg-white/[0.06] focus:outline-none;
+    @apply w-full rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm text-foreground
+      placeholder:text-muted-foreground transition-colors duration-150
+      focus:border-atlas-teal focus:outline-none;
   }
 
   .label {
-    @apply mb-1.5 block text-sm font-medium text-slate-300;
+    @apply mb-1.5 block text-sm font-medium text-foreground;
   }
 
   /* --- Badges --- */
@@ -184,39 +258,44 @@ select:focus-visible,
     @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold tracking-wide;
   }
 
-  /* --- Chip toggle: a multi-select option pill (batch question answering) ---
-     Selected state uses the hot `pulse` gradient rather than the cool brand
-     teal, so "you picked this" reads as a distinct, energetic signal against
-     a page that's otherwise teal-accented throughout. */
+  /* --- Chip toggle: a multi-select option pill (batch question answering). --- */
   .chip-toggle {
-    @apply inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-3 py-1.5
-      text-xs font-medium text-slate-300 transition-all duration-150 ease-out
-      hover:border-white/25 hover:bg-white/[0.08] active:scale-[0.97];
+    @apply inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5
+      text-xs font-medium text-muted-foreground transition-all duration-150 ease-out
+      hover:bg-muted active:scale-[0.97];
+  }
+  .chip-toggle:hover {
+    border-color: color-mix(in oklch, var(--teal) 40%, var(--border));
   }
   .chip-toggle[aria-pressed="true"] {
-    @apply border-transparent bg-grad-pulse text-white shadow-glow-pulse;
+    @apply border-transparent bg-atlas-amber text-white;
   }
 
   /* --- Stat tile: a big number over a small label, for gate/plan/finding
      summaries — reused wherever the app currently shows a plain <dl>. --- */
   .stat-tile {
-    @apply relative flex flex-col items-center justify-center gap-1 rounded-xl border border-white/10
-      bg-white/[0.03] px-4 py-5 text-center backdrop-blur-xl transition-all duration-200
-      hover:border-white/20 hover:bg-white/[0.05];
+    @apply relative flex flex-col items-center justify-center gap-1 rounded-xl border border-border
+      bg-card px-4 py-5 text-center transition-all duration-200;
+  }
+  .stat-tile:hover {
+    border-color: color-mix(in oklch, var(--teal) 40%, var(--border));
   }
   .stat-tile-value {
-    @apply font-display text-2xl font-bold tracking-tight text-white;
+    @apply font-display text-2xl font-bold tracking-tight text-foreground;
   }
   .stat-tile-label {
-    @apply text-[11px] font-medium uppercase tracking-wide text-slate-500;
+    @apply text-[11px] font-medium uppercase tracking-wide text-muted-foreground;
   }
 
   /* --- Rail card: a card with a colored 4px left accent bar, for anything
      with a status/severity (questions, findings, audit entries, risks) so
      the color reads as a glance-able bar rather than only a small badge. --- */
   .rail-card {
-    @apply relative flex overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] backdrop-blur-xl
-      transition-colors duration-150 hover:border-white/20;
+    @apply relative flex overflow-hidden rounded-xl border border-border bg-card
+      transition-colors duration-150;
+  }
+  .rail-card:hover {
+    border-color: color-mix(in oklch, var(--teal) 40%, var(--border));
   }
   .rail-card-bar {
     @apply w-1 flex-none;
@@ -228,7 +307,7 @@ select:focus-visible,
   /* --- Gradient text --- */
   .text-gradient {
     @apply bg-clip-text text-transparent;
-    background-image: linear-gradient(135deg, #67e8f9, #5eead4);
+    background-image: linear-gradient(135deg, var(--teal), var(--mint));
   }
 
   /* --- Shimmer skeleton / loading sheen --- */
@@ -250,39 +329,6 @@ select:focus-visible,
     background-repeat: repeat-x;
     background-position: center;
   }
-}
-
-html.light .glass-nav {
-  @apply border-slate-200 bg-white/80;
-}
-
-html.light .card,
-html.light .panel {
-  @apply border-slate-200 bg-white/85 shadow-panel-sm;
-}
-
-html.light .stat-tile,
-html.light .rail-card,
-html.light .chip-toggle {
-  @apply border-slate-200 bg-white/85;
-}
-html.light .chip-toggle:hover {
-  @apply border-slate-300 bg-white;
-}
-html.light .stat-tile-value {
-  color: #0f172a;
-}
-
-html.light .card-glow::before {
-  background: linear-gradient(135deg, rgba(31, 143, 184, 0.22), rgba(20, 184, 166, 0.12), transparent 72%);
-}
-
-html.light .input {
-  @apply border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:bg-white;
-}
-
-html.light .btn-secondary {
-  @apply border-slate-300 bg-white/85 text-slate-700 hover:border-slate-400 hover:bg-white;
 }
 
 html.light .text-white,

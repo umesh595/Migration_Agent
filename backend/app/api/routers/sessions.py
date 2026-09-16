@@ -8,6 +8,7 @@ under happy-path traversal).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -26,6 +27,7 @@ from app.core.graph_engine import compute_impact
 from app.core.request_intelligence import classify_user_request
 from app.db.models import SessionStatus
 from app.llm.gateway import LLMGateway, SessionTokenMeter
+from app.llm.streaming import reasoning_sink_scope
 from app.orchestration.checkpointer import get_checkpointer
 from app.orchestration.graph import STRUCTURAL_PATCH_OPS, build_discovery_graph, build_planning_graph, build_review_discuss_graph
 from app.orchestration.state import Stage
@@ -67,6 +69,43 @@ class MessageRequest(BaseModel):
 
 def _thread_config(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id}}
+
+
+async def _astream_with_reasoning(agen, queue: asyncio.Queue):
+    """Merges a LangGraph node-update stream with a concurrently-fed queue of
+    (node_name, reasoning_delta_text) events (see app/llm/streaming.py — a
+    contextvar sink registered for the duration of this turn, fed by
+    LLMGateway as a reasoning-model call streams), yielding whichever is
+    ready first. This is purely an interleaving of TWO existing streams —
+    LangGraph itself never learns this exists, so a graph-internal retry,
+    checkpoint replay, or interrupt cycle behaves exactly as before; this
+    wrapper only changes what the caller sees in between node completions.
+
+    Always drains and yields every already-queued reasoning event before
+    waiting on more graph output, so a node's own thinking text is never
+    reordered to arrive after that node's node_complete event.
+    """
+
+    it = agen.__aiter__()
+    node_task = asyncio.ensure_future(it.__anext__())
+    queue_task = asyncio.ensure_future(queue.get())
+    try:
+        while True:
+            done, _ = await asyncio.wait({node_task, queue_task}, return_when=asyncio.FIRST_COMPLETED)
+            if queue_task in done:
+                node_name, text = queue_task.result()
+                yield ("thinking", node_name, text)
+                queue_task = asyncio.ensure_future(queue.get())
+            if node_task in done:
+                try:
+                    chunk = node_task.result()
+                except StopAsyncIteration:
+                    return
+                yield ("node", chunk, None)
+                node_task = asyncio.ensure_future(it.__anext__())
+    finally:
+        node_task.cancel()
+        queue_task.cancel()
 
 
 def _render_user_message_history(turns: list, *, max_chars: int = 8_000) -> str:
@@ -321,7 +360,20 @@ async def post_message(
 
         final_state = None
         accumulated_values = dict(initial)
+        # Fed by LLMGateway (app/llm/gateway.py) via the contextvar sink this
+        # scope registers below, whenever the active provider streams a
+        # reasoning-model's chain-of-thought (verified live: DeepSeek via
+        # CodeVector). asyncio.Queue.put_nowait never blocks the token-
+        # consumption loop that's feeding it; _astream_with_reasoning (above)
+        # is what actually drains it, interleaved with LangGraph's own
+        # node-update stream, purely additive to what the client already saw.
+        reasoning_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+
+        async def _emit_reasoning(node_name: str, text: str) -> None:
+            reasoning_queue.put_nowait((node_name, text))
+
         try:
+          with reasoning_sink_scope(_emit_reasoning):
             try:
                 graph_started = False
                 # Up to 3 attempts: a checkpoint written under an older code
@@ -336,7 +388,12 @@ async def post_message(
                     try:
                         interrupted = False
                         thread_config = _thread_config(session.langgraph_thread_id)
-                        async for chunk in graph.astream(initial, config=thread_config, stream_mode="updates"):
+                        graph_stream = graph.astream(initial, config=thread_config, stream_mode="updates")
+                        async for kind, stream_payload, extra in _astream_with_reasoning(graph_stream, reasoning_queue):
+                            if kind == "thinking":
+                                yield {"event": "thinking", "data": json.dumps({"node": stream_payload, "text": extra})}
+                                continue
+                            chunk = stream_payload
                             graph_started = True
                             for node_name, node_output in chunk.items():
                                 if node_name == "__interrupt__":
@@ -362,9 +419,14 @@ async def post_message(
                                     ),
                                 }
                         if interrupted:
-                            async for chunk in graph.astream(
+                            resume_stream = graph.astream(
                                 Command(resume={"approved": False}), config=thread_config, stream_mode="updates"
-                            ):
+                            )
+                            async for kind, stream_payload, extra in _astream_with_reasoning(resume_stream, reasoning_queue):
+                                if kind == "thinking":
+                                    yield {"event": "thinking", "data": json.dumps({"node": stream_payload, "text": extra})}
+                                    continue
+                                chunk = stream_payload
                                 for node_name, node_output in chunk.items():
                                     if node_name == "__interrupt__":
                                         continue

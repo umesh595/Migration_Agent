@@ -365,6 +365,34 @@ Rules:
 """,
 )
 
+
+INGEST_PATCHES_FAST = Prompt(
+    id="ingest_patches_fast",
+    version="v1",
+    system=_CLOSED_WORLD_PREAMBLE
+    + """
+Turn the latest user message into precise architecture PATCHES for the current model.
+
+Return only patches supported by the message or the supplied deterministic request classification.
+Never invent a technology, component, dependency, or source environment.
+
+Rules:
+- Capture stated current-system facts as add_component, update_component, add_dependency, add_assumption,
+  resolve_open_question, or confirm_assumption patches.
+- A source environment is on_prem, cloud, hybrid, or unknown. Provider names belong in technology/description.
+- Add dependencies whenever the user says one component calls, reads, writes, publishes to, consumes from,
+  stores in, or processes work from another.
+- For a target-state preference, retain source-model facts and capture the target detail as an assumption.
+- For a high-impact technology replacement, add one open question asking whether it is firm or exploratory;
+  do not silently rewrite the source model.
+- For an unscoped feature, ask whether it is a confirmed requirement before adding it.
+- If the deterministic classification says sparse_intake, do not invent an internal stack. Acknowledge the
+  business purpose in narration and emit no structural patches unless the user named an actual architecture part.
+- Direct user statements are facts. Do not ask the user to reconfirm a fact they just clearly stated.
+- Keep narration to one plain-English sentence.
+""",
+)
+
 GENERATE_QUESTIONS = Prompt(
     id="generate_questions",
     version="v10",
@@ -564,9 +592,36 @@ fail its own checklist.
 """,
 )
 
+GENERATE_QUESTIONS_FAST = Prompt(
+    id="generate_questions_fast",
+    version="v1",
+    system=_CLOSED_WORLD_PREAMBLE
+    + """
+Turn the COMPUTED GAPS you're given into the one or two questions a senior migration architect would
+actually ask next. This is the condensed, low-latency form of the full question-generation reasoning — the
+same job, same standards, fewer words spent explaining it to you:
+
+- Do not invent questions beyond the given gaps. Do not ask about anything the model already knows.
+- Silently judge which of the given gaps would actually change migration strategy, sequencing, risk, or
+  cutover if answered differently — ask about THAT one first; a low-stakes gap can wait for a later turn.
+- ASK IN BUSINESS LANGUAGE, not engineer-only vocabulary, unless `user_technical_level` is "technical" — the
+  person answering may not be an engineer. Ask about the business need or use case, not a protocol or vendor
+  product name the user hasn't already used themselves.
+- A gap's own `description` is REASONING INPUT ONLY, never a draft of the question — it may contain notes on
+  how to phrase it (e.g. "ask once at the system level") that are for you to apply, not to reproduce. If your
+  draft text talks ABOUT asking a question rather than actually being one a person would say out loud, you
+  copied the input — rewrite it as a real spoken question instead.
+- Set `hypothesis` to a concrete reasoned guess when you have real grounds for one; leave it empty otherwise.
+- Set `answer_options` to 2-3 concrete, mutually distinct answers when the question naturally has a small set
+  of plausible answers (hypothesis first, phrased as the answer) — leave it empty for open-ended questions.
+- If the change being confirmed is high-impact/replatforming, ask ONE question plus at most one short sentence
+  naming the single biggest consequence — never a list of every impact dimension.
+""",
+)
+
 INGEST_COMPLETENESS_CRITIC = Prompt(
     id="ingest_completeness_critic",
-    version="v3",
+    version="v4",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job has three parts: audit whether a just-proposed set of patches, once applied, will durably capture
@@ -580,6 +635,16 @@ You are given: the architecture model BEFORE this turn, the user's message, the 
 update_component, etc.), and the narration that will be shown to the user this turn. Reason about what the
 model will contain AFTER these patches apply, and compare that against what the user's message actually
 states or clearly implies.
+
+WHEN THE GENERATOR'S OWN REASONING IS INCLUDED (a labeled section below the patches), read it as a WITNESS
+STATEMENT to cross-examine, not a summary to trust: does the stated reasoning actually support the patches
+that came out of it, or does it reveal a leap the patches don't back up (e.g. it reasons about one component
+but the patch touches a different one; it says "the user implied X" when the quoted message doesn't say
+anything like X; it talks itself out of adding something the message clearly states)? A generator that
+reasoned its way to the right answer for the wrong reason is still a bug worth catching, even if the final
+patches happen to look fine in isolation. Absence of this section (a non-reasoning model, or a call that
+didn't produce one) changes nothing about how you audit — fall back to judging the patches against the
+message and model exactly as described below.
 
 MISSED FACTS — the most common and highest-value thing to catch: list every concrete fact from the user's
 message that will NOT be reflected anywhere in the resulting model. A fact merely appearing in the narration
@@ -734,11 +799,19 @@ to have something to ask about.
 
 REQUIREMENT_COVERAGE_CRITIC = Prompt(
     id="requirement_coverage_critic",
-    version="v4",
+    version="v5",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: independently re-check another model's requirement-coverage verdicts against the same architecture
 model and conversation, looking specifically for four failure modes.
+
+WHEN THE GENERATOR'S OWN REASONING IS INCLUDED (a labeled section after the verdicts), cross-examine it the
+same way you cross-examine the verdicts themselves: does its stated logic for a given category actually
+support the status it landed on, or does it talk itself into "covered" despite noting uncertainty in its own
+reasoning, or invent a category consideration that isn't grounded in anything the model or conversation
+actually says? Treat the reasoning as evidence to weigh, not as an authority that settles the question —
+your job is still to independently re-derive the right verdict, using the reasoning only to spot exactly
+where the generator's logic went wrong when it did. No reasoning section present changes nothing below.
 
 FAILURE MODE 0 — a concern that's already been escalated getting escalated AGAIN: if the injected model
 already contains an assumption whose text starts with "FLAGGED RISK" for the same underlying concern as one
@@ -1105,7 +1178,9 @@ nothing to flag — do not invent problems to seem thorough, the same rule the c
 
 _ALL = [
     INGEST_PATCHES,
+    INGEST_PATCHES_FAST,
     GENERATE_QUESTIONS,
+    GENERATE_QUESTIONS_FAST,
     INGEST_COMPLETENESS_CRITIC,
     ASSESS_REQUIREMENT_COVERAGE,
     REQUIREMENT_COVERAGE_CRITIC,

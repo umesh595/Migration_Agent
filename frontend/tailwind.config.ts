@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import tailwindcssAnimate from "tailwindcss-animate";
 
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
@@ -45,6 +46,12 @@ const config: Config = {
           900: "#581c87",
         },
         ink: {
+          // DEFAULT is the newer, ported "Atlas" semantic ink token (a single
+          // near-black-teal CSS var, light/dark aware); the numeric scale
+          // below predates it and stays for existing bg-ink-900 etc. call
+          // sites — Tailwind's `extend` merges this object with itself
+          // across both edits, so both continue to work side by side.
+          DEFAULT: "var(--ink)",
           950: "#05060f",
           900: "#0a0b18",
           850: "#0d0f20",
@@ -53,6 +60,44 @@ const config: Config = {
           600: "#1f2140",
           500: "#2a2c52",
         },
+        // --- shadcn/ui base tokens, ported from vivid-insights-hub. Values
+        // come from the CSS custom properties defined in globals.css
+        // (:root = our default dark theme, html.light = light overrides). ---
+        background: "var(--background)",
+        foreground: "var(--foreground)",
+        card: { DEFAULT: "var(--card)", foreground: "var(--card-foreground)" },
+        popover: { DEFAULT: "var(--popover)", foreground: "var(--popover-foreground)" },
+        primary: { DEFAULT: "var(--primary)", foreground: "var(--primary-foreground)" },
+        secondary: { DEFAULT: "var(--secondary)", foreground: "var(--secondary-foreground)" },
+        muted: { DEFAULT: "var(--muted)", foreground: "var(--muted-foreground)" },
+        accent: { DEFAULT: "var(--accent)", foreground: "var(--accent-foreground)" },
+        destructive: { DEFAULT: "var(--destructive)", foreground: "var(--destructive-foreground)" },
+        border: "var(--border)",
+        input: "var(--input)",
+        ring: "var(--ring)",
+        chart: {
+          1: "var(--chart-1)",
+          2: "var(--chart-2)",
+          3: "var(--chart-3)",
+          4: "var(--chart-4)",
+          5: "var(--chart-5)",
+        },
+        // Signature "Atlas" accent scale, ported from vivid-insights-hub —
+        // prefixed atlas-* to avoid colliding with Tailwind's own built-in
+        // amber-*/sky-* numeric scales, which this codebase already uses
+        // extensively (StatusBadge, findings severity, etc.).
+        "atlas-sub": "var(--sub)",
+        "atlas-teal": { DEFAULT: "var(--teal)", soft: "var(--teal-soft)" },
+        "atlas-coral": { DEFAULT: "var(--coral)", soft: "var(--coral-soft)" },
+        "atlas-amber": { DEFAULT: "var(--amber)", soft: "var(--amber-soft)" },
+        "atlas-mist": "var(--mist)",
+        "atlas-mint": "var(--mint)",
+        "atlas-sky": "var(--sky)",
+      },
+      borderRadius: {
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
       },
       backgroundImage: {
         "grad-primary": "linear-gradient(135deg, #155d79 0%, #1f8fb8 58%, #14b8a6 100%)",
@@ -110,7 +155,7 @@ const config: Config = {
       },
     },
   },
-  plugins: [],
+  plugins: [tailwindcssAnimate],
 };
 
 export default config;

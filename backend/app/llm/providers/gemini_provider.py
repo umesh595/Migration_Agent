@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Awaitable, Callable
 
 from google import genai
 from google.genai import types
@@ -108,6 +109,7 @@ class GeminiProvider(LLMProvider):
         user_prompt: str,
         response_model: type[T],
         temperature: float = 0.0,
+        on_delta: Callable[[str], Awaitable[None]] | None = None,
     ) -> StructuredResponse[T]:
         idx = self._next_client_index()
         if idx is None:
