@@ -1436,7 +1436,8 @@ def _adapt_gaps_to_latest_user_message(gaps: list[Gap], state: GraphState) -> li
     If the user says there is no current system yet and asks to build/move to a
     target cloud, the app should not ask where the current app is hosted. There
     is no current hosting. The useful next question is product architecture
-    intake: workflows, data, auth, integrations, reporting, compliance, scale.
+    intake for the system they actually described — which facts matter is derived
+    by the question step from that description, not fixed here.
 
     Checks the model's own confirmed assumptions in addition to the latest
     message: greenfield status stated once (e.g. turn 2) must keep suppressing
@@ -1463,11 +1464,12 @@ def _adapt_gaps_to_latest_user_message(gaps: list[Gap], state: GraphState) -> li
                     update={
                         "description": (
                             "The user says there is no current deployed architecture and wants to build for "
-                            "a target cloud at large scale. Do not ask where the current app is hosted. Ask "
-                            "one consultant-style product architecture question covering the core workflows "
-                            "or modules, data entities and retention, authentication and roles, integrations, "
-                            "reporting/export needs, compliance/security constraints, and expected traffic or "
-                            "data volume."
+                            "a target cloud at large scale. Do not ask where the current app is hosted — "
+                            "there is no current hosting. Ask one consultant-style question about the "
+                            "product architecture they intend to build, covering the facts THIS system "
+                            "would need for a credible target design — derive which facts those are from "
+                            "what the user has actually described, never from a standard set of "
+                            "application topics."
                         )
                     }
                 )

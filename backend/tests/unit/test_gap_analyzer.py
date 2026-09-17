@@ -46,9 +46,47 @@ def test_single_component_without_architecture_details_gets_intake_gap():
     sparse_gaps = [g for g in gaps if g.category == GapCategory.SPARSE_ARCHITECTURE_CONTEXT]
 
     assert len(sparse_gaps) == 1
-    assert "user access channel" in sparse_gaps[0].description
-    assert "authentication/roles" in sparse_gaps[0].description
-    assert "target cloud" in sparse_gaps[0].description
+    description = sparse_gaps[0].description
+    # The gap states the CONDITION and names what is already known; it must not
+    # dictate which topics to ask about. Which facts matter is derived by the LLM
+    # from the system actually described (see GENERATE_QUESTIONS), because a fixed
+    # intake list is what produced questions about capabilities the user's system
+    # never had.
+    assert "not enough architecture" in description
+    assert "Employee Allocation Tracker" in description
+    assert "rough answers are fine" in description
+
+
+def test_sparse_intake_gap_prescribes_no_fixed_topic_checklist():
+    """Regression guard: a hardcoded intake checklist here is what made the agent ask
+    a user about capabilities their system doesn't have. Topic selection belongs to
+    the LLM reasoning over the real description, never to a list baked into code."""
+
+    model = ArchitectureModel(
+        components=[Component(id="telemetry", name="Telemetry Platform", workload_type="other")]
+    )
+
+    sparse_gaps = [
+        g for g in analyze_gaps(model) if g.category == GapCategory.SPARSE_ARCHITECTURE_CONTEXT
+    ]
+    assert len(sparse_gaps) == 1
+
+    lowered = sparse_gaps[0].description.lower()
+    for prescribed_topic in (
+        "payment",
+        "notification",
+        "reporting",
+        "authentication",
+        "files/storage",
+        "monitoring",
+        "compliance",
+        "pii",
+        "access channel",
+    ):
+        assert prescribed_topic not in lowered, (
+            f"gap description prescribes the topic {prescribed_topic!r}; topic selection must be "
+            "derived from the described system, not hardcoded"
+        )
 
 
 def test_greenfield_answer_does_not_repeat_current_hosting_question():
@@ -76,7 +114,14 @@ def test_greenfield_answer_does_not_repeat_current_hosting_question():
     assert all(g.category != GapCategory.MISSING_ENVIRONMENT for g in adapted)
     sparse_gap = next(g for g in adapted if g.category == GapCategory.SPARSE_ARCHITECTURE_CONTEXT)
     assert "Do not ask where the current app is hosted" in sparse_gap.description
-    assert "core workflows" in sparse_gap.description
+    # Suppressing the irrelevant hosting question is the point; dictating which
+    # topics replace it is not — that selection belongs to the LLM reading the
+    # actual description.
+    lowered = sparse_gap.description.lower()
+    assert not any(
+        topic in lowered
+        for topic in ("authentication and roles", "reporting/export", "compliance/security", "data entities")
+    ), "greenfield gap must not prescribe a fixed topic checklist"
 
 
 def test_sparse_intake_question_does_not_fire_once_real_assumptions_exist_even_with_zero_components():
