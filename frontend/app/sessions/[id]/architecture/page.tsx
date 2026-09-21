@@ -4,10 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
-import { ApiError, getSessionState } from "@/lib/api";
+import { ApiError, getAudit, getSessionState } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
-import type { SessionState } from "@/lib/types";
+import type { PatchAuditEntry, SessionState } from "@/lib/types";
 import { ArchitectureCanvas } from "@/components/ArchitectureCanvas";
+import { DiscoveryEvidencePanel } from "@/components/DiscoveryEvidencePanel";
 import { NavBar } from "@/components/NavBar";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -19,11 +20,14 @@ export default function SessionArchitecturePage() {
   const sessionId = params.id;
 
   const [state, setState] = useState<SessionState | null>(null);
+  const [evidence, setEvidence] = useState<PatchAuditEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      setState(await getSessionState(sessionId));
+      const [nextState, { records }] = await Promise.all([getSessionState(sessionId), getAudit(sessionId)]);
+      setState(nextState);
+      setEvidence(records);
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "Could not load this session.");
     }
@@ -98,7 +102,7 @@ export default function SessionArchitecturePage() {
                 <h2 className="text-sm font-semibold text-foreground">Open questions</h2>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
                   These are the unresolved source-model questions. Answer them in the conversation page so the agent can
-                  update the model with an auditable patch.
+                  update the source model with recorded evidence.
                 </p>
                 {unresolvedQuestions.length > 0 ? (
                   <ul className="mt-3 space-y-2 text-sm text-foreground">
@@ -116,6 +120,12 @@ export default function SessionArchitecturePage() {
               </Card>
             </aside>
           </div>
+        )}
+
+        {state && (
+          <section className="mt-5 max-w-3xl">
+            <DiscoveryEvidencePanel records={evidence} />
+          </section>
         )}
       </main>
     </div>

@@ -736,9 +736,15 @@ async def resolve_finding(
     }
 
 
-@router.get("/{session_id}/audit", dependencies=[Depends(enforce_rate_limit)])
-async def get_patch_audit(session_id: uuid.UUID, user: CurrentUser, db: Db) -> dict:
-    """Full patch audit trail — every proposal the LLM made, applied or rejected."""
+@router.get("/{session_id}/source-model-updates", dependencies=[Depends(enforce_rate_limit)])
+@router.get("/{session_id}/audit", dependencies=[Depends(enforce_rate_limit)], include_in_schema=False)
+async def get_source_model_updates(session_id: uuid.UUID, user: CurrentUser, db: Db) -> dict:
+    """Source-model evidence trail.
+
+    Patches are an internal deterministic mechanism. The product surface calls
+    this captured source facts, assumptions, and open questions, never target
+    architecture recommendations.
+    """
 
     from sqlalchemy import select
 

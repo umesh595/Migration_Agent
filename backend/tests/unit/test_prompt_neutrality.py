@@ -100,3 +100,9 @@ def test_narration_insight_sentence_is_optional_and_anti_fabrication():
     # Must not be tied to any specific subject matter — that would reintroduce
     # exactly the seeded-topic problem the rest of this file guards against.
     assert "particular subject matter" in body
+
+
+def test_discovery_narration_does_not_present_source_capture_as_target_recommendation():
+    body = REGISTRY["ingest_patches"].system
+    assert "captured facts, recorded assumptions, evidence, or open questions" in body
+    assert 'Never call a discovery update a\n"suggested patch"' in body

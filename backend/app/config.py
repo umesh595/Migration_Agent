@@ -78,8 +78,8 @@ class Settings(BaseSettings):
 
     # --- Gemini: optional fallback only, used when CodeVector's API/account is unavailable. ---
     google_ai_studio_api_key: SecretStr | None = Field(default=None, alias="GOOGLE_AI_STUDIO_API_KEY")
-    google_ai_studio_cheap_model: str = Field(default="gemini-2.5-flash", alias="GOOGLE_AI_STUDIO_CHEAP_MODEL")
-    google_ai_studio_strong_model: str = Field(default="gemini-2.5-pro", alias="GOOGLE_AI_STUDIO_STRONG_MODEL")
+    google_ai_studio_cheap_model: str = Field(default="gemini-3.5-flash-lite", alias="GOOGLE_AI_STUDIO_CHEAP_MODEL")
+    google_ai_studio_strong_model: str = Field(default="gemini-3.7-flash", alias="GOOGLE_AI_STUDIO_STRONG_MODEL")
 
     # --- Groq: legacy optional fallback settings; not wired in main.py now. ---
     groq_api_key: SecretStr | None = Field(default=None, alias="GROQ_API_KEY")
