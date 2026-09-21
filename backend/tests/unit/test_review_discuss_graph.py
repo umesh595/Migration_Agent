@@ -3,7 +3,7 @@
 open_question/assumption-only turn must stay cheap and just report the discuss
 result — see build_review_discuss_graph's docstring for why."""
 
-from app.core.request_intelligence import classify_user_request
+from app.core.request_intelligence import RequestIntent, derive_request_impact
 from app.orchestration.graph import (
     STRUCTURAL_PATCH_OPS,
     _model_materially_changed,
@@ -12,7 +12,6 @@ from app.orchestration.graph import (
     build_review_discuss_graph,
 )
 from app.orchestration.nodes.planning import drop_spurious_target_state_intake_questions
-from app.orchestration.nodes.review import _is_review_explanation_request
 from app.schemas.patches import AddComponentPatch, AddOpenQuestionPatch, PatchOutcome, PatchResult, PatchSet
 
 
@@ -44,16 +43,13 @@ def test_no_patches_stays_discuss_only():
     assert _model_materially_changed({}) == "discuss_only"
 
 
-def test_review_explanation_request_uses_answer_path():
-    assert _is_review_explanation_request(
-        "Explain why ECS Fargate was chosen instead of EKS. Include effort, cost, risk, validation, and rollback."
-    )
-    assert _is_review_explanation_request("Review the effort, cost, and efficiency estimates.")
-
-
-def test_review_change_request_stays_patch_discussion_path():
-    assert not _is_review_explanation_request("Change the backend from FastAPI to Java Spring Boot.")
-    assert not _is_review_explanation_request("Add Stripe payment processing into the migration plan.")
+# Routing between "answer a question about the plan" and "discuss a change to it"
+# used to be a standalone keyword function (_is_review_explanation_request) that
+# scanned for words like "why"/"explain"/"effort". It's now decided by
+# review_discuss_ingest_node's own classification (PatchSet.request_intent ==
+# REVIEW_EXPLANATION), from the same LLM call that reads the message — not
+# separately testable without a model call. See tests/eval/ for that path
+# exercised end-to-end against a MockProvider.
 
 
 def test_planning_intake_without_patches_continues_to_context_elicitation():
@@ -88,11 +84,7 @@ def test_planning_intake_drops_spurious_target_state_question_for_migration_cont
         "Source is AWS cloud. Target is modernized AWS. Host the React SPA in S3 behind CloudFront. "
         "Run backend workloads on ECS Fargate. Downtime tolerance is a 4-hour maintenance window.",
         patch_set,
-        classify_user_request(
-            "Source is AWS cloud. Target is modernized AWS. Host the React SPA in S3 behind CloudFront. "
-            "Run backend workloads on ECS Fargate. Downtime tolerance is a 4-hour maintenance window.",
-            after_gate_1=True,
-        ),
+        derive_request_impact(RequestIntent.TARGET_PLANNING, after_gate_1=True),
     )
 
     assert cleaned.patches == []
@@ -122,7 +114,7 @@ def test_planning_intake_keeps_source_correction_question():
     assert cleaned.narration == "Confirm Redis handling."
 
 
-def test_planning_intake_uses_target_planning_classifier_to_drop_question():
+def test_planning_intake_drops_question_given_target_planning_intent():
     patch_set = PatchSet(
         patches=[
             AddOpenQuestionPatch(
@@ -135,7 +127,7 @@ def test_planning_intake_uses_target_planning_classifier_to_drop_question():
     cleaned = drop_spurious_target_state_intake_questions(
         "Target is modernized AWS.",
         patch_set,
-        classify_user_request("Target is modernized AWS. Downtime tolerance is flexible.", after_gate_1=True),
+        derive_request_impact(RequestIntent.TARGET_PLANNING, after_gate_1=True),
     )
 
     assert cleaned.patches == []

@@ -209,14 +209,13 @@ class TestSeniorArchitectPromptBehavior:
     def test_ingest_prompt_requires_intent_classification_before_patching(self):
         prompt = get_prompt("ingest_patches")
 
-        assert prompt.version == "v24"
+        assert prompt.version == "v26"
         assert "FIRST, CLASSIFY THE USER'S INTENT BEFORE PATCHING" in prompt.system
         assert "HIGH-IMPACT ARCHITECTURE DECISION" in prompt.system
         assert "NEW UNSCOPED BUSINESS CAPABILITY" in prompt.system
         assert "Do not treat every imperative from the user as permission to mutate" in prompt.system
-        assert "DETERMINISTIC REQUEST CLASSIFICATION" in prompt.system
-        assert "intent=target_planning" in prompt.system
-        assert "intent=proceed_with_assumptions" in prompt.system
+        assert "`request_intent` to target_planning" in prompt.system
+        assert "`request_intent` to proceed_with_assumptions" in prompt.system
         assert "ARCHITECTURAL STYLE, PATTERN, OR PROTOCOL NAME IS NEVER A COMPONENT" in prompt.system
         assert "ONCE THE USER NAMES CONCRETE FUNCTIONALITY THE SYSTEM PERFORMS" in prompt.system
 
@@ -369,7 +368,7 @@ class TestSeniorArchitectPromptBehavior:
 
         prompt = get_prompt("ingest_patches")
 
-        assert prompt.version == "v24"
+        assert prompt.version == "v26"
         assert "NEVER a paragraph enumerating every impact" in prompt.system
         assert "exactly two sentences" in prompt.system
         assert "SINGLE biggest consequence of this specific change" in prompt.system

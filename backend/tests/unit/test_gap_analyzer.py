@@ -1,5 +1,4 @@
 from app.core.gap_analyzer import GapCategory, analyze_gaps, top_gaps
-from app.core.request_intelligence import classify_user_request
 from app.orchestration.nodes.discovery import _adapt_gaps_to_latest_user_message
 from app.schemas.architecture import ArchitectureModel, Assumption, AssumptionStatus, Component, OpenQuestion
 
@@ -103,11 +102,14 @@ def test_greenfield_answer_does_not_repeat_current_hosting_question():
     user_message = "it is nothing for now needed to build and want to move to aws and for large scale users downtime is 4hrs"
     gaps = analyze_gaps(model)
 
+    # is_greenfield_context=True simulates the LLM's own judgment for this
+    # message — it's set on the same ingest call that extracts patches, not by
+    # matching this message's text against a keyword list (see discovery.py).
     adapted = _adapt_gaps_to_latest_user_message(
         gaps,
         {
             "user_message": user_message,
-            "request_impact": classify_user_request(user_message),
+            "is_greenfield_context": True,
         },
     )
 

@@ -30,7 +30,7 @@ Critical operating rules:
 
 INGEST_PATCHES = Prompt(
     id="ingest_patches",
-    version="v24",
+    version="v26",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: convert the user's message into a set of PATCHES against the current architecture model.
@@ -57,13 +57,12 @@ Rules:
   This classification is mandatory. Do not treat every imperative from the user as permission to mutate the
   architecture model. A senior architect protects the baseline, explains consequences, and only changes
   things when the request is grounded or confirmed.
-- If a DETERMINISTIC REQUEST CLASSIFICATION block is provided, use it as a hard planning hint. If it says
-  intent=sparse_intake, the user's message is only a thin business/application description, not a current
-  architecture. Emit NO add_component/add_dependency/update_component patches. Do not turn business
-  capabilities into deployable components yet. Use narration to acknowledge the product/domain in one
-  sentence, then let the gap/question step ask the basic intake questions. Provider words like "GCP" or
-  "AWS" alone are not enough architecture detail; they say where something may run, not what components
-  exist.
+- IF THIS MESSAGE IS ONLY A THIN BUSINESS/APPLICATION DESCRIPTION, NOT A CURRENT ARCHITECTURE (bucket 1
+  above, sparse case): set `request_intent` to sparse_intake and emit NO add_component/add_dependency/
+  update_component patches. Do not turn business capabilities into deployable components yet. Use narration
+  to acknowledge the product/domain in one sentence, then let the gap/question step ask the basic intake
+  questions. Provider words like "GCP" or "AWS" alone are not enough architecture detail; they say where
+  something may run, not what components exist.
   If the user later answers with the actual parts their system is built from — whatever those turn out to be
   for this system — then capture those as patches. Capture what they name, not what a system of this sort
   would typically contain.
@@ -76,14 +75,16 @@ Rules:
   cannot stop looking sparse no matter how many turns of real detail the user gives, so the intake question
   keeps repeating verbatim forever; committing to at least one component (updated or split into more later,
   as normal) is what lets discovery actually move forward.
-- If a DETERMINISTIC REQUEST CLASSIFICATION block is provided, use it as a hard planning hint. If it says
-  intent=target_planning, emit no source-model patches or source-revision questions; let the planning
-  context collector handle it. If it says intent=source_correction after Gate 1, ask for explicit
-  confirmation before mutating. If it says intent=review_explanation, answer in narration and emit no
-  structural patches.
-- IF THE CLASSIFICATION BLOCK SAYS intent=proceed_with_assumptions, the user has explicitly told you to stop
-  asking and move forward despite incomplete information (e.g. "just give it", "proceed with a draft",
-  "I don't have more details", "use your best judgment"). DO NOT emit another add_open_question or leave the
+- IF THIS MESSAGE DESCRIBES WHERE THE SYSTEM SHOULD END UP, NOT WHAT IT CURRENTLY IS (bucket 4 above): set
+  `request_intent` to target_planning and emit no source-model patches or source-revision questions; let
+  the planning context collector handle it. IF IT CORRECTS THE ACCEPTED SOURCE ARCHITECTURE AFTER GATE 1: set
+  `request_intent` to source_correction and ask for explicit confirmation before mutating. IF IT ASKS TO
+  UNDERSTAND OR COMPARE SOMETHING ALREADY GENERATED (bucket 7 above): set `request_intent` to
+  review_explanation, answer in narration, and emit no structural patches.
+- IF THE USER HAS EXPLICITLY TOLD YOU TO STOP ASKING AND MOVE FORWARD despite incomplete information (e.g.
+  "just give it", "proceed with a draft", "I don't have more details", "use your best judgment" — in
+  whatever words they actually use): set `request_intent` to proceed_with_assumptions. DO NOT emit another
+  add_open_question or leave the
   model as sparse as it was. Instead act like a senior architect sketching a credible first-pass architecture
   under uncertainty: infer and add_component the standard components a system like the one described would
   plausibly have (a front-of-house service, an application/API layer, a primary datastore — whatever fits the
@@ -358,6 +359,31 @@ Rules:
   (a later technical signal can upgrade the session, a terse or non-technical turn never downgrades an
   already-established technical signal, so it is fine — expected — to output "unknown" or "non_technical"
   for a technical user's own terse reply, e.g. "yes" or "gcp").
+
+- SET `request_intent` FROM THIS MESSAGE'S OWN CONTENT AND THE STATE YOU'RE GIVEN — never from a keyword
+  list. Choose exactly one:
+    - sparse_intake: describes a business/product but gives no deployable architecture detail yet.
+    - current_fact: describes or refines an EXISTING system's architecture (the common case).
+    - source_correction: corrects the accepted source architecture (only meaningful after Gate 1 — see
+      CURRENT_STAGE in your context; if this message is pre-Gate-1, this value never applies).
+    - target_planning: describes where the system should end up (platform, downtime, scale), not what it
+      currently is.
+    - high_impact_replatform: proposes swapping a core technology/runtime for a different one.
+    - unscoped_capability: proposes an entirely new capability with no basis anywhere in the model or message.
+    - review_explanation: asks to understand or compare something already generated, not to change it.
+    - terse_confirmation: a short reply answering a previous question (e.g. "yes", "sounds good").
+    - proceed_with_assumptions: explicitly asks to continue despite incomplete information.
+    - unknown: none of the above fits confidently.
+  This is a judgment about MEANING, holding for any technology, business domain, or language the message
+  happens to use — never keyed to specific words. The code that reads this value decides what the app is
+  then allowed to do (whether the source model may be mutated, whether confirmation is required); you are
+  judging what the message IS, not what should happen as a result.
+
+- SET `is_greenfield_context` TRUE ONLY IF the user states there is no current deployed system yet AND says
+  something about where it should end up. Judge this from what the message actually communicates, in
+  whatever words or language it uses — never from matching against a fixed set of English phrases. A message
+  that only describes an existing system, however incompletely, is FALSE regardless of how little detail it
+  gives.
 """,
 )
 

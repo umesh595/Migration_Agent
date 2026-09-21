@@ -49,7 +49,6 @@ from app.api.deps import CurrentUser, Db, SessionLock, enforce_message_rate_limi
 # sessions.py for why each exists.
 from app.api.routers.sessions import _persist_turn, _render_user_message_history, _thread_config
 from app.config import get_settings
-from app.core.request_intelligence import classify_user_request
 from app.db.models import SessionStatus
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.orchestration.checkpointer import get_checkpointer
@@ -179,7 +178,8 @@ async def ag_ui_discovery_endpoint(
             "user_message": user_text,
             "conversation_context": _render_user_message_history(conversation_turns),
             "previous_agent_message": previous_agent_turn.text if previous_agent_turn is not None else None,
-            "request_impact": classify_user_request(user_text),
+            # request_impact is not seeded: discovery.ingest_node classifies the
+            # message in the same LLM call that extracts patches.
         }
 
     encoder = EventEncoder(accept=request.headers.get("accept"))

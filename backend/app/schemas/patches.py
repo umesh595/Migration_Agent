@@ -11,6 +11,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from app.schemas.architecture import Component, Dependency, DependencyKind, Environment, WorkloadType
+from app.schemas.requests import RequestIntent
 
 
 class PatchOp(StrEnum):
@@ -166,6 +167,20 @@ class PatchSet(BaseModel):
         description="Inferred from THIS message's own vocabulary/specificity/hedging — never a fixed keyword "
         "classifier, never asked as a question. Applied as a one-way upgrade to the model's "
         "user_technical_level by apply_patches_node (see ArchitectureModel), not a per-turn overwrite.",
+    )
+    request_intent: RequestIntent = Field(
+        default=RequestIntent.CURRENT_FACT,
+        description="What KIND of request this message is, judged from the message itself in the same pass "
+        "that extracts patches — never from a keyword list, so it holds for any technology, domain or "
+        "language. Code turns this into permissions (see core/request_intelligence.derive_request_impact); "
+        "you are judging meaning only, never what the app is then allowed to do.",
+    )
+    is_greenfield_context: bool = Field(
+        default=False,
+        description="True ONLY if the user states there is no current deployed system yet AND describes "
+        "something about where it should end up (a target platform, an outcome, a goal) — judged from "
+        "what this message actually says, in whatever language or phrasing, never from a fixed list of "
+        "English trigger words. False for a message that only describes an EXISTING system, even loosely.",
     )
 
 

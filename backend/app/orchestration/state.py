@@ -38,6 +38,9 @@ class GraphState(TypedDict, total=False):
     conversation_context: str | None
     previous_agent_message: str | None
     request_impact: RequestImpact
+    # LLM-judged from the SAME ingest call as request_impact (PatchSet.is_greenfield_context) —
+    # never from keyword matching; see discovery.ingest_node.
+    is_greenfield_context: bool
     model: Annotated[ArchitectureModel, _replace]
     last_patch_results: list[PatchResult]
     pending_questions: list[str]

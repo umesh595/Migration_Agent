@@ -17,7 +17,7 @@ from app.core.cloud_discovery import apply_cloud_discovery
 from app.core.gap_analyzer import Gap, GapCategory, analyze_gaps
 from app.core.patch_applier import apply_patch_set
 from app.core.patch_validator import patches_requiring_confirmation
-from app.core.request_intelligence import RequestIntent, render_request_impact_for_prompt
+from app.core.request_intelligence import RequestIntent, derive_request_impact
 from app.integrations import aws_session_cache
 from app.integrations.aws_provider import AWSProviderError, fetch_aws_inventory
 from app.llm.base import ModelTier, ProviderQuotaExceededError, ProviderRequestError, StructuredOutputError
@@ -81,12 +81,10 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
     settings = get_settings()
     fast_turn = settings.discovery_fast_mode and len(state.get("user_message", "")) < settings.discovery_full_prompt_min_chars
     prompt = get_prompt("ingest_patches_fast" if fast_turn else "ingest_patches")
-    impact = state.get("request_impact")
-    impact_section = (
-        f"DETERMINISTIC REQUEST CLASSIFICATION:\n{render_request_impact_for_prompt(impact)}\n\n"
-        if impact is not None
-        else ""
-    )
+    # No pre-computed classification is injected: this call classifies the message
+    # itself (PatchSet.request_intent) while it reads it. Seeding a separate verdict
+    # would only give the model a second opinion to contradict.
+    impact_section = ""
     if fast_turn:
         # The canonical model carries durable history. For a short conversational
         # reply, the previous question is the only transcript context needed to
@@ -147,16 +145,6 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
         }
     except StructuredOutputError as exc:
         # State untouched — this is the documented failure branch (Doc 3 §3.2).
-        if getattr(impact, "intent", None) == RequestIntent.SPARSE_INTAKE:
-            logger.info(
-                "sparse intake produced no structured patches for session %s; continuing to intake questions",
-                state.get("session_id"),
-            )
-            return {
-                "_patch_set": PatchSet(patches=[], narration=""),
-                "error": None,
-                "last_patch_results": [],
-            }
         logger.error("ingest failed for session %s: %s", state.get("session_id"), exc)
         fallback_model = _capture_raw_message_after_total_ingest_failure(state["model"], state.get("user_message", ""))
         degradation_notice = (
@@ -180,6 +168,12 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
             "_patch_set": None,
         }
 
+    # The SAME call that extracted the patches also judged what kind of request this
+    # is, so classification costs no extra latency or tokens and generalizes to any
+    # technology, domain or language — unlike the keyword tuples this replaced.
+    # Code, not the model, turns that judgment into permissions.
+    request_impact = derive_request_impact(response.parsed.request_intent)
+
     patch_set = resolve_dependency_open_questions_from_short_answer(
         state["model"],
         state.get("user_message", ""),
@@ -187,16 +181,16 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
         previous_agent_message=state.get("previous_agent_message"),
     )
     patch_set = resolve_environment_open_questions_from_short_answer(
-        state["model"], state.get("user_message", ""), patch_set, state.get("request_impact")
+        state["model"], state.get("user_message", ""), patch_set, request_impact
     )
     patch_set = resolve_sparse_intake_open_question_from_target_context_answer(
-        state["model"], state.get("user_message", ""), state.get("request_impact"), patch_set
+        state["model"], state.get("user_message", ""), request_impact, patch_set
     )
     patch_set = draft_minimal_architecture_when_user_says_proceed(
-        state["model"], state.get("request_impact"), patch_set
+        state["model"], request_impact, patch_set
     )
     patch_set = capture_unpatched_factual_answer_as_assumption(
-        state["model"], state.get("user_message", ""), state.get("request_impact"), patch_set
+        state["model"], state.get("user_message", ""), request_impact, patch_set
     )
     if not fast_turn:
         patch_set = await critique_ingest_completeness(
@@ -208,8 +202,13 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
             session_id=state.get("session_id", ""),
             generator_reasoning=response.reasoning,
         )
-    patch_set = auto_confirm_directly_stated_assumptions(state["model"], state.get("request_impact"), patch_set)
-    return {"_patch_set": patch_set, "error": None}
+    patch_set = auto_confirm_directly_stated_assumptions(state["model"], request_impact, patch_set)
+    return {
+        "_patch_set": patch_set,
+        "request_impact": request_impact,
+        "is_greenfield_context": response.parsed.is_greenfield_context,
+        "error": None,
+    }
 
 
 def _capture_raw_message_after_total_ingest_failure(model: ArchitectureModel, user_message: str) -> ArchitectureModel:
@@ -549,7 +548,7 @@ def resolve_sparse_intake_open_question_from_target_context_answer(
     if model_has_confirmed_greenfield_fact(model):
         return patch_set
 
-    summary = _summarize_target_context_answer(user_message)
+    summary = _summarize_target_context_answer(user_message, patch_set.is_greenfield_context)
     if summary is None:
         return patch_set
 
@@ -592,7 +591,7 @@ def model_has_confirmed_greenfield_fact(model: ArchitectureModel) -> bool:
     )
 
 
-def _summarize_target_context_answer(user_message: str) -> str | None:
+def _summarize_target_context_answer(user_message: str, is_greenfield_context: bool) -> str | None:
     text = " ".join(user_message.lower().split())
     facts: list[str] = []
 
@@ -615,7 +614,7 @@ def _summarize_target_context_answer(user_message: str) -> str | None:
     elif any(term in text for term in ("small scale", "small-scale", "low traffic")):
         facts.append("expected scale is small")
 
-    if _looks_like_greenfield_build_context(user_message):
+    if is_greenfield_context:
         facts.append("this is a greenfield build with no existing deployed system yet")
 
     if not facts:
@@ -1447,10 +1446,12 @@ def _adapt_gaps_to_latest_user_message(gaps: list[Gap], state: GraphState) -> li
     current hosting?" the moment the conversation looks away from that fact.
     """
 
-    is_greenfield = _looks_like_greenfield_build_context(
-        state.get("user_message", ""),
-        getattr(state.get("request_impact"), "intent", None),
-    ) or model_has_confirmed_greenfield_fact(state["model"])
+    # is_greenfield_context is judged by the SAME ingest call that produced this
+    # turn's patches (PatchSet.is_greenfield_context) — never from matching this
+    # message's text against a fixed phrase list.
+    is_greenfield = state.get("is_greenfield_context", False) or model_has_confirmed_greenfield_fact(
+        state["model"]
+    )
     if not is_greenfield:
         return gaps
 
@@ -1477,31 +1478,6 @@ def _adapt_gaps_to_latest_user_message(gaps: list[Gap], state: GraphState) -> li
         else:
             adapted.append(gap)
     return adapted
-
-
-def _looks_like_greenfield_build_context(user_message: str, intent: object = None) -> bool:
-    text = " ".join(user_message.lower().split())
-    no_current_signal = any(
-        phrase in text
-        for phrase in (
-            "nothing for now",
-            "nothing exists",
-            "not built",
-            "not build",
-            "needed to build",
-            "need to build",
-            "building it",
-            "build it",
-            "no current",
-            "from scratch",
-            "greenfield",
-        )
-    )
-    target_signal = any(
-        phrase in text
-        for phrase in ("aws", "azure", "gcp", "target", "move to", "migrate to", "cloud")
-    )
-    return no_current_signal and (target_signal or intent == RequestIntent.TARGET_PLANNING)
 
 
 async def generate_questions_node(state: GraphState, gateway: LLMGateway, meter: SessionTokenMeter) -> dict:
