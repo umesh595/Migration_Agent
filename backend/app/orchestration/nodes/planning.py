@@ -39,7 +39,7 @@ from app.orchestration.nodes.discovery import (
 )
 from app.orchestration.state import GraphState, Stage
 from app.schemas.architecture import Environment
-from app.schemas.migration_context import DowntimeTolerance, MigrationContext
+from app.schemas.migration_context import DowntimeTolerance, MigrationContext, MigrationStrategyPreference
 from app.schemas.patches import AddOpenQuestionPatch, PatchSet
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,13 @@ def _coerce_downtime(value: str) -> DowntimeTolerance:
         return DowntimeTolerance(value.strip().lower())
     except ValueError:
         return DowntimeTolerance.FLEXIBLE
+
+
+def _coerce_strategy_preference(value: str) -> MigrationStrategyPreference:
+    try:
+        return MigrationStrategyPreference(value.strip().lower())
+    except ValueError:
+        return MigrationStrategyPreference.UNDECIDED
 
 
 async def after_gate_intake_node(state: GraphState, gateway: LLMGateway, meter: SessionTokenMeter) -> dict:
@@ -201,6 +208,7 @@ async def elicit_context_node(state: GraphState, gateway: LLMGateway, meter: Ses
         maintenance_window_description=parsed.maintenance_window_description,
         constraints=parsed.constraints,
         target_completion_description=parsed.target_completion_description,
+        strategy_preference=_coerce_strategy_preference(parsed.strategy_preference),
     )
     return {"migration_context": context, "context_clarifying_questions": [], "stage": Stage.PLANNING}
 

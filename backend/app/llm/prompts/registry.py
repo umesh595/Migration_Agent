@@ -341,6 +341,21 @@ Rules:
 - The `narration` field is what the user reads: state plainly what you understood, in one or two sentences.
   If this turn inferred any component criticalities by role, narration MUST mention it (see above) — the
   user should never have to open the audit trail to learn what was assumed on their behalf.
+- AFTER stating what you understood, add AT MOST ONE further sentence naming a real, specific consideration
+  THIS message's content genuinely raises — the kind of thing a senior migration architect would say out
+  loud unprompted upon hearing it, not the kind of thing a form would print after every submission. This is
+  optional, not a template slot: most turns will genuinely have nothing worth adding, and on those turns you
+  say nothing further. Add it only when you can name something concrete and specific to what was actually
+  described — a consequence, a stake, a risk, or a decision that the facts just given put on the table for
+  later. Never invented, never generic, never phrased as reassurance ("we'll make sure this is done right")
+  or as a vague nod ("this will need careful handling") — if you can't name the SPECIFIC thing, don't add the
+  sentence at all. This is a judgment about what's actually in front of you, not a rule tied to any
+  particular subject matter: it can be a compliance/regulatory implication, a scale/reliability concern, a
+  data-sensitivity stake, an integration risk, or anything else that genuinely follows from what was said —
+  reason about THIS system, never reach for a topic because it's commonly associated with a domain word that
+  appeared. This sentence never changes the model and is never treated as a captured fact — if the
+  consideration itself needs to be tracked (not just mentioned once), it also needs its own add_assumption or
+  add_open_question patch, same as any other fact (see the rule above: narration alone is discarded).
 - WRITE NARRATION FOR A NON-TECHNICAL READER TOO — you don't know whether the person reading it is an
   engineer. Plain component/business names are fine ("Order Service", "the payment gateway"); avoid
   introducing vendor product names, protocols, or infrastructure mechanisms the user hasn't themselves used,
@@ -390,13 +405,13 @@ Rules:
 
 INGEST_PATCHES_FAST = Prompt(
     id="ingest_patches_fast",
-    version="v1",
+    version="v2",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Turn the latest user message into precise architecture PATCHES for the current model.
 
-Return only patches supported by the message or the supplied deterministic request classification.
-Never invent a technology, component, dependency, or source environment.
+Return only patches supported by the message itself. Never invent a technology, component, dependency, or
+source environment.
 
 Rules:
 - Capture stated current-system facts as add_component, update_component, add_dependency, add_assumption,
@@ -408,10 +423,18 @@ Rules:
 - For a high-impact technology replacement, add one open question asking whether it is firm or exploratory;
   do not silently rewrite the source model.
 - For an unscoped feature, ask whether it is a confirmed requirement before adding it.
-- If the deterministic classification says sparse_intake, do not invent an internal stack. Acknowledge the
-  business purpose in narration and emit no structural patches unless the user named an actual architecture part.
+- If this message is only a thin business/application description with no deployable architecture detail,
+  set `request_intent` to sparse_intake, do not invent an internal stack, and acknowledge the business
+  purpose in narration; emit no structural patches unless the user named an actual architecture part.
 - Direct user statements are facts. Do not ask the user to reconfirm a fact they just clearly stated.
-- Keep narration to one plain-English sentence.
+- SET `request_intent` from THIS message's own content, same categories and same judgment-not-keywords rule
+  as the full ingest prompt — this path is exactly where proceed_with_assumptions and terse_confirmation most
+  often apply, so getting this right matters even here.
+- SET `is_greenfield_context` true only if this message itself states there's no current system yet and says
+  something about the target — never guessed from a short reply alone.
+- Keep narration to one plain-English sentence — this path is for short, latency-sensitive replies, so it
+  intentionally skips the fuller prompt's proactive-insight sentence; a terse reply rarely carries anything
+  genuinely new to volunteer, and reasoning about whether it does would cost more than it's worth here.
 """,
 )
 
@@ -906,17 +929,33 @@ made in corrections_made, in plain language; leave it empty if the generator's v
 
 ELICIT_MIGRATION_CONTEXT = Prompt(
     id="elicit_migration_context",
-    version="v3",
+    version="v4",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: structure the user's description of their migration goal into typed fields.
 
 - source_environment / target_environment must be one of: on_prem, cloud, hybrid, unknown.
 - downtime_tolerance must be one of: zero_downtime, maintenance_window, flexible.
-- If the user's answer is genuinely ambiguous on a required field (source/target environment or downtime
-  tolerance), put a specific question in clarifying_questions rather than guessing. An unnecessary
-  clarifying question wastes the user's time; a wrong guess here corrupts every downstream planning
-  decision. Prefer asking when truly unsure about a REQUIRED field.
+- strategy_preference must be one of: lift_and_shift, re_architect, undecided. This single fact changes
+  nearly every downstream recommendation — whether messaging/data-layer choices preserve current contracts
+  or get redesigned, which 7-R disposition fits each component, how aggressively the target architecture
+  consolidates or modernizes, and how migration order gets reasoned about (dependency risk dominates under
+  lift-and-shift; redesign risk becomes a live factor under re-architect). Judge it from what the user
+  actually said about their goal — fastest path with minimal redesign is lift_and_shift; explicitly wanting
+  to use this as a chance to modernize/consolidate/rethink is re_architect; anything else, including no
+  signal at all, is undecided. Never infer it from the target platform or any technology named — a user can
+  ask to lift-and-shift onto a modern platform, or to re-architect within their current one.
+- If the user's answer is genuinely ambiguous on a required field (source/target environment, downtime
+  tolerance, or strategy_preference), put a specific question in clarifying_questions rather than guessing.
+  An unnecessary clarifying question wastes the user's time; a wrong guess here corrupts every downstream
+  planning decision. Prefer asking when truly unsure about a REQUIRED field. For strategy_preference
+  specifically: phrase the question the way a consultant would ask a client, in plain business language,
+  never as a technical checklist item — "is the priority getting this moved as fast as possible with minimal
+  changes, or is this a good moment to also modernize how it's built?" not "what's your migration strategy:
+  lift-and-shift or re-architect?". undecided is a legitimate, actionable answer if the user genuinely
+  doesn't know yet — it does not have to block the turn the way an unanswerable required field would; only
+  add a clarifying question for it when the user's message gives some signal that's too ambiguous to resolve
+  confidently, not merely because it wasn't mentioned.
 - EVERY clarifying_questions ENTRY IS SHOWN DIRECTLY TO THE USER, WHO MAY NOT BE TECHNICAL — phrase it as a
   business question about tolerance/impact, never a technical mechanism. "Can this system be briefly
   unavailable during the move, or does it need to stay up the whole time?" not "is zero-downtime blue-green
@@ -943,7 +982,7 @@ Your job: structure the user's description of their migration goal into typed fi
 
 PLAN_COMPONENT = Prompt(
     id="plan_component",
-    version="v3",
+    version="v4",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: plan HOW a single component migrates, at the depth a senior cloud architect would bring to a
@@ -956,6 +995,25 @@ component, given that everything it depends on has already moved (or moves in th
 
 Choose a disposition from the 7 Rs: rehost, replatform, repurchase, refactor, retain, retire, relocate.
 Justify it implicitly through the steps you write, not with a separate rationale field.
+
+THE INJECTED MIGRATION CONTEXT'S `strategy_preference` GOVERNS HOW FAR YOU REACH — this is not a business
+fact about the system, it's an instruction about how much redesign is actually wanted, and it changes what a
+correct answer looks like for the exact same component:
+  - lift_and_shift: the priority is speed and minimal change. Prefer the target service that preserves this
+    component's current shape and contracts most closely (its own interface, message format, delivery
+    semantics, data model) — reach for a more transformative option (a different messaging paradigm, a
+    different data model, splitting/merging components) only when the current shape has NO reasonable direct
+    equivalent on the named target platform, and say so explicitly when you do. Do not use this turn to also
+    modernize something nobody asked to modernize.
+  - re_architect: the user explicitly invited redesign. Actively evaluate whether a different pattern serves
+    this component's actual characteristics better than a like-for-like swap, even when a direct equivalent
+    exists — and say what's gained by taking the more transformative path, not just that a fancier option
+    exists.
+  - undecided: make the most defensible choice from this component's own facts (criticality, statefulness,
+    coupling), the same as you would with no context at all — but if this component is a genuine case where a
+    lift_and_shift answer and a re_architect answer would meaningfully diverge, name that fork in one
+    sentence within target_description rather than silently picking a side. Do not manufacture a fork that
+    doesn't really exist just to mention one.
 
 BANNED, because they are the generic-advice failure mode this prompt exists to prevent:
 - "migrate the service to the target platform" (which target service, specifically?)
@@ -1014,18 +1072,32 @@ lookup, never LLM-generated), so it must match target_description exactly, not b
 
 TARGET_ARCHITECTURE = Prompt(
     id="target_architecture",
-    version="v2",
+    version="v3",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: describe the TARGET architecture as a coherent whole — the document an Engineering Director reads
 to understand and defend the destination state, not a paragraph that happens to mention it exists.
 
-THE SINGLE MOST IMPORTANT RULE: this must be a genuine architectural transformation, reasoned from the
-stated target platform and constraints — never the current architecture with vendor names swapped and the
-word "target" sprinkled in. If your description would be true regardless of which cloud or platform was
-named in the migration context, you have failed at this job. A reader who compares your output against the
-current architecture must be able to point at specific things that changed and specific things that didn't,
-and see a REASON for each.
+THE SINGLE MOST IMPORTANT RULE: this must be a genuine reasoned description of what the target actually is,
+never the current architecture with vendor names swapped and the word "target" sprinkled in. If your
+description would be true regardless of which cloud or platform was named in the migration context, you
+have failed at this job. A reader who compares your output against the current architecture must be able to
+point at specific things that changed and specific things that didn't, and see a REASON for each — and that
+reason must be traceable to the target platform, the per-component decisions, or the migration context's
+`strategy_preference`, never asserted without one.
+
+"GENUINE REASONING" DOES NOT MEAN "MAXIMAL TRANSFORMATION" — it means the AMOUNT of change matches what was
+actually asked for:
+  - strategy_preference=lift_and_shift: genuine reasoning here usually means explaining why MOST things stay
+    structurally the same (mapped onto their closest target-platform equivalent) and are NOT being
+    consolidated or redesigned, because that's what was asked for — this is a real, defensible answer, not a
+    lazy one. Sections 2 and 3 below should stay minimal and honest: report only consolidation/new
+    requirements that are forced by the platform move itself (a networking model that has no choice but to
+    differ, a service with no direct equivalent), never optional modernization nobody asked for.
+  - strategy_preference=re_architect: the user explicitly invited transformation — this is where sections 2
+    and 3 should do real work, actively identifying genuine consolidation/modernization opportunities.
+  - strategy_preference=undecided: reason from the per-component decisions you were actually given (which
+    already reflect how PLAN_COMPONENT resolved this same tension) rather than defaulting to either extreme.
 
 Required structure (write substantial prose in each part, not single sentences):
 1. Target platform shape: what the whole system looks like on the named target platform — which native
@@ -1051,7 +1123,7 @@ target technology that contradicts a per-component decision you were given.
 
 CUTOVER_STRATEGY = Prompt(
     id="cutover_strategy",
-    version="v2",
+    version="v3",
     system=_CLOSED_WORLD_PREAMBLE
     + """
 Your job: define the cutover strategy for the whole migration — specific enough that a delivery lead could
@@ -1070,7 +1142,12 @@ steps must reference the actual wave sequence and named target services from the
 not a generic five-step checklist that would apply to any migration.
 
 rationale must explain why this approach fits the dependency wave order, downtime tolerance, data/state
-risk, and rollback needs. Do not repeat the approach name; explain the decision.
+risk, and rollback needs. Do not repeat the approach name; explain the decision. Weigh risk according to the
+migration context's `strategy_preference`: under lift_and_shift, the wave sequence's dependency order IS the
+primary risk (nothing about the components themselves is changing shape, so cross-wave coordination is where
+things break) — say so if that's genuinely what's driving your approach, rather than dwelling on redesign
+risk that doesn't apply. Under re_architect, the redesigned components' own behavior under load is real risk
+too, on top of sequencing, and the rationale should reflect that.
 go_no_go_criteria must be checkable conditions someone could evaluate at 2am with a dashboard in front of
 them (specific metrics, specific thresholds, specific systems to check) — never aspirations like "system is
 stable" or "team is confident."

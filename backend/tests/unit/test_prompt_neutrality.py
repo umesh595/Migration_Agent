@@ -82,3 +82,21 @@ def test_question_prompts_state_the_grounding_requirement():
             "something in the injected context — without that rule, removing the checklist "
             "just leaves the model free-associating."
         )
+
+
+def test_narration_insight_sentence_is_optional_and_anti_fabrication():
+    """The narration instruction now permits one extra sentence of genuine
+    professional insight (closing the 'thin, silent narration' gap — a real
+    consultant volunteers a relevant consideration unprompted; our narration
+    previously never did). This must stay opt-in and grounded, never a forced
+    template slot that manufactures pseudo-insight on every turn — that would
+    just be a new, subtler form of the same hardcoding problem this file
+    guards against elsewhere."""
+
+    body = REGISTRY["ingest_patches"].system
+    assert "AT MOST ONE further sentence" in body
+    assert "most turns will genuinely have nothing worth adding" in body
+    assert "Never invented, never generic" in body
+    # Must not be tied to any specific subject matter — that would reintroduce
+    # exactly the seeded-topic problem the rest of this file guards against.
+    assert "particular subject matter" in body

@@ -197,6 +197,11 @@ class MigrationContextElicitationOutput(BaseModel):
     maintenance_window_description: str | None = None
     constraints: list[str] = Field(default_factory=list)
     target_completion_description: str | None = None
+    strategy_preference: str = Field(
+        default="undecided",
+        description="lift_and_shift, re_architect, or undecided — judged from what the user actually said "
+        "about their goal, never guessed when unstated.",
+    )
     clarifying_questions: list[str] = Field(
         default_factory=list, description="Non-empty only if the user's answer was too ambiguous to structure confidently."
     )
