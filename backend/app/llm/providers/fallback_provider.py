@@ -1,12 +1,17 @@
 """Wraps a primary and an optional secondary LLMProvider so a quota/credits
-exhaustion on the primary switches to the secondary — without the gateway,
-graph nodes, or any prompt ever knowing a fallback exists (matches the
-extensibility boundary LLMProvider's own docstring already commits to).
+exhaustion, or the primary being genuinely unreachable, switches to the
+secondary — without the gateway, graph nodes, or any prompt ever knowing a
+fallback exists (matches the extensibility boundary LLMProvider's own
+docstring already commits to).
 
-The configured provider stays primary; this exists only to keep the app usable
-when that provider is unavailable or out of credits. The switch
-is sticky for quota exhaustion. A transient transport failure tries the
-fallback for this call, without permanently abandoning a healthy primary.
+Anthropic stays the primary; this exists only to keep the app usable when its
+account runs out of credits or it's down, not to run a multi-provider
+strategy. The switch is sticky for quota exhaustion — once the primary has
+proven it's out of quota/credits, there's no value retrying it on the next
+call only to pay the same failure again. A transient transport failure (a
+timeout, a connection drop, a non-quota API error) tries the fallback for
+just this call instead, without permanently abandoning a primary that may
+well be healthy again by the next request.
 """
 
 from __future__ import annotations

@@ -127,3 +127,63 @@ async def test_ordinary_structured_output_failure_does_not_trigger_fallback():
     assert response.parsed.ok is True
     assert len(primary.calls) == 2
     assert fallback.calls == []
+
+
+@pytest.mark.asyncio
+async def test_provider_request_error_switches_to_fallback_same_as_quota():
+    """ProviderRequestError (the primary genuinely unreachable - connection
+    refused, timeout, a non-quota API error) triggers the same permanent
+    switch as ProviderQuotaExceededError, not just a retry against the
+    primary. By the time this reaches FallbackLLMProvider at all,
+    LLMGateway's own retry budget has already been exhausted - see
+    ProviderRequestError's own docstring for why treating it as sticky here
+    is the right call, not a new risk."""
+
+    primary = MockProvider()
+    primary.register(_Verdict, ProviderRequestError("connection refused"))
+    fallback = MockProvider()
+    fallback.register(_Verdict, _Verdict(ok=True))
+    provider = FallbackLLMProvider(primary=primary, fallback=fallback)
+    gateway = LLMGateway(provider, strong_tier_max_retries=3)
+    meter = SessionTokenMeter(budget=100_000)
+
+    response = await gateway.complete(
+        tier=ModelTier.STRONG, system_prompt="s", user_prompt="u", response_model=_Verdict, meter=meter
+    )
+
+    assert response.parsed.ok is True
+    assert len(primary.calls) == 1
+    assert len(fallback.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_two_deep_fallback_chain_resolves_within_a_single_gateway_attempt():
+    """A two-deep chain (primary -> middle -> innermost) now cascades entirely
+    within one complete_structured() call — each FallbackLLMProvider calls
+    its own fallback inline on failure, rather than raising for the gateway
+    to retry into (see fallback_provider.py's own docstring). A bare
+    cheap_tier_max_retries=1, with no per-tier compensation, is enough to
+    reach the innermost provider without ever escalating to the strong tier —
+    unlike the old design, which needed one extra retry per fallback tier."""
+
+    primary = MockProvider()
+    primary.register(_Verdict, ProviderQuotaExceededError("no credits"))
+    middle = MockProvider()
+    middle.register(_Verdict, ProviderQuotaExceededError("no credits"))
+    innermost = MockProvider()
+    innermost.register(_Verdict, _Verdict(ok=True))
+
+    inner_chain = FallbackLLMProvider(primary=middle, fallback=innermost)
+    provider = FallbackLLMProvider(primary=primary, fallback=inner_chain)
+    gateway = LLMGateway(provider, cheap_tier_max_retries=1, strong_tier_max_retries=3)
+    meter = SessionTokenMeter(budget=100_000)
+
+    response = await gateway.complete(
+        tier=ModelTier.CHEAP, system_prompt="s", user_prompt="u", response_model=_Verdict, meter=meter
+    )
+
+    assert response.parsed.ok is True
+    assert response.model == "mock-cheap"
+    assert len(primary.calls) == 1
+    assert len(middle.calls) == 1
+    assert len(innermost.calls) == 1

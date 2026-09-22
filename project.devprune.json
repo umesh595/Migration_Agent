@@ -1,0 +1,13 @@
+{
+  "$schema": "https://devprune.vkrishna04.me/schemas/v1/devprune.schema.json",
+  "project_name": "Migration_Agent",
+  "prunable": {
+    "directories": [
+      {
+        "path": "frontend/.next",
+        "rebuild": "npm --prefix frontend run build",
+        "why": "Next.js production build output (642 MiB observed) - regenerated in full by `next build`; no adapter recognizes it since it isn't a dependency install, just compiled output"
+      }
+    ]
+  }
+}

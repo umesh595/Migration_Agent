@@ -19,6 +19,15 @@ htmlcov/
 node_modules/
 .next/
 next-env.d.ts
+*.tsbuildinfo
+
+# Local (non-Docker) dev services — native Postgres data dir/logs from running
+# outside docker-compose. Binary DB pages, never meant to be versioned.
+.local_pgdata/
+.local_logs/
+.local_pglog*
+# scripts/dev.ps1 -Mode local: PID files + logs for the processes it starts.
+.local_run/
 
 # Exports / scratch
 *.docx
