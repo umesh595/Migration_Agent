@@ -32,7 +32,6 @@ from app.api.deps import (
 from app.api.routers.sessions import _persist_turn, _render_user_message_history, _thread_config
 from app.config import get_settings
 from app.core.patch_applier import apply_patch_set
-from app.core.request_intelligence import classify_user_request
 from app.db.models import SessionStatus
 from app.integrations import aws_session_cache
 from app.integrations.aws_provider import (
@@ -216,7 +215,6 @@ async def import_from_document(
         model_before = await session_service.latest_model(db, session.id)
         conversation_turns = await session_service.list_conversation_turns(db, session.id)
         previous_agent_turn = await session_service.latest_conversation_turn(db, session.id, role="agent")
-        request_impact = classify_user_request(text)
 
         await session_service.save_conversation_turn(
             db, session.id, "user", f"[Uploaded document: {file.filename}]\n\n{text}"
@@ -231,7 +229,8 @@ async def import_from_document(
             "user_message": text,
             "conversation_context": _render_user_message_history(conversation_turns),
             "previous_agent_message": previous_agent_turn.text if previous_agent_turn is not None else None,
-            "request_impact": request_impact,
+            # request_impact is not seeded: discovery.ingest_node classifies the
+            # message in the same LLM call that extracts patches.
         }
         values = await graph.ainvoke(initial, config=_thread_config(session.langgraph_thread_id))
 

@@ -129,7 +129,7 @@ export function FindingsPanel({
                     disabled={busyId === f.id}
                     onClick={() => handleSetStatus(f, "resolved")}
                   >
-                    ✓ Mark resolved
+                    Mark addressed
                   </Button>
                 )}
                 {f.resolution_status !== "accepted_as_risk" && (
@@ -141,7 +141,7 @@ export function FindingsPanel({
                     disabled={busyId === f.id}
                     onClick={() => handleSetStatus(f, "accepted_as_risk")}
                   >
-                    Accept as risk
+                    Accept as documented risk
                   </Button>
                 )}
                 {f.resolution_status !== "open" && (

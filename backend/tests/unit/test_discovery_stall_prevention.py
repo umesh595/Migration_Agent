@@ -10,7 +10,7 @@ import pytest
 
 from app.core.gap_analyzer import GapCategory, top_gaps
 from app.core.patch_applier import apply_patch_set
-from app.core.request_intelligence import RequestIntent, classify_user_request
+from app.core.request_intelligence import RequestIntent, derive_request_impact
 from app.orchestration.nodes.discovery import (
     _adapt_gaps_to_latest_user_message,
     auto_confirm_directly_stated_assumptions,
@@ -33,22 +33,12 @@ from app.schemas.architecture import (
 from app.schemas.patches import AddAssumptionPatch, AddComponentPatch, PatchOp, PatchSet
 
 
-def test_target_context_answer_is_classified_as_target_planning_not_current_fact():
-    impact = classify_user_request(
-        "it is nothing for now needed to build and want to move to aws and for large scale users downtime is 4hrs"
-    )
-    assert impact.intent == RequestIntent.TARGET_PLANNING
-    assert impact.should_mutate_source is False
-
-
 def test_target_context_answer_resolves_the_sparse_intake_open_question():
     model = ArchitectureModel(
         components=[Component(id="tracker", name="Employee Allocation Tracker", workload_type=WorkloadType.OTHER)],
         open_questions=[OpenQuestion(id="oq1", text="What does this run on today?", related_component_ids=["tracker"])],
     )
-    impact = classify_user_request(
-        "it is nothing for now needed to build and want to move to aws and for large scale users downtime is 4hrs"
-    )
+    impact = derive_request_impact(RequestIntent.TARGET_PLANNING)
 
     result = resolve_sparse_intake_open_question_from_target_context_answer(
         model, "it is nothing for now needed to build and want to move to aws and for large scale users downtime is 4hrs",
@@ -72,7 +62,7 @@ def test_target_context_backup_is_a_noop_once_the_model_has_real_detail():
         ],
         open_questions=[OpenQuestion(id="oq1", text="What environment?", related_component_ids=["api"])],
     )
-    impact = classify_user_request("target is aws, downtime is 4 hours")
+    impact = derive_request_impact(RequestIntent.TARGET_PLANNING)
 
     result = resolve_sparse_intake_open_question_from_target_context_answer(
         model, "target is aws, downtime is 4 hours", impact, PatchSet(patches=[], narration="")
@@ -81,21 +71,11 @@ def test_target_context_backup_is_a_noop_once_the_model_has_real_detail():
     assert result.patches == []
 
 
-def test_proceed_command_is_classified_as_proceed_with_assumptions_not_terse_confirmation():
-    """"i don't have more details" contains "don't", which the terse-confirmation
-    term list also matches — this asserts the stronger, more specific proceed
-    intent wins so should_mutate_source stays True instead of freezing the model."""
-
-    impact = classify_user_request("just give it, proceed with a draft, i don't have more details")
-    assert impact.intent == RequestIntent.PROCEED_WITH_ASSUMPTIONS
-    assert impact.should_mutate_source is True
-
-
 def test_proceed_command_drafts_a_placeholder_architecture_when_model_is_still_sparse():
     model = ArchitectureModel(
         components=[Component(id="inventory_app", name="Inventory Management Web App", workload_type=WorkloadType.WEB_SERVICE)]
     )
-    impact = classify_user_request("just give it, proceed with a draft, i don't have more details")
+    impact = derive_request_impact(RequestIntent.PROCEED_WITH_ASSUMPTIONS)
 
     result = draft_minimal_architecture_when_user_says_proceed(model, impact, PatchSet(patches=[], narration=""))
 
@@ -115,10 +95,14 @@ def test_target_context_answer_records_a_durable_auto_confirmed_greenfield_assum
         components=[Component(id="tracker", name="Employee Allocation Tracker", workload_type=WorkloadType.OTHER)]
     )
     message = "it is nothing for now needed to build and want to move to aws and for large scale users downtime is 4hrs"
-    impact = classify_user_request(message)
+    impact = derive_request_impact(RequestIntent.TARGET_PLANNING)
 
+    # is_greenfield_context=True simulates the LLM's own judgment for this
+    # message (it states there's nothing built yet) — this test exercises the
+    # deterministic recording logic downstream of that judgment, not the
+    # judgment itself.
     patch_set = resolve_sparse_intake_open_question_from_target_context_answer(
-        model, message, impact, PatchSet(patches=[], narration="")
+        model, message, impact, PatchSet(patches=[], narration="", is_greenfield_context=True)
     )
     new_model, results = apply_patch_set(model, patch_set)
 
@@ -138,7 +122,7 @@ def test_target_context_backup_does_not_duplicate_the_assumption_once_greenfield
             )
         ],
     )
-    impact = classify_user_request("target is aws, downtime is 4 hours")
+    impact = derive_request_impact(RequestIntent.TARGET_PLANNING)
 
     result = resolve_sparse_intake_open_question_from_target_context_answer(
         model, "target is aws, downtime is 4 hours", impact, PatchSet(patches=[], narration="")
@@ -170,12 +154,16 @@ def test_confirmed_greenfield_fact_suppresses_current_hosting_question_on_a_late
         ],
     )
     later_message = "The SSO provider is external and is only used by the Auth Service, not by any other component directly."
-    impact = classify_user_request(later_message)
 
     gaps = top_gaps(model, n=3)
     assert GapCategory.MISSING_ENVIRONMENT in {g.category for g in gaps}
 
-    adapted = _adapt_gaps_to_latest_user_message(gaps, {"user_message": later_message, "request_impact": impact, "model": model})
+    # is_greenfield_context is False for THIS message (it says nothing about
+    # greenfield status) — suppression must come from the model's own CONFIRMED
+    # assumption, not from re-detecting greenfield in every later message.
+    adapted = _adapt_gaps_to_latest_user_message(
+        gaps, {"user_message": later_message, "is_greenfield_context": False, "model": model}
+    )
 
     assert GapCategory.MISSING_ENVIRONMENT not in {g.category for g in adapted}
 
@@ -193,7 +181,7 @@ def test_unpatched_factual_answer_gets_captured_as_an_assumption():
         "booking confirmation email goes out kinda async i think, no big job queue as far as i know, "
         "no real monitoring right now, PII is just name/email/phone stored in db, nothing fancy for compliance"
     )
-    impact = classify_user_request(message)
+    impact = derive_request_impact(RequestIntent.CURRENT_FACT)
 
     result = capture_unpatched_factual_answer_as_assumption(model, message, impact, PatchSet(patches=[], narration="noted"))
 
@@ -206,7 +194,7 @@ def test_unpatched_factual_answer_gets_captured_as_an_assumption():
 def test_unpatched_factual_answer_backup_is_a_noop_when_the_llm_already_patched_something():
     model = ArchitectureModel()
     message = "the booking confirmation email is sent asynchronously with no job queue"
-    impact = classify_user_request(message)
+    impact = derive_request_impact(RequestIntent.CURRENT_FACT)
     llm_patch_set = PatchSet(
         patches=[AddComponentPatch(id="email_service", name="Email Service", workload_type=WorkloadType.OTHER)],
         narration="Added the email service.",
@@ -221,10 +209,10 @@ def test_unpatched_factual_answer_backup_ignores_short_or_question_messages():
     model = ArchitectureModel()
     empty = PatchSet(patches=[], narration="")
 
-    short_impact = classify_user_request("none")
+    short_impact = derive_request_impact(RequestIntent.CURRENT_FACT)
     assert capture_unpatched_factual_answer_as_assumption(model, "none", short_impact, empty) is empty
 
-    question_impact = classify_user_request("what information do you need from me?")
+    question_impact = derive_request_impact(RequestIntent.CURRENT_FACT)
     assert (
         capture_unpatched_factual_answer_as_assumption(
             model, "what information do you need from me?", question_impact, empty
@@ -240,10 +228,7 @@ def test_auto_confirm_closes_a_current_fact_turns_own_assumptions():
     statement on every subsequent turn regardless of topic."""
 
     model = ArchitectureModel(components=[Component(id="app", name="App", workload_type=WorkloadType.WEB_SERVICE)])
-    impact = classify_user_request(
-        "yeah login's there, admin and normal users, sends an email after booking, admin has a dashboard, "
-        "not sure about compliance stuff, like 50k users roughly"
-    )
+    impact = derive_request_impact(RequestIntent.CURRENT_FACT)
     llm_patch_set = PatchSet(
         patches=[
             AddAssumptionPatch(
@@ -263,7 +248,7 @@ def test_auto_confirm_closes_a_current_fact_turns_own_assumptions():
 
 def test_auto_confirm_does_not_fire_outside_current_fact_intent():
     model = ArchitectureModel()
-    impact = classify_user_request("just give it, proceed with a draft")
+    impact = derive_request_impact(RequestIntent.PROCEED_WITH_ASSUMPTIONS)
     llm_patch_set = PatchSet(
         patches=[AddAssumptionPatch(text="Some assumption.", related_component_ids=[])], narration=""
     )
@@ -284,7 +269,7 @@ def test_environment_synonym_backup_does_not_fire_on_a_target_planning_message()
         components=[Component(id="tracker", name="Employee Allocation Tracker", workload_type=WorkloadType.OTHER)]
     )
     message = "it is nothing for now needed to build and want to move to aws and for large scale users downtime is 4hrs"
-    impact = classify_user_request(message)
+    impact = derive_request_impact(RequestIntent.TARGET_PLANNING)
 
     result = resolve_environment_open_questions_from_short_answer(model, message, PatchSet(patches=[], narration=""), impact)
 
@@ -292,19 +277,19 @@ def test_environment_synonym_backup_does_not_fire_on_a_target_planning_message()
     assert result.narration == ""
 
 
-def test_environment_synonym_backup_does_not_fire_on_move_to_phrasing_outside_target_planning_classifier():
-    """"it's on a normal server right now, just want to move it to GCP" isn't
-    caught by the TARGET_PLANNING classifier (no recognized migration-context
-    term), so the intent-only guard alone missed it — regression for GCP
-    getting stamped as the CURRENT environment for a system explicitly
-    described as still on a normal server."""
+def test_environment_synonym_backup_has_its_own_move_to_phrase_guard_independent_of_intent():
+    """Defense in depth: even if intent classification were wrong (CURRENT_FACT
+    passed in rather than TARGET_PLANNING), the function's own "move to"/
+    "migrate to" phrase guard must still stop a target provider name from
+    being stamped as the CURRENT environment. Regression for GCP getting
+    recorded as current hosting for a system explicitly described as still on
+    a normal server."""
 
     model = ArchitectureModel(
         components=[Component(id="db", name="Database", workload_type=WorkloadType.DATABASE)]
     )
     message = "it's on a normal server right now, just want to move it to GCP"
-    impact = classify_user_request(message)
-    assert impact.intent != RequestIntent.TARGET_PLANNING  # confirms the classifier really does miss this phrasing
+    impact = derive_request_impact(RequestIntent.CURRENT_FACT)
 
     result = resolve_environment_open_questions_from_short_answer(model, message, PatchSet(patches=[], narration=""), impact)
 
@@ -315,7 +300,7 @@ def test_environment_synonym_backup_still_fires_on_a_plain_current_hosting_answe
     model = ArchitectureModel(
         components=[Component(id="api", name="API", workload_type=WorkloadType.API_SERVICE)]
     )
-    impact = classify_user_request("gcp")
+    impact = derive_request_impact(RequestIntent.CURRENT_FACT)
 
     result = resolve_environment_open_questions_from_short_answer(model, "gcp", PatchSet(patches=[], narration=""), impact)
 
@@ -324,7 +309,7 @@ def test_environment_synonym_backup_still_fires_on_a_plain_current_hosting_answe
 
 def test_proceed_command_is_a_noop_once_the_llm_already_drafted_something():
     model = ArchitectureModel()
-    impact = classify_user_request("just give it, proceed with a draft")
+    impact = derive_request_impact(RequestIntent.PROCEED_WITH_ASSUMPTIONS)
     llm_patch_set = PatchSet(
         patches=[AddComponentPatch(id="web", name="Web", workload_type=WorkloadType.WEB_SERVICE)],
         narration="Drafted a web app.",

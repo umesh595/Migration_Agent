@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from app.core.request_intelligence import classify_user_request
 from app.llm.base import ModelTier
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.providers.openai_provider import MockProvider
@@ -47,11 +46,12 @@ async def test_fast_discovery_turn_stays_on_the_cheap_tier_for_every_real_llm_ca
     graph = build_discovery_graph(LLMGateway(provider), SessionTokenMeter(100_000)).compile()
     message = "The booking API runs in GCP."
 
+    # request_impact is not seeded: ingest_node classifies the message itself in
+    # the same call, from PatchSet.request_intent.
     result = await graph.ainvoke(
         {
             "session_id": "fast-path", "stage": Stage.DISCOVERY, "model": ArchitectureModel(),
             "user_message": message, "conversation_context": message,
-            "request_impact": classify_user_request(message),
         }
     )
 

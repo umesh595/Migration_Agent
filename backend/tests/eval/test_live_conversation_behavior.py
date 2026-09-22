@@ -24,7 +24,6 @@ import pathlib
 import pytest
 
 from app.config import get_settings
-from app.core.request_intelligence import classify_user_request
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.providers.anthropic_provider import AnthropicProvider
 from app.orchestration.graph import build_discovery_graph
@@ -79,13 +78,14 @@ async def _run_turns(turns: list[str]) -> tuple[ArchitectureModel, list[list[str
     questions_by_turn: list[list[str]] = []
 
     for message in turns:
-        impact = classify_user_request(message)
+        # request_impact is not seeded: ingest_node classifies the message itself,
+        # in the same call that extracts patches — matching exactly what the API
+        # layer does (app/api/routers/sessions.py).
         state_in = {
             "session_id": "eval",
             "stage": Stage.DISCOVERY,
             "model": model,
             "user_message": message,
-            "request_impact": impact,
             "previous_agent_message": previous_agent_message,
         }
         result = await graph.ainvoke(state_in, config=thread)

@@ -71,6 +71,7 @@ def render_context_for_prompt(context: MigrationContext) -> str:
             "maintenance_window": context.maintenance_window_description,
             "constraints": context.constraints,
             "target_completion": context.target_completion_description,
+            "strategy_preference": str(context.strategy_preference),
         },
         indent=2,
     )

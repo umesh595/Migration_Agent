@@ -12,7 +12,7 @@ import logging
 
 from app.config import get_settings
 from app.core.plan_assembler import unresolved_findings_to_risks
-from app.core.request_intelligence import RequestIntent, render_request_impact_for_prompt
+from app.core.request_intelligence import RequestIntent, derive_request_impact
 from app.core.review_rules_engine import run_rules
 from app.llm.base import ModelTier, StructuredOutputError
 from app.llm.gateway import LLMGateway, SessionTokenMeter
@@ -44,19 +44,17 @@ async def review_discuss_ingest_node(state: GraphState, gateway: LLMGateway, met
     prompts to keep in sync), but the injected context also includes what's
     already been GENERATED (the plan: target architecture, waves, cutover/
     rollback, risks) — so relevance can be judged against a genuine gap in the
-    plan too, not only against the discovered architecture model. Without this,
-    a request that closes an obvious gap in the plan (e.g. a risk already flags
-    'no caching strategy') would look unjustified even though the plan itself
-    already establishes the need."""
+    plan too, not only against the discovered architecture model.
+
+    Routing note: whether a message is a question ABOUT the plan or a request to
+    CHANGE it is decided by this call's own classification, not by scanning for
+    words like "why"/"explain"/"cost". That keyword test could not separate "why
+    did you choose this" from "change it, and explain why", and it only ever
+    recognized the phrasings someone had thought to list, in English.
+    """
 
     plan = state.get("plan")
     context = state.get("migration_context")
-    impact = state.get("request_impact")
-    impact_section = (
-        f"DETERMINISTIC REQUEST CLASSIFICATION:\n{render_request_impact_for_prompt(impact)}\n\n"
-        if impact is not None
-        else ""
-    )
     plan_section = (
         "\n\nALREADY-GENERATED MIGRATION PLAN (what exists so far — a request that closes a gap here "
         "is justified even if the architecture model alone doesn't show it):\n"
@@ -64,37 +62,13 @@ async def review_discuss_ingest_node(state: GraphState, gateway: LLMGateway, met
         if plan is not None and context is not None
         else ""
     )
-    if _is_review_explanation_request(state.get("user_message", ""), impact) and plan is not None and context is not None:
-        prompt = get_prompt("review_discussion")
-        user_prompt = (
-            f"{impact_section}CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}"
-            f"{plan_section}\n\nUSER REVIEW QUESTION:\n{state['user_message']}"
-        )
-
-        try:
-            response = await gateway.complete(
-                tier=ModelTier.STRONG,
-                system_prompt=prompt.system,
-                user_prompt=user_prompt,
-                response_model=ReviewDiscussionOutput,
-                meter=meter,
-                node_name="review.discuss_answer",
-            )
-        except StructuredOutputError as exc:
-            logger.error("review discussion answer failed for session %s: %s", state.get("session_id"), exc)
-            return {
-                "error": "I couldn't answer that review question reliably. Could you rephrase it?",
-                "last_patch_results": [],
-            }
-
-        return {"_patch_set": PatchSet(patches=[], narration=response.parsed.answer), "error": None}
 
     prompt = get_prompt("ingest_patches")
     user_prompt = (
         "CURRENT_STAGE: AFTER_GATE_1\n"
         "Gate 1 has already accepted the source architecture; treat new source-model changes as requiring "
         "explicit confirmation unless they resolve an existing open question.\n\n"
-        f"{impact_section}CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}"
+        f"CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}"
         f"{plan_section}\n\nUSER MESSAGE HISTORY FOR THIS SESSION:\n{state.get('conversation_context') or '(none)'}\n\n"
         f"PREVIOUS AGENT MESSAGE, IF THE USER IS ANSWERING IT:\n"
         f"{state.get('previous_agent_message') or '(none)'}\n\nUSER MESSAGE:\n{state['user_message']}"
@@ -116,6 +90,39 @@ async def review_discuss_ingest_node(state: GraphState, gateway: LLMGateway, met
             "last_patch_results": [],
         }
 
+    request_impact = derive_request_impact(response.parsed.request_intent, after_gate_1=True)
+
+    # A question about the plan gets the specialised, plan-grounded answering prompt:
+    # this extraction pass's narration is written to describe model CHANGES and reads
+    # poorly as an explanation.
+    if request_impact.intent == RequestIntent.REVIEW_EXPLANATION and plan is not None and context is not None:
+        answer_prompt = get_prompt("review_discussion")
+        answer_user_prompt = (
+            f"CURRENT ARCHITECTURE MODEL:\n{render_model_for_prompt(state['model'])}"
+            f"{plan_section}\n\nUSER REVIEW QUESTION:\n{state['user_message']}"
+        )
+        try:
+            answer = await gateway.complete(
+                tier=ModelTier.STRONG,
+                system_prompt=answer_prompt.system,
+                user_prompt=answer_user_prompt,
+                response_model=ReviewDiscussionOutput,
+                meter=meter,
+                node_name="review.discuss_answer",
+            )
+        except StructuredOutputError as exc:
+            logger.error("review discussion answer failed for session %s: %s", state.get("session_id"), exc)
+            return {
+                "error": "I couldn't answer that review question reliably. Could you rephrase it?",
+                "last_patch_results": [],
+            }
+
+        return {
+            "_patch_set": PatchSet(patches=[], narration=answer.parsed.answer),
+            "request_impact": request_impact,
+            "error": None,
+        }
+
     patch_set = resolve_dependency_open_questions_from_short_answer(
         state["model"],
         state.get("user_message", ""),
@@ -123,37 +130,9 @@ async def review_discuss_ingest_node(state: GraphState, gateway: LLMGateway, met
         previous_agent_message=state.get("previous_agent_message"),
     )
     patch_set = resolve_environment_open_questions_from_short_answer(
-        state["model"], state.get("user_message", ""), patch_set, state.get("request_impact")
+        state["model"], state.get("user_message", ""), patch_set, request_impact
     )
-    return {"_patch_set": patch_set, "error": None}
-
-
-def _is_review_explanation_request(user_message: str, impact=None) -> bool:
-    if getattr(impact, "intent", None) == RequestIntent.REVIEW_EXPLANATION:
-        return True
-    text = user_message.lower()
-    change_verbs = ("add ", "remove ", "delete ", "change ", "replace ", "switch ", "use ", "move ")
-    explanation_markers = (
-        "why",
-        "explain",
-        "compare",
-        "instead of",
-        "better than",
-        "review the",
-        "check the",
-        "is this",
-        "are these",
-        "tell me if",
-        "effort",
-        "cost",
-        "efficiency",
-        "risk",
-        "rollback",
-        "validation",
-    )
-    has_explanation_marker = any(marker in text for marker in explanation_markers) or "?" in text
-    has_change_intent = any(verb in text for verb in change_verbs) and "instead of" not in text
-    return has_explanation_marker and not has_change_intent
+    return {"_patch_set": patch_set, "request_impact": request_impact, "error": None}
 
 
 def rules_review_node(state: GraphState) -> dict:

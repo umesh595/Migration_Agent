@@ -11,7 +11,12 @@ from app.config import get_settings
 from app.core.cost_estimator import estimate_plan_cost
 from app.core.graph_engine import CapacityExceededError, check_scale_envelope, compute_sequence
 from app.core.plan_assembler import assemble_plan
-from app.core.request_intelligence import RequestImpact, RequestIntent, render_request_impact_for_prompt
+from app.core.request_intelligence import (
+    RequestImpact,
+    RequestIntent,
+    derive_request_impact,
+    render_request_impact_for_prompt,
+)
 from app.llm.base import ModelTier, StructuredOutputError
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.prompts.registry import get_prompt
@@ -34,7 +39,7 @@ from app.orchestration.nodes.discovery import (
 )
 from app.orchestration.state import GraphState, Stage
 from app.schemas.architecture import Environment
-from app.schemas.migration_context import DowntimeTolerance, MigrationContext
+from app.schemas.migration_context import DowntimeTolerance, MigrationContext, MigrationStrategyPreference
 from app.schemas.patches import AddOpenQuestionPatch, PatchSet
 
 logger = logging.getLogger(__name__)
@@ -54,6 +59,13 @@ def _coerce_downtime(value: str) -> DowntimeTolerance:
         return DowntimeTolerance.FLEXIBLE
 
 
+def _coerce_strategy_preference(value: str) -> MigrationStrategyPreference:
+    try:
+        return MigrationStrategyPreference(value.strip().lower())
+    except ValueError:
+        return MigrationStrategyPreference.UNDECIDED
+
+
 async def after_gate_intake_node(state: GraphState, gateway: LLMGateway, meter: SessionTokenMeter) -> dict:
     """Before collecting migration context, catch post-Gate-1 architecture
     corrections or target/source ambiguity. A message like "I forgot Redis in the
@@ -61,12 +73,9 @@ async def after_gate_intake_node(state: GraphState, gateway: LLMGateway, meter: 
     asks generic source/target/downtime questions."""
 
     prompt = get_prompt("ingest_patches")
-    impact = state.get("request_impact")
-    impact_section = (
-        f"DETERMINISTIC REQUEST CLASSIFICATION:\n{render_request_impact_for_prompt(impact)}\n\n"
-        if impact is not None
-        else ""
-    )
+    # This call classifies the message itself (PatchSet.request_intent); a separate
+    # pre-computed verdict would only give it a second opinion to contradict.
+    impact_section = ""
     user_prompt = (
         "CURRENT_STAGE: AFTER_GATE_1\n"
         "Gate 1 has already accepted the source architecture. If the user is correcting the accepted source "
@@ -100,13 +109,17 @@ async def after_gate_intake_node(state: GraphState, gateway: LLMGateway, meter: 
         response.parsed,
         previous_agent_message=state.get("previous_agent_message"),
     )
+    # after_gate_1=True is a hard policy override, not a hint: the source model is
+    # frozen, so nothing this message says may mutate it without explicit confirmation.
+    request_impact = derive_request_impact(response.parsed.request_intent, after_gate_1=True)
+
     patch_set = resolve_environment_open_questions_from_short_answer(
-        state["model"], state.get("user_message", ""), patch_set, state.get("request_impact")
+        state["model"], state.get("user_message", ""), patch_set, request_impact
     )
     patch_set = drop_spurious_target_state_intake_questions(
-        state.get("user_message", ""), patch_set, state.get("request_impact")
+        state.get("user_message", ""), patch_set, request_impact
     )
-    return {"_patch_set": patch_set, "error": None}
+    return {"_patch_set": patch_set, "request_impact": request_impact, "error": None}
 
 
 def drop_spurious_target_state_intake_questions(
@@ -116,12 +129,11 @@ def drop_spurious_target_state_intake_questions(
     after-Gate-1 guard turn target-state details into a source-model confirmation
     question. That guard is for source corrections, not normal planning input."""
 
-    if request_impact is not None and request_impact.intent == RequestIntent.TARGET_PLANNING:
-        is_migration_context = True
-    else:
-        is_migration_context = _looks_like_migration_context(user_message)
-
-    if not is_migration_context:
+    # Whether this message is migration context is a reading of the message, and the
+    # LLM that read it already decided. The keyword fallback this replaced matched on
+    # substrings like "run " and "host ", so "we run a booking system" registered as
+    # migration context.
+    if request_impact is None or request_impact.intent != RequestIntent.TARGET_PLANNING:
         return patch_set
 
     kept = [
@@ -135,42 +147,6 @@ def drop_spurious_target_state_intake_questions(
     if len(kept) == len(patch_set.patches):
         return patch_set
     return PatchSet(patches=kept, narration="" if not kept else patch_set.narration)
-
-
-def _looks_like_migration_context(user_message: str) -> bool:
-    text = user_message.lower()
-    has_target_signal = any(
-        phrase in text
-        for phrase in (
-            "target is",
-            "target environment",
-            "target architecture",
-            "modernized",
-            "move to",
-            "migrate to",
-            "run ",
-            "host ",
-            "retain ",
-        )
-    )
-    has_planning_signal = any(
-        phrase in text
-        for phrase in (
-            "downtime",
-            "maintenance window",
-            "zero downtime",
-            "source is",
-            "source environment",
-            "ecs",
-            "fargate",
-            "eks",
-            "cloud run",
-            "kubernetes",
-            "rds",
-            "cloudfront",
-        )
-    )
-    return has_target_signal and has_planning_signal
 
 
 def _is_target_state_intake_question(text: str) -> bool:
@@ -232,6 +208,7 @@ async def elicit_context_node(state: GraphState, gateway: LLMGateway, meter: Ses
         maintenance_window_description=parsed.maintenance_window_description,
         constraints=parsed.constraints,
         target_completion_description=parsed.target_completion_description,
+        strategy_preference=_coerce_strategy_preference(parsed.strategy_preference),
     )
     return {"migration_context": context, "context_clarifying_questions": [], "stage": Stage.PLANNING}
 

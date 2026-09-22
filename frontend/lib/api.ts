@@ -180,7 +180,7 @@ export function resolveFinding(
 }
 
 export function getAudit(sessionId: string): Promise<{ records: PatchAuditEntry[] }> {
-  return request(`/sessions/${sessionId}/audit`);
+  return request(`/sessions/${sessionId}/source-model-updates`);
 }
 
 export function getConversation(sessionId: string): Promise<{ turns: ConversationTurn[] }> {

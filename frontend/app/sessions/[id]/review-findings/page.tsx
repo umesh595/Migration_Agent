@@ -65,11 +65,11 @@ export default function SessionReviewFindingsPage() {
               <Link href={`/sessions/${sessionId}`}>←</Link>
             </Button>
             <h1 className="mt-2 font-display text-2xl font-bold tracking-tight text-foreground">
-              Review findings
+              Review and improve the plan
             </h1>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-              Review what the rule engine and semantic critic challenged before Gate 2 approval. Findings can be
-              resolved, reopened, or accepted as documented migration risks.
+              Review recommended improvements to the proposed target architecture and migration plan. These do not
+              alter the frozen source model; unresolved items can be accepted as documented migration risks.
             </p>
           </div>
           {state?.session.status && <StatusBadge status={state.session.status} pulse />}
@@ -94,6 +94,11 @@ export default function SessionReviewFindingsPage() {
         ) : (
           <div className="grid gap-4 lg:grid-cols-[1fr_18rem]">
             <div>
+              <h2 className="mb-2 text-sm font-semibold text-foreground">Suggested plan improvements</h2>
+              <p className="mb-3 text-xs leading-5 text-muted-foreground">
+                Each item explains a gap or risk in the proposed target plan. Address it in the plan, keep it as a
+                documented risk, or reopen it for further discussion.
+              </p>
               <FindingsPanel findings={findings} sessionId={sessionId} onChanged={refresh} />
             </div>
             <aside className="space-y-4">

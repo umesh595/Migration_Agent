@@ -24,7 +24,6 @@ from app.config import get_settings
 from app.core.discovery_confidence import compute_discovery_confidence
 from app.core.exporter import render_docx, render_pdf
 from app.core.graph_engine import compute_impact
-from app.core.request_intelligence import classify_user_request
 from app.db.models import SessionStatus
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.streaming import reasoning_sink_scope
@@ -299,7 +298,11 @@ async def post_message(
         original_status = session.status
 
         if original_status == SessionStatus.DISCOVERY:
-            request_impact = classify_user_request(payload.message)
+            # request_impact is not seeded here: discovery.ingest_node classifies the
+            # message in the same LLM call that extracts patches (PatchSet.request_intent)
+            # and returns it into state, so every downstream node in this run still
+            # sees it — just derived by the model that actually read the message,
+            # not by a keyword pre-pass over it.
             graph = build_discovery_graph(gateway, meter).compile(checkpointer=checkpointer)
             initial = {
                 "session_id": str(session.id),
@@ -308,10 +311,10 @@ async def post_message(
                 "user_message": payload.message,
                 "conversation_context": conversation_context,
                 "previous_agent_message": previous_agent_message,
-                "request_impact": request_impact,
             }
         elif original_status == SessionStatus.PLANNING:
-            request_impact = classify_user_request(payload.message, after_gate_1=True)
+            # request_impact comes from planning.after_gate_intake_node's own
+            # classification (same call it uses to extract patches), not a pre-pass.
             graph = build_planning_graph(gateway, meter).compile(checkpointer=checkpointer)
             accepted = await session_service.accepted_model(db, session.id)
             initial = {
@@ -321,7 +324,6 @@ async def post_message(
                 "user_message": payload.message,
                 "conversation_context": conversation_context,
                 "previous_agent_message": previous_agent_message,
-                "request_impact": request_impact,
                 "migration_context": await session_service.get_migration_context(db, session.id),
                 "narration": "",
                 "pending_questions": [],
@@ -333,7 +335,8 @@ async def post_message(
             # discovery judges a proposed addition; only cascades into a full
             # replan (compute_sequence onward) when the model actually changed —
             # see build_review_discuss_graph's docstring.
-            request_impact = classify_user_request(payload.message, after_gate_1=True, review_stage=True)
+            # request_impact comes from review.review_discuss_ingest_node's own
+            # classification, not a pre-pass.
             graph = build_review_discuss_graph(gateway, meter).compile(checkpointer=checkpointer)
             accepted = await session_service.accepted_model(db, session.id)
             initial = {
@@ -343,7 +346,6 @@ async def post_message(
                 "user_message": payload.message,
                 "conversation_context": conversation_context,
                 "previous_agent_message": previous_agent_message,
-                "request_impact": request_impact,
                 # Read for context only (what relevance gets judged against) — a
                 # discuss-only turn leaves this exact object in state untouched;
                 # assemble_plan replaces it outright if the turn cascades into a
@@ -734,9 +736,15 @@ async def resolve_finding(
     }
 
 
-@router.get("/{session_id}/audit", dependencies=[Depends(enforce_rate_limit)])
-async def get_patch_audit(session_id: uuid.UUID, user: CurrentUser, db: Db) -> dict:
-    """Full patch audit trail — every proposal the LLM made, applied or rejected."""
+@router.get("/{session_id}/source-model-updates", dependencies=[Depends(enforce_rate_limit)])
+@router.get("/{session_id}/audit", dependencies=[Depends(enforce_rate_limit)], include_in_schema=False)
+async def get_source_model_updates(session_id: uuid.UUID, user: CurrentUser, db: Db) -> dict:
+    """Source-model evidence trail.
+
+    Patches are an internal deterministic mechanism. The product surface calls
+    this captured source facts, assumptions, and open questions, never target
+    architecture recommendations.
+    """
 
     from sqlalchemy import select
 

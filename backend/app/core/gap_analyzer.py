@@ -86,13 +86,11 @@ def analyze_gaps(model: ArchitectureModel) -> list[Gap]:
                 category=GapCategory.SPARSE_ARCHITECTURE_CONTEXT,
                 description=(
                     "The input describes the business purpose but not enough architecture to produce a "
-                    "credible migration model. Ask a compact consultant-style intake question covering the "
-                    "basic application facts a non-technical user may know: user access channel "
-                    "(web/mobile/admin), backend/API shape, database or data store, authentication/roles, "
-                    "payments if relevant, integrations, notifications, reporting/exports, files/storage, "
-                    "monitoring/audit needs, current hosting/source environment if anything already exists, "
-                    "target cloud or desired outcome, rough scale/data volume, and downtime tolerance. "
-                    "Make clear that rough answers are fine and that unknown items can stay unknown. "
+                    "credible migration model. Ask one compact, consultant-style intake question covering "
+                    "the facts that THIS PARTICULAR KIND OF SYSTEM would need before it can be modelled — "
+                    "derive those facts from what the user has actually described, not from any standard "
+                    "set of application topics. Make clear that rough answers are fine and that unknown "
+                    "items can stay unknown. "
                     f"Known so far: {_format_names(component_names)}."
                 ),
                 related_component_ids=[c.id for c in model.components],
@@ -152,9 +150,9 @@ def analyze_gaps(model: ArchitectureModel) -> list[Gap]:
             Gap(
                 category=GapCategory.MISSING_CRITICALITY,
                 description="Business criticality is still unconfirmed for: "
-                f"{_format_names([c.name for c in missing_criticality])}. Infer a reasonable tier from each "
-                "component's role (user-facing/auth/API/core data store/queue/AI runtime usually tier-1; "
-                "observability/export/reporting helpers usually tier-2) and ask for confirmation in one "
+                f"{_format_names([c.name for c in missing_criticality])}. Infer a reasonable tier from what "
+                "each component actually does IN THIS SYSTEM as described — reason from its role here, not "
+                "from a standard mapping of component types to tiers — and ask for confirmation in one "
                 "grouped question rather than one question per component.",
                 related_component_ids=[c.id for c in missing_criticality],
                 priority=_PRIORITY[GapCategory.MISSING_CRITICALITY],

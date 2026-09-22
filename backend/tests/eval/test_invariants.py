@@ -209,14 +209,13 @@ class TestSeniorArchitectPromptBehavior:
     def test_ingest_prompt_requires_intent_classification_before_patching(self):
         prompt = get_prompt("ingest_patches")
 
-        assert prompt.version == "v23"
+        assert prompt.version == "v26"
         assert "FIRST, CLASSIFY THE USER'S INTENT BEFORE PATCHING" in prompt.system
         assert "HIGH-IMPACT ARCHITECTURE DECISION" in prompt.system
         assert "NEW UNSCOPED BUSINESS CAPABILITY" in prompt.system
         assert "Do not treat every imperative from the user as permission to mutate" in prompt.system
-        assert "DETERMINISTIC REQUEST CLASSIFICATION" in prompt.system
-        assert "intent=target_planning" in prompt.system
-        assert "intent=proceed_with_assumptions" in prompt.system
+        assert "`request_intent` to target_planning" in prompt.system
+        assert "`request_intent` to proceed_with_assumptions" in prompt.system
         assert "ARCHITECTURAL STYLE, PATTERN, OR PROTOCOL NAME IS NEVER A COMPONENT" in prompt.system
         assert "ONCE THE USER NAMES CONCRETE FUNCTIONALITY THE SYSTEM PERFORMS" in prompt.system
 
@@ -231,7 +230,7 @@ class TestSeniorArchitectPromptBehavior:
     def test_question_prompt_filters_out_low_value_form_questions(self):
         prompt = get_prompt("generate_questions")
 
-        assert prompt.version == "v10"
+        assert prompt.version == "v11"
         assert "Never use generic boilerplate" in prompt.system
         assert "Would a different answer change wave order" in prompt.system
         assert "do not enumerate all component names" in prompt.system
@@ -305,20 +304,24 @@ class TestSeniorArchitectPromptBehavior:
         security/privacy, planning-blocker level), not left at a flat default —
         otherwise 'ask the next best question' degrades back into 'ask questions
         in the order gaps happened to be generated,' which is the exact
-        complaint this upgrade fixes. Also pins the domain-reasoning examples
-        (payments/healthcare/marketplace) that replace a hardcoded per-domain
-        checklist — illustrative anchors the LLM generalizes from, never a fixed
-        lookup keyed off a literal domain name."""
+        complaint this upgrade fixes. Also pins the DERIVATION rule that replaced
+        the old baseline category list and its worked domain examples: those
+        anchors were meant to be generalized from, but in practice they seeded
+        questions about capabilities the user's system never had (asking a
+        telemetry user about refunds). The prompt now supplies a method for
+        deriving categories from the described system and no subject matter of
+        its own — see tests/unit/test_prompt_neutrality.py."""
 
         generator = get_prompt("assess_requirement_coverage")
-        assert generator.version == "v6"
+        assert generator.version == "v7"
         assert "ADAPTIVE QUESTION RANKING" in generator.system
         assert "do not default every category to the same middling number" in generator.system
-        assert "idempotent charge handling" in generator.system
-        assert "never ask about a category from an example above that this system" in generator.system
+        assert "There is no baseline set of areas to start from" in generator.system
+        assert "area this system has given no sign of having" in generator.system
+        assert "you have produced a template" in generator.system
 
         critic = get_prompt("requirement_coverage_critic")
-        assert critic.version == "v5"
+        assert critic.version == "v6"
         assert "Also re-check risk_score itself on every verdict you keep" in critic.system
 
     def test_critic_prompts_know_how_to_use_a_generator_reasoning_trace(self):
@@ -365,7 +368,7 @@ class TestSeniorArchitectPromptBehavior:
 
         prompt = get_prompt("ingest_patches")
 
-        assert prompt.version == "v23"
+        assert prompt.version == "v26"
         assert "NEVER a paragraph enumerating every impact" in prompt.system
         assert "exactly two sentences" in prompt.system
         assert "SINGLE biggest consequence of this specific change" in prompt.system
@@ -379,7 +382,7 @@ class TestSeniorArchitectPromptBehavior:
 
         prompt = get_prompt("generate_questions")
 
-        assert prompt.version == "v10"
+        assert prompt.version == "v11"
         assert "REASON IN THREE BUCKETS BEFORE WRITING ANYTHING" in prompt.system
         assert "BLOCKER is the subset of UNKNOWN" in prompt.system
         assert "NAMES THE DECISION IT UNLOCKS" in prompt.system
@@ -406,7 +409,7 @@ class TestSeniorArchitectPromptBehavior:
 
         prompt = get_prompt("generate_questions_fast")
 
-        assert prompt.version == "v1"
+        assert prompt.version == "v2"
         assert "ASK IN BUSINESS LANGUAGE" in prompt.system
         assert "REASONING INPUT ONLY, never a draft of the question" in prompt.system
 

@@ -21,21 +21,19 @@ import {
   Workflow,
 } from "lucide-react";
 
-import { acceptModel, ApiError, approvePlan, getAudit, getFindings, getSessionState } from "@/lib/api";
+import { acceptModel, ApiError, approvePlan, getFindings, getSessionState } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
 import type {
   ArchitectureModel,
   Component,
   Finding,
   FindingSeverity,
-  PatchAuditEntry,
   RiskSeverity,
   SessionState,
   SessionStatus,
   WorkloadType,
 } from "@/lib/types";
-import { AuditTrailPanel } from "@/components/AuditTrailPanel";
-import { ChatPanel, type ChatDraft } from "@/components/ChatPanel";
+import { ChatPanel } from "@/components/ChatPanel";
 import { ExportButtons } from "@/components/ExportButtons";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Badge } from "@/components/ui/badge";
@@ -55,8 +53,8 @@ const STAGES: { key: SessionStatus; label: string; step: string }[] = [
 const STAGE_GUIDE: Record<SessionStatus, { title: string; body: string; review: string }> = {
   discovery: {
     title: "Current task: build the source architecture model",
-    body: "The agent extracts components, dependencies, criticality, assumptions, and open questions from your input. Suggested patches explain what changed and why before the model is accepted.",
-    review: "Check that the current-state model matches reality. Fix missing components or wrong dependencies before Gate 1.",
+    body: "The agent captures the current system as facts, assumptions, evidence, confidence, and open questions. It does not recommend target architecture changes during discovery.",
+    review: "Check that the current-state model matches reality. Confirm assumptions or correct missing components and dependencies before Gate 1.",
   },
   planning: {
     title: "Current task: create the target plan",
@@ -66,7 +64,7 @@ const STAGE_GUIDE: Record<SessionStatus, { title: string; body: string; review: 
   review: {
     title: "Current task: challenge and finalize the plan",
     body: "Deterministic rules and semantic review inspect dependency risks, coexistence, rollback, cost, efficiency, and missing justifications.",
-    review: "Review open findings, target architecture, effort/cost assumptions, and patch reasoning before approving Gate 2.",
+    review: "Review target recommendations, findings, effort/cost assumptions, and documented risks before approving Gate 2.",
   },
   exported: {
     title: "Current task: download the approved package",
@@ -104,8 +102,6 @@ export default function SessionWorkspacePage() {
 
   const [state, setState] = useState<SessionState | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
-  const [auditRecords, setAuditRecords] = useState<PatchAuditEntry[]>([]);
-  const [chatDraft, setChatDraft] = useState<ChatDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gateBusy, setGateBusy] = useState(false);
   const [showGate1Confirm, setShowGate1Confirm] = useState(false);
@@ -120,8 +116,6 @@ export default function SessionWorkspacePage() {
     try {
       const nextState = await getSessionState(sessionId);
       setState(nextState);
-      const { records } = await getAudit(sessionId);
-      setAuditRecords(records);
       if (nextState.plan) {
         const { findings: f } = await getFindings(sessionId);
         setFindings(f);
@@ -172,10 +166,6 @@ export default function SessionWorkspacePage() {
     } finally {
       setGateBusy(false);
     }
-  }
-
-  function handleReviewPatch(draft: string) {
-    setChatDraft({ id: crypto.randomUUID(), text: draft });
   }
 
   const status = state?.session.status;
@@ -635,10 +625,6 @@ export default function SessionWorkspacePage() {
                     </Card>
                   )}
 
-                  <div>
-                    <h3 className="mb-2 text-sm font-semibold text-foreground">Patch audit trail</h3>
-                    <AuditTrailPanel records={auditRecords} onReviewPatch={handleReviewPatch} />
-                  </div>
                 </>
               )}
             </main>
@@ -712,7 +698,6 @@ export default function SessionWorkspacePage() {
                     onTurnComplete={refresh}
                     workflowStatus={status}
                     componentCount={model?.components.length}
-                    draft={chatDraft}
                     placeholder={
                       status === "discovery"
                         ? 'Describe your existing system, e.g. "We have a customer portal, backend APIs, PostgreSQL, event streaming, and a data warehouse."'
