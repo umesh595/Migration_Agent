@@ -4,7 +4,7 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from app.llm.base import LLMUsage, ProviderRequestError, StructuredResponse
+from app.llm.base import LLMCallOptions, LLMUsage, ProviderRequestError, StructuredResponse
 from app.llm.providers.codevector_provider import CodeVectorProvider
 
 
@@ -71,6 +71,33 @@ async def test_schema_sent_once_and_all_user_context_preserved(mode):
     else:
         assert '"properties"' in requests[0]["messages"][0]["content"]
     assert requests[0]["messages"][1]["content"] == "Full conversation history"
+
+
+@pytest.mark.asyncio
+async def test_thinking_off_is_sent_explicitly_and_low_enables_reasoning_effort():
+    requests = []
+
+    def handle(request):
+        requests.append(json.loads(request.content))
+        return completion()
+
+    provider = CodeVectorProvider("test", "https://gateway.invalid/v1", "deepseek-flash", "deepseek-v4-pro")
+    async with provider._client:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+            provider._client._client = client
+            await provider.complete_structured(
+                model="deepseek-flash", system_prompt="s", user_prompt="u", response_model=Verdict,
+                options=LLMCallOptions(thinking="off"),
+            )
+            await provider.complete_structured(
+                model="deepseek-v4-pro", system_prompt="s", user_prompt="u", response_model=Verdict,
+                options=LLMCallOptions(thinking="low"),
+            )
+
+    assert requests[0]["thinking"] == {"type": "disabled"}
+    assert "reasoning_effort" not in requests[0]
+    assert requests[1]["thinking"] == {"type": "enabled"}
+    assert requests[1]["reasoning_effort"] == "low"
 
 
 @pytest.mark.asyncio

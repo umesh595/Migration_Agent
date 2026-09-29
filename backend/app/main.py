@@ -88,6 +88,10 @@ async def lifespan(app: FastAPI):
         strong_tier_max_retries=settings.llm_strong_tier_max_retries,
         call_timeout_s=settings.llm_call_timeout_s,
         critic_timeout_s=settings.llm_critic_timeout_s,
+        plan_timeout_s=settings.llm_plan_timeout_s,
+        node_routes_json=settings.llm_node_routes,
+        plan_thinking_effort=settings.plan_thinking_effort,
+        question_generation_model=settings.question_generation_model,
     )
 
     await init_checkpointer()

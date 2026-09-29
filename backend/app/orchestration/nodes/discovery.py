@@ -52,6 +52,66 @@ from app.schemas.patches import (
 
 logger = logging.getLogger(__name__)
 
+
+class RequirementCoverageResult(tuple):
+    def __new__(cls, gaps: list[Gap], model: ArchitectureModel, note: str | None = None):
+        obj = super().__new__(cls, (gaps, model))
+        obj.note = note
+        return obj
+
+
+def _discovery_user_turn_count(state: GraphState) -> int:
+    context = state.get("conversation_context") or ""
+    # _render_user_message_history formats turns as "1. text"; keep this
+    # tolerant so tests and future renderers can pass plain newline-separated
+    # history without breaking the cap.
+    numbered = re.findall(r"(?m)^\s*\d+\.\s+", context)
+    if numbered:
+        return len(numbered)
+    return len([line for line in context.splitlines() if line.strip()])
+
+
+def _closing_message() -> str:
+    return (
+        "I believe I now have enough of a picture of your architecture to move "
+        "forward. I have carried any remaining uncertainty forward as assumptions "
+        "or risks instead of blocking discovery on more questions. Take a look at "
+        "the model summary above; if it looks complete and accurate, accept it to "
+        "move into migration planning. If anything's missing, wrong, or you think "
+        "of more detail, just tell me and I'll fold it in."
+    )
+
+
+def _carry_forward_remaining_gaps(model: ArchitectureModel, gaps: list[Gap]) -> tuple[ArchitectureModel, list]:
+    patches = []
+    unresolved_questions = [q for q in model.open_questions if not q.resolved]
+    question_by_text = {q.text: q for q in unresolved_questions}
+
+    for gap in gaps:
+        text = (
+            f"DISCOVERY CARRY-FORWARD - unresolved before planning: {gap.description} "
+            "Treat this as an assumption/risk to validate during planning rather than a blocking discovery question."
+        )
+        question = question_by_text.get(gap.description)
+        if gap.category == GapCategory.OPEN_QUESTION and question is not None:
+            patches.append(ResolveOpenQuestionPatch(question_id=question.id, resolution_text=text))
+        else:
+            patches.append(
+                AddAssumptionPatch(
+                    text=text,
+                    related_component_ids=gap.related_component_ids,
+                    confidence="unsure",
+                    source="discovery question budget reached; carried forward instead of asking another question",
+                )
+            )
+
+    if not patches:
+        return model, []
+
+    patch_set = PatchSet(patches=patches, narration="")
+    return apply_patch_set(model, patch_set)
+
+
 def _requirement_gap_priority(verdict: RequirementCoverageVerdict) -> int:
     """Adaptive Question Ranking (risk-weighted): priority is DERIVED from the
     verdict's own holistic risk_score (business risk, migration impact,
@@ -111,7 +171,7 @@ async def ingest_node(state: GraphState, gateway: LLMGateway, meter: SessionToke
         # both tiers on a real multi-section architecture document before this
         # change (see ingest_patches prompt's dependency-extraction rules).
         response = await gateway.complete(
-            tier=ModelTier.CHEAP if fast_turn else ModelTier.STRONG,
+            tier=ModelTier.CHEAP,
             system_prompt=prompt.system,
             user_prompt=user_prompt,
             response_model=PatchSet,
@@ -1170,11 +1230,13 @@ async def gap_analysis_node(state: GraphState, gateway: LLMGateway, meter: Sessi
     # but a substantial message still gets the full requirement-coverage
     # generator/critic pass instead of silently losing that entire dimension of
     # analysis regardless of how much the user actually wrote.
-    fast_turn = settings.discovery_fast_mode and len(state.get("user_message", "")) < settings.discovery_full_prompt_min_chars
+    fast_turn = settings.discovery_fast_mode and not _needs_requirement_coverage_despite_fast_mode(
+        model, state.get("user_message", ""), settings.discovery_full_prompt_min_chars
+    )
     if fast_turn:
         requirement_gaps = []
     else:
-        requirement_gaps, model = await assess_dynamic_requirement_coverage(
+        coverage_result = await assess_dynamic_requirement_coverage(
             model,
             gateway,
             meter,
@@ -1182,6 +1244,8 @@ async def gap_analysis_node(state: GraphState, gateway: LLMGateway, meter: Sessi
             conversation_context=state.get("conversation_context") or "",
             session_id=state.get("session_id", ""),
         )
+        requirement_gaps, model = coverage_result
+        coverage_note = coverage_result.note
     # 5, not 3: requirement-coverage gaps are now one-per-topic (see
     # assess_dynamic_requirement_coverage) rather than one merged bundle, so a
     # system with several genuinely distinct high-impact unknowns needs more
@@ -1197,6 +1261,8 @@ async def gap_analysis_node(state: GraphState, gateway: LLMGateway, meter: Sessi
         metadata={"gap_count": len(gaps), "cloud_scan_matches": len(cloud_scan_notes)},
     )
     result: dict = {"_gaps": gaps, "model": model, "error": None}
+    if "coverage_note" in locals() and coverage_note:
+        result["narration"] = f"{state.get('narration', '')}\n\n{coverage_note}".strip()
     if cloud_scan_notes:
         # A lightweight recognition check, not a blocking confirmation (spec
         # §2) — this is why it's a narration append, never an open_question or
@@ -1210,6 +1276,51 @@ async def gap_analysis_node(state: GraphState, gateway: LLMGateway, meter: Sessi
     return result
 
 
+def _needs_requirement_coverage_despite_fast_mode(
+    model: ArchitectureModel, user_message: str, full_prompt_min_chars: int
+) -> bool:
+    """Fast mode is meant to keep terse turns cheap, not to suppress architectural
+    risk discovery for a compact but information-dense system description. Once
+    the model already shows enough moving parts, dependencies, or migration
+    constraints, run the semantic requirement-coverage pass so the next question
+    is about what would change sequencing/coexistence/cutover risk, not merely
+    which schema field is still blank.
+    """
+
+    if len(user_message) >= full_prompt_min_chars:
+        return True
+    if len(model.components) >= 4 and len(model.dependencies) >= 2:
+        return True
+
+    dependency_kinds = {dep.kind.value for dep in model.dependencies}
+    if len(model.components) >= 3 and dependency_kinds & {"sync_call", "event_publish", "event_subscribe", "async_call"}:
+        return True
+
+    migration_signals = (
+        "migrat",
+        "target",
+        "cutover",
+        "rollback",
+        "coexist",
+        "hybrid",
+        "remain",
+        "compliance",
+        "downtime",
+    )
+    searchable_text = " ".join(
+        [
+            user_message,
+            *(component.description for component in model.components),
+            *(component.technology or "" for component in model.components),
+            *(assumption.text for assumption in model.assumptions),
+            *(dependency.description for dependency in model.dependencies),
+        ]
+    ).lower()
+    return any(signal in searchable_text for signal in migration_signals) and (
+        len(model.components) >= 2 or bool(model.dependencies)
+    )
+
+
 async def assess_dynamic_requirement_coverage(
     model: ArchitectureModel,
     gateway: LLMGateway,
@@ -1218,7 +1329,7 @@ async def assess_dynamic_requirement_coverage(
     user_message: str = "",
     conversation_context: str = "",
     session_id: str = "",
-) -> tuple[list[Gap], ArchitectureModel]:
+) -> RequirementCoverageResult:
     """Replaces a fixed keyword-matched requirement checklist with domain-aware
     LLM judgment: what requirement areas actually matter for THIS system, and
     is each one covered, explicitly not applicable, hedged/uncertain, still
@@ -1250,7 +1361,7 @@ async def assess_dynamic_requirement_coverage(
     """
 
     if not model.components and not model.assumptions:
-        return [], model
+        return RequirementCoverageResult([], model)
 
     prompt = get_prompt("assess_requirement_coverage")
     user_prompt = (
@@ -1271,7 +1382,11 @@ async def assess_dynamic_requirement_coverage(
         )
     except StructuredOutputError as exc:
         logger.warning("requirement coverage assessment failed, skipping this turn: %s", exc)
-        return [], model
+        return RequirementCoverageResult(
+            [],
+            model,
+            "Coverage check skipped this turn because the model call failed; continuing with the captured architecture facts.",
+        )
 
     verdicts = await _critique_requirement_coverage(
         model,
@@ -1298,7 +1413,7 @@ async def assess_dynamic_requirement_coverage(
 
     concerning = [v for v in verdicts if v.status in ("unknown", "hedged_or_uncertain")]
     if not concerning:
-        return [], model
+        return RequirementCoverageResult([], model)
 
     # One Gap PER CONCERNING TOPIC, never one merged gap bundling several
     # (technique: "one question per gap, never merged across categories" —
@@ -1333,7 +1448,7 @@ async def assess_dynamic_requirement_coverage(
                 priority=_requirement_gap_priority(verdict),
             )
         )
-    return gaps, model
+    return RequirementCoverageResult(gaps, model)
 
 
 def _record_escalated_risks(model: ArchitectureModel, escalated: list[RequirementCoverageVerdict]) -> ArchitectureModel:
@@ -1509,6 +1624,19 @@ async def generate_questions_node(state: GraphState, gateway: LLMGateway, meter:
         }
 
     settings = get_settings()
+    if _discovery_user_turn_count(state) >= settings.discovery_max_question_turns:
+        new_model, patch_results = _carry_forward_remaining_gaps(state["model"], gaps)
+        return {
+            "model": new_model,
+            "last_patch_results": patch_results,
+            "pending_questions": [],
+            "question_details": [],
+            "narration": f"{state.get('narration', '')}\n\n{_closing_message()}".strip(),
+            "stage": Stage.DISCOVERY,
+            "_gaps": None,
+            "error": None,
+        }
+
     # Same "short message -> smaller prompt, cheaper tier" lever ingest_node uses,
     # applied here too — a condensed PROMPT and a faster tier are a legitimate
     # latency win because the reasoning is still real and dynamic. A hardcoded
@@ -1553,9 +1681,10 @@ async def generate_questions_node(state: GraphState, gateway: LLMGateway, meter:
             "error": None,
         }
 
+    questions = response.parsed.questions[: settings.discovery_max_questions_per_turn]
     return {
-        "pending_questions": [q.text for q in response.parsed.questions],
-        "question_details": response.parsed.questions,
+        "pending_questions": [q.text for q in questions],
+        "question_details": questions,
         "narration": f"{state.get('narration', '')}\n\n{response.parsed.narration}".strip(),
         "stage": Stage.DISCOVERY,
         "_gaps": None,

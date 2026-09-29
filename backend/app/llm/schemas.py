@@ -95,10 +95,10 @@ class RequirementCoverageOutput(BaseModel):
     """
 
     requirements: list[RequirementCoverageVerdict] = Field(
-        description="Every requirement area worth tracking for THIS system — seeded from common baseline "
-        "categories (auth/roles, external integrations, async messaging/events, reporting/analytics, "
-        "security/compliance/PII, scale/traffic) but free to drop any that are clearly irrelevant to this "
-        "kind of system and add domain-specific ones that matter more."
+        description="Every requirement area worth tracking for THIS system. Derive these from the injected "
+        "architecture model and conversation only: what this system does, what would be expensive or "
+        "irreversible if wrong during migration, and what would change sequencing, coexistence, validation, "
+        "or rollback. Do not start from a generic baseline category list."
     )
 
 

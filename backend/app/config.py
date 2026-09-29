@@ -71,9 +71,16 @@ class Settings(BaseSettings):
     )
     codevector_fallback_model: str | None = Field(default=None, alias="CODEVECTOR_FALLBACK_MODEL")
     llm_call_timeout_s: float = Field(default=210.0, gt=0, alias="LLM_CALL_TIMEOUT_S")
+    llm_plan_timeout_s: float = Field(default=300.0, gt=0, alias="LLM_PLAN_TIMEOUT_S")
     llm_critic_timeout_s: float = Field(default=60.0, gt=0, alias="LLM_CRITIC_TIMEOUT_S")
+    plan_concurrency: int = Field(default=4, ge=1, alias="PLAN_CONCURRENCY")
+    plan_thinking_effort: Literal["off", "low", "high", "max"] = Field(default="low", alias="PLAN_THINKING_EFFORT")
+    question_generation_model: Literal["flash", "pro"] = Field(default="flash", alias="QUESTION_GENERATION_MODEL")
+    llm_node_routes: str | None = Field(default=None, alias="LLM_NODE_ROUTES")
     discovery_fast_mode: bool = Field(default=True, alias="DISCOVERY_FAST_MODE")
     discovery_full_prompt_min_chars: int = Field(default=3_500, ge=1, alias="DISCOVERY_FULL_PROMPT_MIN_CHARS")
+    discovery_max_questions_per_turn: int = Field(default=3, ge=1, alias="DISCOVERY_MAX_QUESTIONS_PER_TURN")
+    discovery_max_question_turns: int = Field(default=4, ge=1, alias="DISCOVERY_MAX_QUESTION_TURNS")
     session_token_budget: int = Field(default=1_000_000, alias="SESSION_TOKEN_BUDGET")
 
     # --- Gemini: optional fallback only, used when CodeVector's API/account is unavailable. ---

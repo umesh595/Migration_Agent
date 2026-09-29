@@ -394,3 +394,97 @@ async def test_fast_mode_still_reasons_dynamically_never_a_hardcoded_shortcut():
     assert provider.calls[0]["model"] == f"mock-{ModelTier.CHEAP}", "fast mode must use the cheap tier, not skip reasoning"
     assert "condensed, low-latency form" in provider.calls[0]["system"], "fast mode must use the shorter dynamic prompt"
     assert result["pending_questions"] == ["Is the current hosting on-prem, cloud, or hybrid?"]
+
+
+@pytest.mark.asyncio
+async def test_question_generation_caps_visible_questions_per_turn(monkeypatch):
+    from app.config import get_settings
+    from app.core.gap_analyzer import Gap
+    from app.llm.gateway import LLMGateway, SessionTokenMeter
+    from app.llm.providers.openai_provider import MockProvider
+    from app.llm.schemas import GeneratedQuestion, QuestionGenerationOutput
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("DISCOVERY_MAX_QUESTIONS_PER_TURN", "2")
+
+    provider = MockProvider()
+    provider.register(
+        QuestionGenerationOutput,
+        QuestionGenerationOutput(
+            questions=[
+                GeneratedQuestion(text="Question 1?"),
+                GeneratedQuestion(text="Question 2?"),
+                GeneratedQuestion(text="Question 3?"),
+            ],
+            narration="I found the most important open points.",
+        ),
+    )
+
+    result = await generate_questions_node(
+        {
+            "_gaps": [
+                Gap(category=GapCategory.BASIC_APP_REQUIREMENTS, description="gap 1", priority=90),
+                Gap(category=GapCategory.BASIC_APP_REQUIREMENTS, description="gap 2", priority=89),
+                Gap(category=GapCategory.BASIC_APP_REQUIREMENTS, description="gap 3", priority=88),
+            ],
+            "model": ArchitectureModel(),
+            "narration": "",
+            "user_message": "short",
+            "conversation_context": "1. first turn",
+            "previous_agent_message": None,
+        },
+        gateway=LLMGateway(provider),
+        meter=SessionTokenMeter(100_000),
+    )
+
+    assert result["pending_questions"] == ["Question 1?", "Question 2?"]
+    assert [q.text for q in result["question_details"]] == ["Question 1?", "Question 2?"]
+
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_discovery_question_budget_carries_remaining_gaps_forward(monkeypatch):
+    from app.config import get_settings
+    from app.core.gap_analyzer import Gap
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("DISCOVERY_MAX_QUESTION_TURNS", "2")
+    model = ArchitectureModel(
+        components=[Component(id="orders", name="Order Processing", workload_type=WorkloadType.API_SERVICE)],
+        open_questions=[
+            OpenQuestion(
+                id="Q1",
+                text="Does Order Processing need the payment link rolled back together with the service?",
+                related_component_ids=["orders"],
+            )
+        ],
+    )
+
+    result = await generate_questions_node(
+        {
+            "_gaps": [
+                Gap(
+                    category=GapCategory.OPEN_QUESTION,
+                    description="Does Order Processing need the payment link rolled back together with the service?",
+                    related_component_ids=["orders"],
+                    priority=100,
+                )
+            ],
+            "model": model,
+            "narration": "Captured the latest details.",
+            "user_message": "anything else?",
+            "conversation_context": "1. first\n2. second",
+            "previous_agent_message": None,
+        },
+        gateway=None,
+        meter=None,
+    )
+
+    assert result["pending_questions"] == []
+    assert "accept it to move into migration planning" in result["narration"]
+    assert result["model"].open_questions[0].resolved is True
+    assert result["model"].assumptions[-1].confidence == "stated"
+    assert "DISCOVERY CARRY-FORWARD" in result["model"].assumptions[-1].text
+
+    get_settings.cache_clear()

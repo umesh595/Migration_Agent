@@ -804,7 +804,7 @@ export default function SessionWorkspacePage() {
       </div>
 
       <Dialog open={showGate1Confirm && !!state && !!gate1Summary} onOpenChange={(open) => !gateBusy && setShowGate1Confirm(open)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-h-[88vh] max-w-3xl overflow-y-auto">
           {state && gate1Summary && (
             <>
               <DialogHeader>
@@ -826,6 +826,8 @@ export default function SessionWorkspacePage() {
                   ))}
                 </dl>
               </div>
+
+              <Gate1ArchitectureReviewCard model={state.model} />
 
               {state.model.open_questions.some((question) => !question.resolved) && (
                 <p className="rounded-md border border-atlas-amber/30 bg-atlas-amber-soft p-3 text-xs leading-5 text-atlas-amber">
@@ -851,6 +853,106 @@ export default function SessionWorkspacePage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function Gate1ArchitectureReviewCard({ model }: { model: ArchitectureModel }) {
+  const componentById = new Map(model.components.map((component) => [component.id, component]));
+  const unresolvedQuestions = model.open_questions.filter((question) => !question.resolved);
+
+  return (
+    <section className="rounded-lg border border-border bg-background/70">
+      <div className="border-b border-border px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-sm font-semibold text-foreground">Current architecture understood</h3>
+          <Badge variant="teal">{model.components.length} components</Badge>
+          <Badge variant="secondary">{model.dependencies.length} dependencies</Badge>
+        </div>
+      </div>
+
+      <div className="grid gap-3 p-3 lg:grid-cols-[1.1fr_0.9fr]">
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Components</p>
+          {model.components.length === 0 ? (
+            <p className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
+              No components captured yet.
+            </p>
+          ) : (
+            <ul className="max-h-64 space-y-2 overflow-y-auto pr-1">
+              {model.components.map((component) => (
+                <li key={component.id} className="rounded-md border border-border bg-card p-2.5">
+                  <div className="flex items-start gap-2">
+                    <Badge variant="secondary" className="mt-0.5 shrink-0">
+                      {WORKLOAD_KIND_LABEL[component.workload_type] ?? "SVC"}
+                    </Badge>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">{component.name}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {component.environment.replace(/_/g, " ")}
+                        {component.criticality ? ` · ${component.criticality}` : ""}
+                        {component.technology ? ` · ${component.technology}` : ""}
+                      </p>
+                      {component.description && (
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                          {component.description}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Dependencies</p>
+            {model.dependencies.length === 0 ? (
+              <p className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
+                No dependencies captured yet.
+              </p>
+            ) : (
+              <ul className="max-h-44 space-y-2 overflow-y-auto pr-1">
+                {model.dependencies.map((dependency) => {
+                  const source = componentById.get(dependency.source_id)?.name ?? dependency.source_id;
+                  const target = componentById.get(dependency.target_id)?.name ?? dependency.target_id;
+                  return (
+                    <li key={dependency.id} className="rounded-md border border-border bg-card p-2.5 text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate font-medium text-foreground">{source}</span>
+                        <Badge variant="secondary" className="shrink-0">
+                          {dependency.kind.replace(/_/g, " ")}
+                        </Badge>
+                        <span className="min-w-0 flex-1 truncate text-right font-medium text-foreground">{target}</span>
+                      </div>
+                      {dependency.description && (
+                        <p className="mt-1.5 line-clamp-2 leading-5 text-muted-foreground">{dependency.description}</p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-1">
+            <div className="rounded-md border border-border bg-card p-2.5">
+              <p className="font-medium text-foreground">Assumptions</p>
+              <p className="mt-1 text-muted-foreground">{model.assumptions.length} recorded</p>
+            </div>
+            <div className="rounded-md border border-border bg-card p-2.5">
+              <p className="font-medium text-foreground">Open questions</p>
+              <p className="mt-1 text-muted-foreground">
+                {unresolvedQuestions.length === 0
+                  ? "None unresolved"
+                  : `${unresolvedQuestions.length} unresolved, carried as planning risk if accepted`}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 

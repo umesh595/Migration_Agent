@@ -16,6 +16,7 @@ from anthropic import APIConnectionError, APIStatusError, APITimeoutError, Async
 from pydantic import BaseModel, ValidationError
 
 from app.llm.base import (
+    LLMCallOptions,
     LLMProvider,
     LLMUsage,
     ModelTier,
@@ -60,6 +61,7 @@ class AnthropicProvider(LLMProvider):
         response_model: type[T],
         temperature: float = 0.0,  # noqa: ARG002 — see comment below on why this isn't forwarded
         on_delta: Callable[[str], Awaitable[None]] | None = None,  # noqa: ARG002 — Claude has no reasoning-trace stream to feed it
+        options: LLMCallOptions | None = None,  # noqa: ARG002
     ) -> StructuredResponse[T]:
         try:
             # `temperature` is deliberately not forwarded: newer models (e.g.
@@ -123,3 +125,5 @@ class AnthropicProvider(LLMProvider):
             model=model,
             attempts=1,
         )
+
+

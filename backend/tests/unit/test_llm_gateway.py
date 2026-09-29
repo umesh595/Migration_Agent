@@ -202,3 +202,46 @@ async def test_reasoning_sink_receives_node_name_and_delta_text_when_registered(
         ("discovery.ingest", "thinking about the request"),
         ("discovery.ingest", " ...and a bit more"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_node_route_defaults_send_planning_component_to_strong_with_plan_thinking():
+    from app.llm.providers.openai_provider import MockProvider
+
+    provider = MockProvider()
+    provider.register(TargetArchitectureOutput, TargetArchitectureOutput(description="ok"))
+    gateway = LLMGateway(provider, plan_thinking_effort="low")
+
+    await gateway.complete(
+        tier=ModelTier.CHEAP,
+        system_prompt="s",
+        user_prompt="u",
+        response_model=TargetArchitectureOutput,
+        node_name="planning.component.payment_gateway",
+    )
+
+    assert provider.calls[0]["model"] == "mock-strong"
+    assert provider.calls[0]["thinking"] == "low"
+
+
+@pytest.mark.asyncio
+async def test_node_route_env_override_can_force_model_and_thinking():
+    from app.llm.providers.openai_provider import MockProvider
+
+    provider = MockProvider()
+    provider.register(TargetArchitectureOutput, TargetArchitectureOutput(description="ok"))
+    gateway = LLMGateway(
+        provider,
+        node_routes_json='{"discovery.generate_questions": {"model": "pro", "thinking": "high"}}',
+    )
+
+    await gateway.complete(
+        tier=ModelTier.CHEAP,
+        system_prompt="s",
+        user_prompt="u",
+        response_model=TargetArchitectureOutput,
+        node_name="discovery.generate_questions",
+    )
+
+    assert provider.calls[0]["model"] == "mock-strong"
+    assert provider.calls[0]["thinking"] == "high"

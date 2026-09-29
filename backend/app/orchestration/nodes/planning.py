@@ -18,6 +18,7 @@ from app.core.request_intelligence import (
     render_request_impact_for_prompt,
 )
 from app.llm.base import ModelTier, StructuredOutputError
+from app.llm.base import ProviderRequestError, TokenBudgetExceededError
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.prompts.registry import get_prompt
 from app.llm.schemas import (
@@ -245,36 +246,62 @@ async def per_component_planning_node(state: GraphState, gateway: LLMGateway, me
         return {"error": "cannot plan components before sequencing and context elicitation complete"}
 
     prompt = get_prompt("plan_component")
+    settings = get_settings()
+    semaphore = asyncio.Semaphore(settings.plan_concurrency)
 
-    async def plan_one(component_id: str, wave) -> ComponentPlanLLMOutput | None:
+    async def plan_one(component_id: str, wave) -> tuple[str, ComponentPlanLLMOutput | None, str | None]:
         user_prompt = render_component_planning_context(model, component_id, wave, context, waves)
         try:
-            response = await gateway.complete(
-                tier=ModelTier.STRONG,
-                system_prompt=prompt.system,
-                user_prompt=user_prompt,
-                response_model=ComponentPlanLLMOutput,
-                meter=meter,
-                node_name=f"planning.component.{component_id}",
-            )
+            async with semaphore:
+                response = await gateway.complete(
+                    tier=ModelTier.STRONG,
+                    system_prompt=prompt.system,
+                    user_prompt=user_prompt,
+                    response_model=ComponentPlanLLMOutput,
+                    meter=meter,
+                    node_name=f"planning.component.{component_id}",
+                )
+        except ProviderRequestError as exc:
+            logger.error("component planning provider failure for %s: %s", component_id, exc)
+            return component_id, None, f"provider error: {exc}"
+        except TokenBudgetExceededError as exc:
+            logger.error("component planning token budget exhausted for %s: %s", component_id, exc)
+            return component_id, None, f"token budget exhausted: {exc}"
         except StructuredOutputError as exc:
             logger.error("component planning failed for %s: %s", component_id, exc)
-            return None
+            return component_id, None, f"schema error: {exc}"
 
         # The LLM echoes component_id; trust code's value, not the model's, so a
         # hallucinated id can't attach a plan to the wrong component.
         parsed = response.parsed
         parsed.component_id = component_id
-        return parsed
+        return component_id, parsed, None
 
-    outputs: list[ComponentPlanLLMOutput] = []
-    for wave in waves:
-        wave_results = await asyncio.gather(*(plan_one(cid, wave) for cid in wave.component_ids))
-        outputs.extend(o for o in wave_results if o is not None)
+    component_wave = {component_id: wave for wave in waves for component_id in wave.component_ids}
+    ordered_component_ids = [component.id for component in model.components]
 
-    failed = {c.id for c in model.components} - {o.component_id for o in outputs}
-    if failed:
-        return {"error": f"could not produce plans for: {sorted(failed)}. Try again or simplify those components."}
+    first_results = await asyncio.gather(
+        *(plan_one(component_id, component_wave[component_id]) for component_id in ordered_component_ids)
+    )
+    results_by_id = {component_id: output for component_id, output, _ in first_results if output is not None}
+    errors_by_id = {component_id: error for component_id, output, error in first_results if output is None and error}
+
+    if errors_by_id:
+        retry_results = await asyncio.gather(
+            *(plan_one(component_id, component_wave[component_id]) for component_id in errors_by_id)
+        )
+        for component_id, output, error in retry_results:
+            if output is not None:
+                results_by_id[component_id] = output
+                errors_by_id.pop(component_id, None)
+            elif error:
+                errors_by_id[component_id] = error
+
+    if errors_by_id:
+        failures = "; ".join(f"{component_id}: {errors_by_id[component_id]}" for component_id in ordered_component_ids if component_id in errors_by_id)
+        return {"error": f"Could not produce component migration plans after retry: {failures}"}
+
+    outputs = [results_by_id[component_id] for component_id in ordered_component_ids]
 
     return {"_component_outputs": outputs, "error": None}
 

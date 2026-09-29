@@ -3,5 +3,10 @@
     "allow": [
       "Bash(python -m venv .venv)"
     ]
+  },
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://coding-gateway.fissionlabs.com/gateway/anthropic",
+    "ANTHROPIC_AUTH_TOKEN": "cv_XBPjX1yJGbmXP3rt6L0imjIqR4pgIvcsPoeFDNDY2AE",
+    "ANTHROPIC_CUSTOM_HEADERS": "x-client-app: claude-code\nx-project: Migration_Agent"
   }
 }

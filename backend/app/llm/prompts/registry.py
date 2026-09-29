@@ -797,6 +797,17 @@ wrong while moving it, and what someone who has built this exact kind of system 
 without knowing. The categories you return should read as though written for this system alone — if the
 same list would fit an unrelated system just as well, you have produced a template; reason again.
 
+When the injected model already contains migration/coexistence facts, treat unknowns that could change the
+actual migration mechanics as first-class requirement areas, not nice-to-have detail. Examples of the
+SHAPE of such facts are: one component or boundary staying in the old environment while others move, a
+critical dependency that crosses an environment boundary, direct request/response traffic mixed with
+event-driven traffic, event streams whose behavior must be preserved, a live-platform cutover, data that
+may need temporary access from both sides, service-to-service trust crossing an environment boundary, or a
+rollback that must include more than one moving part. These are not topics to ask by default; only consider
+one when the model/conversation itself gives that shape. Name the category in the user's own concrete
+terms, and score it high if a wrong answer would change sequencing, coexistence architecture, validation,
+or rollback.
+
 NAME EACH CATEGORY CONCRETELY ENOUGH THAT IT COULD ONLY BELONG TO THIS SYSTEM. A bare heading is too
 generic to act on — name the actual thing that must not go wrong, in the user's own terms, not the
 department it would file under.

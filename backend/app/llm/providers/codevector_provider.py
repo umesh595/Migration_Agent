@@ -15,6 +15,7 @@ from openai import APIConnectionError, APIError, APITimeoutError, AsyncOpenAI, B
 from pydantic import BaseModel, ValidationError
 
 from app.llm.base import (
+    LLMCallOptions,
     LLMProvider,
     LLMUsage,
     ModelTier,
@@ -98,6 +99,7 @@ class CodeVectorProvider(LLMProvider):
         response_model: type[T],
         temperature: float = 0.0,
         on_delta: Callable[[str], Awaitable[None]] | None = None,
+        options: LLMCallOptions | None = None,
     ) -> StructuredResponse[T]:
         try:
             return await self._complete_structured_for_model(
@@ -107,6 +109,7 @@ class CodeVectorProvider(LLMProvider):
                 response_model=response_model,
                 temperature=temperature,
                 on_delta=on_delta,
+                options=options,
             )
         except (ProviderQuotaExceededError, ProviderRequestError) as exc:
             if not self._fallback_model or model == self._fallback_model:
@@ -124,6 +127,7 @@ class CodeVectorProvider(LLMProvider):
                 response_model=response_model,
                 temperature=temperature,
                 on_delta=on_delta,
+                options=options,
             )
 
     async def _complete_structured_for_model[T: BaseModel](
@@ -135,6 +139,7 @@ class CodeVectorProvider(LLMProvider):
         response_model: type[T],
         temperature: float = 0.0,
         on_delta: Callable[[str], Awaitable[None]] | None = None,
+        options: LLMCallOptions | None = None,
     ) -> StructuredResponse[T]:
         schema_instruction = (
             "\n\nRespond with a single JSON object only - no prose, no markdown fences - matching exactly "
@@ -177,6 +182,7 @@ class CodeVectorProvider(LLMProvider):
                     temperature=temperature,
                     response_format_kwargs=response_format_kwargs,
                     on_delta=on_delta,
+                    options=options,
                 )
                 break
             except BadRequestError as exc:
@@ -248,7 +254,11 @@ class CodeVectorProvider(LLMProvider):
         temperature: float,
         response_format_kwargs: dict,
         on_delta: Callable[[str], Awaitable[None]] | None = None,
+        options: LLMCallOptions | None = None,
     ):
+        thinking = (options.thinking if options else "off").lower()
+        if thinking not in {"off", "low", "high", "max"}:
+            thinking = "off"
         kwargs = {
             "model": model,
             "messages": [
@@ -256,8 +266,11 @@ class CodeVectorProvider(LLMProvider):
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": 1.0 if "kimi" in model.lower() else temperature,
+            "extra_body": {"thinking": {"type": "disabled" if thinking == "off" else "enabled"}},
             **response_format_kwargs,
         }
+        if thinking != "off":
+            kwargs["reasoning_effort"] = thinking
         if on_delta is None:
             return await self._client.chat.completions.create(**kwargs)
 

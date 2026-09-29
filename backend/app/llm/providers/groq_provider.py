@@ -19,7 +19,7 @@ from collections.abc import Awaitable, Callable
 from openai import APIError, AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
-from app.llm.base import LLMProvider, LLMUsage, ModelTier, ProviderQuotaExceededError, StructuredOutputError, StructuredResponse
+from app.llm.base import LLMCallOptions, LLMProvider, LLMUsage, ModelTier, ProviderQuotaExceededError, StructuredOutputError, StructuredResponse
 
 _GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
@@ -44,6 +44,7 @@ class GroqProvider(LLMProvider):
         response_model: type[T],
         temperature: float = 0.0,
         on_delta: Callable[[str], Awaitable[None]] | None = None,
+        options: LLMCallOptions | None = None,  # noqa: ARG002
     ) -> StructuredResponse[T]:
         schema_instruction = (
             "\n\nRespond with a single JSON object only — no prose, no markdown fences — matching exactly "

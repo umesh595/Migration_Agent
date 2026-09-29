@@ -9,6 +9,7 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 from app.llm.base import (
+    LLMCallOptions,
     LLMProvider,
     LLMUsage,
     ModelTier,
@@ -40,6 +41,7 @@ class GeminiProvider(LLMProvider):
         response_model: type[T],
         temperature: float = 0.0,
         on_delta: Callable[[str], Awaitable[None]] | None = None,
+        options: LLMCallOptions | None = None,  # noqa: ARG002
     ) -> StructuredResponse[T]:
         schema_instruction = (
             "\n\nRespond with a single JSON object only - no prose, no markdown fences - matching exactly "

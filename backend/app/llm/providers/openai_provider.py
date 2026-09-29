@@ -10,6 +10,7 @@ from openai import APIError, AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
 from app.llm.base import (
+    LLMCallOptions,
     LLMProvider,
     LLMUsage,
     ModelTier,
@@ -44,6 +45,7 @@ class OpenAIProvider(LLMProvider):
         response_model: type[T],
         temperature: float = 0.0,
         on_delta: Callable[[str], Awaitable[None]] | None = None,
+        options: LLMCallOptions | None = None,  # noqa: ARG002
     ) -> StructuredResponse[T]:
         try:
             # Stable path in openai>=1.92 (`beta.chat.completions.parse` is the
@@ -110,8 +112,9 @@ class MockProvider(LLMProvider):
         response_model: type[T],
         temperature: float = 0.0,
         on_delta: Callable[[str], Awaitable[None]] | None = None,
+        options: LLMCallOptions | None = None,
     ) -> StructuredResponse[T]:
-        self.calls.append({"model": model, "system": system_prompt, "user": user_prompt})
+        self.calls.append({"model": model, "system": system_prompt, "user": user_prompt, "thinking": (options.thinking if options else "")})
 
         queue = self._responses.get(response_model.__name__)
         if not queue:

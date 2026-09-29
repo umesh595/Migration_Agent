@@ -17,6 +17,7 @@ from collections.abc import Awaitable, Callable
 from pydantic import BaseModel
 
 from app.llm.base import (
+    LLMCallOptions,
     LLMProvider,
     ModelTier,
     ProviderQuotaExceededError,
@@ -48,6 +49,7 @@ class FallbackLLMProvider(LLMProvider):
         response_model: type[T],
         temperature: float = 0.0,
         on_delta: Callable[[str], Awaitable[None]] | None = None,
+        options: LLMCallOptions | None = None,
     ) -> StructuredResponse[T]:
         if self._using_fallback and self._fallback is not None:
             return await self._fallback.complete_structured(
@@ -57,6 +59,7 @@ class FallbackLLMProvider(LLMProvider):
                 response_model=response_model,
                 temperature=temperature,
                 on_delta=on_delta,
+                options=options,
             )
 
         try:
@@ -67,6 +70,7 @@ class FallbackLLMProvider(LLMProvider):
                 response_model=response_model,
                 temperature=temperature,
                 on_delta=on_delta,
+                options=options,
             )
         except (ProviderQuotaExceededError, ProviderRequestError) as exc:
             if self._fallback is None:
@@ -85,4 +89,5 @@ class FallbackLLMProvider(LLMProvider):
                 response_model=response_model,
                 temperature=temperature,
                 on_delta=on_delta,
+                options=options,
             )

@@ -84,6 +84,11 @@ class StructuredResponse[T: BaseModel]:
     reasoning: str | None = None
 
 
+@dataclass(frozen=True)
+class LLMCallOptions:
+    thinking: str = "off"
+
+
 class StructuredOutputError(Exception):
     """Raised when a provider could not return schema-valid output within the
     retry budget. Callers must treat this as 'state untouched' — never persist
@@ -124,6 +129,7 @@ class LLMProvider(ABC):
         response_model: type[T],
         temperature: float = 0.0,
         on_delta: Callable[[str], Awaitable[None]] | None = None,
+        options: LLMCallOptions | None = None,
     ) -> StructuredResponse[T]:
         """One structured-output call. Must raise StructuredOutputError if the
         provider returns content that doesn't validate against response_model —

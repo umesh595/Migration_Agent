@@ -26,6 +26,7 @@ from app.core.exporter import render_docx, render_pdf
 from app.core.graph_engine import compute_impact
 from app.db.models import SessionStatus
 from app.llm.gateway import LLMGateway, SessionTokenMeter
+from app.llm.base import TokenBudgetExceededError
 from app.llm.streaming import reasoning_sink_scope
 from app.orchestration.checkpointer import get_checkpointer
 from app.orchestration.graph import STRUCTURAL_PATCH_OPS, build_discovery_graph, build_planning_graph, build_review_discuss_graph
@@ -36,6 +37,7 @@ from app.services.session_service import GateError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+STREAM_HEARTBEAT_S = 15.0
 
 
 class CreateSessionRequest(BaseModel):
@@ -90,7 +92,14 @@ async def _astream_with_reasoning(agen, queue: asyncio.Queue):
     queue_task = asyncio.ensure_future(queue.get())
     try:
         while True:
-            done, _ = await asyncio.wait({node_task, queue_task}, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(
+                {node_task, queue_task},
+                timeout=STREAM_HEARTBEAT_S,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not done:
+                yield ("heartbeat", None, None)
+                continue
             if queue_task in done:
                 node_name, text = queue_task.result()
                 yield ("thinking", node_name, text)
@@ -254,7 +263,8 @@ async def post_message(
     # this db session, which expires every attribute on every ORM object loaded
     # through it (including `session` itself) — a later `str(session.id)` would
     # trigger a lazy-reload that MissingGreenlet's outside a proper async context.
-    session_id_str = str(session.id)
+    session_uuid = session.id
+    session_id_str = str(session_uuid)
 
     if session.status not in (SessionStatus.DISCOVERY, SessionStatus.PLANNING, SessionStatus.REVIEW):
         raise HTTPException(
@@ -270,7 +280,7 @@ async def post_message(
             detail="another turn is already in progress for this session — wait for it to complete",
         ) from None
 
-    is_new_message = await session_service.claim_message(db, session.id, payload.message_id)
+    is_new_message = await session_service.claim_message(db, session_uuid, payload.message_id)
     if not is_new_message:
         await session_lock.release(session_id_str, lock_token)
         raise HTTPException(
@@ -280,18 +290,25 @@ async def post_message(
 
     # Persisted immediately (not after the graph runs) so a page refresh mid-turn
     # still shows the message the user just sent, even if the run itself fails.
-    await session_service.save_conversation_turn(db, session.id, "user", payload.message)
+    await session_service.save_conversation_turn(db, session_uuid, "user", payload.message)
 
     settings = get_settings()
     meter = SessionTokenMeter(settings.session_token_budget, already_spent=session.token_usage or 0)
-    model_before = await session_service.latest_model(db, session.id)
-    conversation_turns = await session_service.list_conversation_turns(db, session.id)
+    try:
+        meter.check_before_call()
+    except TokenBudgetExceededError as exc:
+        await session_lock.release(session_id_str, lock_token)
+        await session_service.release_message_claim(db, session_uuid, payload.message_id)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    model_before = await session_service.latest_model(db, session_uuid)
+    conversation_turns = await session_service.list_conversation_turns(db, session_uuid)
     conversation_context = _render_user_message_history(conversation_turns)
-    previous_agent_turn = await session_service.latest_conversation_turn(db, session.id, role="agent")
+    previous_agent_turn = await session_service.latest_conversation_turn(db, session_uuid, role="agent")
     previous_agent_message = previous_agent_turn.text if previous_agent_turn is not None else None
 
     async def event_stream():
         checkpointer = get_checkpointer()
+        langgraph_thread_id = session.langgraph_thread_id
         # _persist_turn (below) may advance session.status (PLANNING -> REVIEW) once
         # a plan lands, so the branch this turn actually ran must be captured now —
         # checking session.status again afterward would silently pick the wrong shape.
@@ -305,7 +322,7 @@ async def post_message(
             # not by a keyword pre-pass over it.
             graph = build_discovery_graph(gateway, meter).compile(checkpointer=checkpointer)
             initial = {
-                "session_id": str(session.id),
+                "session_id": session_id_str,
                 "stage": Stage.DISCOVERY,
                 "model": model_before,
                 "user_message": payload.message,
@@ -316,15 +333,15 @@ async def post_message(
             # request_impact comes from planning.after_gate_intake_node's own
             # classification (same call it uses to extract patches), not a pre-pass.
             graph = build_planning_graph(gateway, meter).compile(checkpointer=checkpointer)
-            accepted = await session_service.accepted_model(db, session.id)
+            accepted = await session_service.accepted_model(db, session_uuid)
             initial = {
-                "session_id": str(session.id),
+                "session_id": session_id_str,
                 "stage": Stage.PLANNING,
                 "model": accepted,
                 "user_message": payload.message,
                 "conversation_context": conversation_context,
                 "previous_agent_message": previous_agent_message,
-                "migration_context": await session_service.get_migration_context(db, session.id),
+                "migration_context": await session_service.get_migration_context(db, session_uuid),
                 "narration": "",
                 "pending_questions": [],
                 "context_clarifying_questions": [],
@@ -338,9 +355,9 @@ async def post_message(
             # request_impact comes from review.review_discuss_ingest_node's own
             # classification, not a pre-pass.
             graph = build_review_discuss_graph(gateway, meter).compile(checkpointer=checkpointer)
-            accepted = await session_service.accepted_model(db, session.id)
+            accepted = await session_service.accepted_model(db, session_uuid)
             initial = {
-                "session_id": str(session.id),
+                "session_id": session_id_str,
                 "stage": Stage.REVIEW,
                 "model": accepted,
                 "user_message": payload.message,
@@ -350,8 +367,8 @@ async def post_message(
                 # discuss-only turn leaves this exact object in state untouched;
                 # assemble_plan replaces it outright if the turn cascades into a
                 # replan, so it's never mutated in place either way.
-                "plan": await session_service.latest_plan(db, session.id),
-                "migration_context": await session_service.get_migration_context(db, session.id),
+                "plan": await session_service.latest_plan(db, session_uuid),
+                "migration_context": await session_service.get_migration_context(db, session_uuid),
                 "narration": "",
                 "pending_questions": [],
                 "findings": [],
@@ -389,9 +406,12 @@ async def post_message(
                 for attempt in range(3):
                     try:
                         interrupted = False
-                        thread_config = _thread_config(session.langgraph_thread_id)
+                        thread_config = _thread_config(langgraph_thread_id)
                         graph_stream = graph.astream(initial, config=thread_config, stream_mode="updates")
                         async for kind, stream_payload, extra in _astream_with_reasoning(graph_stream, reasoning_queue):
+                            if kind == "heartbeat":
+                                yield {"event": "heartbeat", "data": json.dumps({})}
+                                continue
                             if kind == "thinking":
                                 yield {"event": "thinking", "data": json.dumps({"node": stream_payload, "text": extra})}
                                 continue
@@ -425,6 +445,9 @@ async def post_message(
                                 Command(resume={"approved": False}), config=thread_config, stream_mode="updates"
                             )
                             async for kind, stream_payload, extra in _astream_with_reasoning(resume_stream, reasoning_queue):
+                                if kind == "heartbeat":
+                                    yield {"event": "heartbeat", "data": json.dumps({})}
+                                    continue
                                 if kind == "thinking":
                                     yield {"event": "thinking", "data": json.dumps({"node": stream_payload, "text": extra})}
                                     continue
@@ -449,22 +472,29 @@ async def post_message(
                         logger.warning(
                             "checkpoint decode failed for session %s (attempt %d); resetting LangGraph "
                             "thread and retrying",
-                            session.id,
+                            session_uuid,
                             attempt,
                         )
                         await session_service.reset_langgraph_thread(db, session)
                         final_state = None
                         accumulated_values = dict(initial)
+            except TokenBudgetExceededError as exc:
+                logger.warning("token budget exhausted for session %s: %s", session_uuid, exc)
+                await db.rollback()
+                await session_service.release_message_claim(db, session_uuid, payload.message_id)
+                await session_service.save_conversation_turn(db, session_uuid, "error", str(exc))
+                yield {"event": "error", "data": json.dumps({"detail": str(exc)})}
+                return
             except Exception as exc:
-                logger.exception("graph run failed for session %s", session.id)
+                logger.exception("graph run failed for session %s", session_uuid)
                 await db.rollback()
                 # Nothing was persisted for this turn — release the message_id
                 # claim so a legitimate client retry isn't permanently rejected
                 # as a duplicate (see claim_message's docstring).
-                await session_service.release_message_claim(db, session.id, payload.message_id)
+                await session_service.release_message_claim(db, session_uuid, payload.message_id)
                 # Stores the same text the client displays (below), not the raw
                 # exception — internals stay out of the conversation history.
-                await session_service.save_conversation_turn(db, session.id, "error", "planning run failed")
+                await session_service.save_conversation_turn(db, session_uuid, "error", "planning run failed")
                 yield {"event": "error", "data": json.dumps({"detail": "planning run failed", "error": str(exc)})}
                 return
 
@@ -551,7 +581,7 @@ async def post_message(
             # so history read back later matches what was actually shown live.
             turn_error = values.get("error")
             if turn_error:
-                await session_service.save_conversation_turn(db, session.id, "error", str(turn_error))
+                    await session_service.save_conversation_turn(db, session_uuid, "error", str(turn_error))
             else:
                 clarifying_questions = values.get("context_clarifying_questions") or []
                 display_parts = []
@@ -565,7 +595,7 @@ async def post_message(
                 elif questions:
                     display_parts.append("\n".join(f"• {q}" for q in questions))
                 await session_service.save_conversation_turn(
-                    db, session.id, "agent", "\n\n".join(display_parts) or "Understood."
+                    db, session_uuid, "agent", "\n\n".join(display_parts) or "Understood."
                 )
 
             yield {
@@ -588,7 +618,7 @@ async def post_message(
                 ),
             }
         finally:
-            await session_lock.release(str(session.id), lock_token)
+            await session_lock.release(session_id_str, lock_token)
 
     return EventSourceResponse(event_stream())
 

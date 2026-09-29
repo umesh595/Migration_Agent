@@ -116,3 +116,44 @@ async def test_a_substantial_message_still_gets_full_requirement_coverage_analys
     assert len(provider.calls) == 2, "the long-message path must run the generator AND its critic"
     assert any(g.description and "payment idempotency" in g.description for g in result["_gaps"])
 
+
+def test_compact_but_rich_migration_model_bypasses_fast_requirement_skip():
+    from app.orchestration.nodes.discovery import _needs_requirement_coverage_despite_fast_mode
+    from app.schemas.architecture import Component, Dependency, DependencyKind
+
+    model = ArchitectureModel(
+        components=[
+            Component(id="catalog", name="Product Catalog", workload_type=WorkloadType.API_SERVICE, environment=Environment.CLOUD),
+            Component(id="orders", name="Order Processing", workload_type=WorkloadType.API_SERVICE, environment=Environment.CLOUD),
+            Component(id="inventory", name="User Inventory", workload_type=WorkloadType.API_SERVICE, environment=Environment.CLOUD),
+            Component(id="gateway", name="Gateway", workload_type=WorkloadType.THIRD_PARTY_INTEGRATION, environment=Environment.CLOUD),
+        ],
+        dependencies=[
+            Dependency(id="orders-inventory", source_id="orders", target_id="inventory", kind=DependencyKind.SYNC_CALL),
+            Dependency(id="orders-gateway", source_id="orders", target_id="gateway", kind=DependencyKind.SYNC_CALL),
+        ],
+    )
+
+    assert _needs_requirement_coverage_despite_fast_mode(
+        model,
+        "Move most of this system to another cloud while one constrained component remains where it is.",
+        full_prompt_min_chars=3500,
+    )
+
+
+def test_simple_short_turn_still_uses_fast_requirement_skip():
+    from app.orchestration.nodes.discovery import _needs_requirement_coverage_despite_fast_mode
+    from app.schemas.architecture import Component
+
+    model = ArchitectureModel(
+        components=[
+            Component(id="api", name="API", workload_type=WorkloadType.API_SERVICE, environment=Environment.CLOUD),
+        ]
+    )
+
+    assert not _needs_requirement_coverage_despite_fast_mode(
+        model,
+        "The API runs in cloud.",
+        full_prompt_min_chars=3500,
+    )
+
