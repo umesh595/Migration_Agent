@@ -25,8 +25,8 @@ from app.core.discovery_confidence import compute_discovery_confidence
 from app.core.exporter import render_docx, render_pdf
 from app.core.graph_engine import compute_impact
 from app.db.models import SessionStatus
-from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.base import TokenBudgetExceededError
+from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.streaming import reasoning_sink_scope
 from app.orchestration.checkpointer import get_checkpointer
 from app.orchestration.graph import STRUCTURAL_PATCH_OPS, build_discovery_graph, build_planning_graph, build_review_discuss_graph

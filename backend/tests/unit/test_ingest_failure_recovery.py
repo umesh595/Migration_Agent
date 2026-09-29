@@ -153,7 +153,13 @@ async def test_a_deadline_exceeded_reads_as_slow_not_broken():
     message = "just a simple web app, postgres db, email login, admin sees bookings, on-prem now, want gcp"
 
     result = await ingest_node(
-        {"session_id": "s1", "stage": Stage.DISCOVERY, "model": ArchitectureModel(), "user_message": message, "request_impact": None},
+        {
+            "session_id": "s1",
+            "stage": Stage.DISCOVERY,
+            "model": ArchitectureModel(),
+            "user_message": message,
+            "request_impact": None,
+        },
         gateway=gateway,
         meter=meter,
     )
@@ -181,7 +187,13 @@ async def test_a_genuine_provider_failure_still_reads_as_unavailable():
     message = "just a simple web app, postgres db, email login, admin sees bookings, on-prem now, want gcp"
 
     result = await ingest_node(
-        {"session_id": "s1", "stage": Stage.DISCOVERY, "model": ArchitectureModel(), "user_message": message, "request_impact": None},
+        {
+            "session_id": "s1",
+            "stage": Stage.DISCOVERY,
+            "model": ArchitectureModel(),
+            "user_message": message,
+            "request_impact": None,
+        },
         gateway=gateway,
         meter=meter,
     )

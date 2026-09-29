@@ -45,7 +45,13 @@ async def test_ingest_completeness_critic_receives_the_generators_reasoning():
     provider = MockProvider()
     provider.register(
         IngestCompletenessCriticOutput,
-        IngestCompletenessCriticOutput(fully_captured=True, missed_facts=[], invented_facts=[], contradictions=[], rationale="ok"),
+        IngestCompletenessCriticOutput(
+            fully_captured=True,
+            missed_facts=[],
+            invented_facts=[],
+            contradictions=[],
+            rationale="ok",
+        ),
     )
     gateway = LLMGateway(provider)
     meter = SessionTokenMeter(budget=100_000)
@@ -74,7 +80,13 @@ async def test_ingest_completeness_critic_degrades_cleanly_with_no_reasoning():
     provider = MockProvider()
     provider.register(
         IngestCompletenessCriticOutput,
-        IngestCompletenessCriticOutput(fully_captured=True, missed_facts=[], invented_facts=[], contradictions=[], rationale="ok"),
+        IngestCompletenessCriticOutput(
+            fully_captured=True,
+            missed_facts=[],
+            invented_facts=[],
+            contradictions=[],
+            rationale="ok",
+        ),
     )
     gateway = LLMGateway(provider)
     meter = SessionTokenMeter(budget=100_000)

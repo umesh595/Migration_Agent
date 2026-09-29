@@ -17,8 +17,7 @@ from app.core.request_intelligence import (
     derive_request_impact,
     render_request_impact_for_prompt,
 )
-from app.llm.base import ModelTier, StructuredOutputError
-from app.llm.base import ProviderRequestError, TokenBudgetExceededError
+from app.llm.base import ModelTier, ProviderRequestError, StructuredOutputError, TokenBudgetExceededError
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.llm.prompts.registry import get_prompt
 from app.llm.schemas import (
@@ -298,7 +297,11 @@ async def per_component_planning_node(state: GraphState, gateway: LLMGateway, me
                 errors_by_id[component_id] = error
 
     if errors_by_id:
-        failures = "; ".join(f"{component_id}: {errors_by_id[component_id]}" for component_id in ordered_component_ids if component_id in errors_by_id)
+        failures = "; ".join(
+            f"{component_id}: {errors_by_id[component_id]}"
+            for component_id in ordered_component_ids
+            if component_id in errors_by_id
+        )
         return {"error": f"Could not produce component migration plans after retry: {failures}"}
 
     outputs = [results_by_id[component_id] for component_id in ordered_component_ids]

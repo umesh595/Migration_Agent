@@ -114,7 +114,14 @@ class MockProvider(LLMProvider):
         on_delta: Callable[[str], Awaitable[None]] | None = None,
         options: LLMCallOptions | None = None,
     ) -> StructuredResponse[T]:
-        self.calls.append({"model": model, "system": system_prompt, "user": user_prompt, "thinking": (options.thinking if options else "")})
+        self.calls.append(
+            {
+                "model": model,
+                "system": system_prompt,
+                "user": user_prompt,
+                "thinking": options.thinking if options else "",
+            }
+        )
 
         queue = self._responses.get(response_model.__name__)
         if not queue:

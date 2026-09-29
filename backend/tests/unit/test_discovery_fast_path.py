@@ -104,7 +104,14 @@ async def test_a_substantial_message_still_gets_full_requirement_coverage_analys
     gateway = LLMGateway(provider)
     meter = SessionTokenMeter(budget=100_000)
     model = ArchitectureModel(
-        components=[Component(id="api", name="Booking API", workload_type=WorkloadType.API_SERVICE, environment=Environment.CLOUD)]
+        components=[
+            Component(
+                id="api",
+                name="Booking API",
+                workload_type=WorkloadType.API_SERVICE,
+                environment=Environment.CLOUD,
+            ),
+        ]
     )
 
     result = await gap_analysis_node(
@@ -123,10 +130,30 @@ def test_compact_but_rich_migration_model_bypasses_fast_requirement_skip():
 
     model = ArchitectureModel(
         components=[
-            Component(id="catalog", name="Product Catalog", workload_type=WorkloadType.API_SERVICE, environment=Environment.CLOUD),
-            Component(id="orders", name="Order Processing", workload_type=WorkloadType.API_SERVICE, environment=Environment.CLOUD),
-            Component(id="inventory", name="User Inventory", workload_type=WorkloadType.API_SERVICE, environment=Environment.CLOUD),
-            Component(id="gateway", name="Gateway", workload_type=WorkloadType.THIRD_PARTY_INTEGRATION, environment=Environment.CLOUD),
+            Component(
+                id="catalog",
+                name="Product Catalog",
+                workload_type=WorkloadType.API_SERVICE,
+                environment=Environment.CLOUD,
+            ),
+            Component(
+                id="orders",
+                name="Order Processing",
+                workload_type=WorkloadType.API_SERVICE,
+                environment=Environment.CLOUD,
+            ),
+            Component(
+                id="inventory",
+                name="User Inventory",
+                workload_type=WorkloadType.API_SERVICE,
+                environment=Environment.CLOUD,
+            ),
+            Component(
+                id="gateway",
+                name="Gateway",
+                workload_type=WorkloadType.THIRD_PARTY_INTEGRATION,
+                environment=Environment.CLOUD,
+            ),
         ],
         dependencies=[
             Dependency(id="orders-inventory", source_id="orders", target_id="inventory", kind=DependencyKind.SYNC_CALL),

@@ -19,7 +19,15 @@ from collections.abc import Awaitable, Callable
 from openai import APIError, AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
-from app.llm.base import LLMCallOptions, LLMProvider, LLMUsage, ModelTier, ProviderQuotaExceededError, StructuredOutputError, StructuredResponse
+from app.llm.base import (
+    LLMCallOptions,
+    LLMProvider,
+    LLMUsage,
+    ModelTier,
+    ProviderQuotaExceededError,
+    StructuredOutputError,
+    StructuredResponse,
+)
 
 _GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 

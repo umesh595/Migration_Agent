@@ -45,8 +45,20 @@ def test_a_lone_unconnected_component_is_sparse_context_not_complete():
 def test_orphan_component_counts_as_blocking_and_incomplete():
     model = ArchitectureModel(
         components=[
-            Component(id="api", name="API", workload_type=WorkloadType.API_SERVICE, environment=Environment.CLOUD, criticality="tier-1"),
-            Component(id="db", name="DB", workload_type=WorkloadType.DATABASE, environment=Environment.CLOUD, criticality="tier-1"),
+            Component(
+                id="api",
+                name="API",
+                workload_type=WorkloadType.API_SERVICE,
+                environment=Environment.CLOUD,
+                criticality="tier-1",
+            ),
+            Component(
+                id="db",
+                name="DB",
+                workload_type=WorkloadType.DATABASE,
+                environment=Environment.CLOUD,
+                criticality="tier-1",
+            ),
         ]
     )
     result = compute_discovery_confidence(model)
@@ -58,8 +70,20 @@ def test_orphan_component_counts_as_blocking_and_incomplete():
 def test_dependency_between_the_only_two_components_removes_the_orphan_gap():
     model = ArchitectureModel(
         components=[
-            Component(id="api", name="API", workload_type=WorkloadType.API_SERVICE, environment=Environment.CLOUD, criticality="tier-1"),
-            Component(id="db", name="DB", workload_type=WorkloadType.DATABASE, environment=Environment.CLOUD, criticality="tier-1"),
+            Component(
+                id="api",
+                name="API",
+                workload_type=WorkloadType.API_SERVICE,
+                environment=Environment.CLOUD,
+                criticality="tier-1",
+            ),
+            Component(
+                id="db",
+                name="DB",
+                workload_type=WorkloadType.DATABASE,
+                environment=Environment.CLOUD,
+                criticality="tier-1",
+            ),
         ],
         dependencies=[Dependency(id="api->db", source_id="api", target_id="db", kind=DependencyKind.DATA_WRITE)],
     )
@@ -77,8 +101,20 @@ def test_open_llm_assumption_lowers_completeness_but_is_not_by_itself_blocking()
 
     model = ArchitectureModel(
         components=[
-            Component(id="api", name="API", workload_type=WorkloadType.API_SERVICE, environment=Environment.CLOUD, criticality="tier-1"),
-            Component(id="db", name="DB", workload_type=WorkloadType.DATABASE, environment=Environment.CLOUD, criticality="tier-1"),
+            Component(
+                id="api",
+                name="API",
+                workload_type=WorkloadType.API_SERVICE,
+                environment=Environment.CLOUD,
+                criticality="tier-1",
+            ),
+            Component(
+                id="db",
+                name="DB",
+                workload_type=WorkloadType.DATABASE,
+                environment=Environment.CLOUD,
+                criticality="tier-1",
+            ),
         ],
         dependencies=[Dependency(id="api->db", source_id="api", target_id="db", kind=DependencyKind.DATA_WRITE)],
         assumptions=[Assumption(id="A1", text="Probably stateless", raised_by="llm", status=AssumptionStatus.OPEN)],
@@ -91,7 +127,15 @@ def test_open_llm_assumption_lowers_completeness_but_is_not_by_itself_blocking()
 
 def test_flagged_risk_assumption_counts_as_high_risk_and_blocks_readiness():
     model = ArchitectureModel(
-        components=[Component(id="api", name="API", workload_type=WorkloadType.API_SERVICE, environment=Environment.CLOUD, criticality="tier-1")],
+        components=[
+            Component(
+                id="api",
+                name="API",
+                workload_type=WorkloadType.API_SERVICE,
+                environment=Environment.CLOUD,
+                criticality="tier-1",
+            ),
+        ],
         assumptions=[
             Assumption(
                 id="A1", text="FLAGGED RISK — unconfirmed by user: payment idempotency.",
@@ -106,7 +150,15 @@ def test_flagged_risk_assumption_counts_as_high_risk_and_blocks_readiness():
 
 def test_unresolved_open_question_is_blocking():
     model = ArchitectureModel(
-        components=[Component(id="api", name="API", workload_type=WorkloadType.API_SERVICE, environment=Environment.CLOUD, criticality="tier-1")],
+        components=[
+            Component(
+                id="api",
+                name="API",
+                workload_type=WorkloadType.API_SERVICE,
+                environment=Environment.CLOUD,
+                criticality="tier-1",
+            ),
+        ],
         open_questions=[OpenQuestion(id="Q1", text="What does this connect to?")],
     )
     result = compute_discovery_confidence(model)

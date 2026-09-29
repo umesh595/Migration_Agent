@@ -66,7 +66,8 @@ def _rule_002_coverage_completeness(model: ArchitectureModel, plan: MigrationPla
                 severity=FindingSeverity.ERROR,
                 message=f"component '{cid}' has no component mapping in the plan",
                 related_component_ids=[cid],
-                violated_requirement=f"every discovered component ('{cid}' included) must have a component mapping before review can pass",
+                violated_requirement=f"every discovered component ('{cid}' included) must have a component "
+                "mapping before review can pass",
                 suggested_fix=f"Add a component_mapping entry for '{cid}' with its disposition and target service.",
                 risk_if_ignored=f"'{cid}' has no recorded migration path and will be silently left behind at cutover.",
             )
@@ -80,7 +81,8 @@ def _rule_002_coverage_completeness(model: ArchitectureModel, plan: MigrationPla
                 severity=FindingSeverity.ERROR,
                 message=f"component '{cid}' has no per-component migration plan",
                 related_component_ids=[cid],
-                violated_requirement=f"every discovered component ('{cid}' included) must have a per-component plan with concrete steps",
+                violated_requirement=f"every discovered component ('{cid}' included) must have a "
+                "per-component plan with concrete steps",
                 suggested_fix=f"Generate a component plan for '{cid}' (steps, validation checks, rollback notes).",
                 risk_if_ignored=f"No one knows HOW '{cid}' actually moves — cutover for it has no defined procedure.",
             )
@@ -118,7 +120,8 @@ def _rule_003_no_dangling_retirements(model: ArchitectureModel, plan: MigrationP
                         "and is not itself being retired"
                     ),
                     related_component_ids=[dep.source_id, dep.target_id],
-                    violated_requirement=f"a component marked RETIRE ('{dep.target_id}') must have no remaining active dependents",
+                    violated_requirement=f"a component marked RETIRE ('{dep.target_id}') must have "
+                    "no remaining active dependents",
                     suggested_fix=(
                         f"Either retire '{dep.source_id}' too, or change '{dep.target_id}''s disposition away "
                         "from RETIRE (e.g. keep it running until its last dependent moves)."
@@ -165,7 +168,8 @@ def _rule_004_rollback_present(
                 message="plan has no plan-level rollback strategy with concrete steps",
                 related_component_ids=tier1_ids,
                 violated_requirement=violated,
-                suggested_fix="Add a plan-level rollback_strategy with concrete steps (and a rollback trigger/go-no-go check) before Gate 2.",
+                suggested_fix="Add a plan-level rollback_strategy with concrete steps (and a rollback trigger/go-no-go check) "
+                "before Gate 2.",
                 risk_if_ignored=risk,
             )
         )
@@ -193,7 +197,9 @@ def _rule_004_rollback_present(
                     message=f"component '{cp.component_id}' has no rollback notes",
                     related_component_ids=[cp.component_id],
                     violated_requirement=violated,
-                    suggested_fix=f"Add rollback_notes for '{cp.component_id}' (e.g. replica sync direction, a rollback trigger, and the steps to revert).",
+                    suggested_fix=
+                    f"Add rollback_notes for '{cp.component_id}' "
+                    "(e.g. replica sync direction, a rollback trigger, and the steps to revert).",
                     risk_if_ignored=risk,
                 )
             )
@@ -211,7 +217,8 @@ def _rule_005_validation_and_cutover_present(model: ArchitectureModel, plan: Mig
                 severity=FindingSeverity.ERROR,
                 message="plan has no cutover strategy with go/no-go criteria",
                 violated_requirement="the plan must define go_no_go_criteria before cutover can be executed responsibly",
-                suggested_fix="Add concrete go/no-go criteria to the cutover_strategy (e.g. error-rate thresholds, data-parity checks).",
+                suggested_fix="Add concrete go/no-go criteria to the cutover_strategy (e.g. error-rate thresholds, "
+                "data-parity checks).",
                 risk_if_ignored="Cutover proceeds on judgment call alone, with no objective signal for when to abort.",
             )
         )
@@ -225,9 +232,12 @@ def _rule_005_validation_and_cutover_present(model: ArchitectureModel, plan: Mig
                     severity=FindingSeverity.ERROR,
                     message=f"component '{cp.component_id}' has no validation checks defined",
                     related_component_ids=[cp.component_id],
-                    violated_requirement=f"component '{cp.component_id}' must define validation_checks to confirm a successful migration",
+                    violated_requirement=f"component '{cp.component_id}' must define validation_checks "
+                    "to confirm a successful migration",
                     suggested_fix=f"Add validation_checks for '{cp.component_id}' (e.g. a smoke test, a data-parity check).",
-                    risk_if_ignored=f"A broken migration of '{cp.component_id}' could go undetected until a real user hits it in production.",
+                    risk_if_ignored=
+                    f"A broken migration of '{cp.component_id}' could go undetected "
+                    "until a real user hits it in production.",
                 )
             )
     return findings
@@ -250,9 +260,12 @@ def _rule_006_mapping_plan_disposition_consistency(model: ArchitectureModel, pla
                         f"but '{component_plan.disposition}' in its component plan"
                     ),
                     related_component_ids=[mapping.component_id],
-                    violated_requirement=f"'{mapping.component_id}''s disposition must be the same in its component_mapping and its component_plan",
+                    violated_requirement=
+                    f"'{mapping.component_id}''s disposition must be the same in its component_mapping "
+                    "and its component_plan",
                     suggested_fix=f"Reconcile the two dispositions for '{mapping.component_id}' — pick one and update the other.",
-                    risk_if_ignored="Cost estimates, effort estimates, and the actual plan steps disagree about what's actually happening to this component.",
+                    risk_if_ignored="Cost estimates, effort estimates, and the actual plan steps disagree about what's actually "
+                    "happening to this component.",
                 )
             )
     return findings
@@ -276,9 +289,16 @@ def _rule_007_cross_wave_coexistence_covered(model: ArchitectureModel, plan: Mig
                     severity=FindingSeverity.WARNING,
                     message=f"{group.reason} — no coexistence strategy documented for this cross-wave dependency",
                     related_component_ids=group.component_ids,
-                    violated_requirement=f"{group.reason}, so a coexistence strategy must be documented for how old and new stacks interoperate during the gap",
-                    suggested_fix=f"Add a coexistence_group for {sorted(group.component_ids)} describing how they talk to each other across waves.",
-                    risk_if_ignored="These components will sit in different waves with no documented plan for how they interoperate in between, risking a broken or inconsistent state mid-migration.",
+                    violated_requirement=
+                    f"{group.reason}, so a coexistence strategy must be documented "
+                    "for how old and new stacks interoperate during the gap",
+                    suggested_fix=
+                    f"Add a coexistence_group for {sorted(group.component_ids)} "
+                    "describing how they talk to each other across waves.",
+                    risk_if_ignored=
+                    "These components will sit in different waves with no documented plan "
+                    "for how they interoperate in between,"
+                    "risking a broken or inconsistent state mid-migration.",
                 )
             )
     return findings

@@ -159,7 +159,13 @@ async def test_no_contradictions_leaves_patch_set_untouched():
     provider = MockProvider()
     provider.register(
         IngestCompletenessCriticOutput,
-        IngestCompletenessCriticOutput(fully_captured=True, missed_facts=[], invented_facts=[], contradictions=[], rationale="Fine."),
+        IngestCompletenessCriticOutput(
+            fully_captured=True,
+            missed_facts=[],
+            invented_facts=[],
+            contradictions=[],
+            rationale="Fine.",
+        ),
     )
     gateway = LLMGateway(provider)
     meter = SessionTokenMeter(budget=100_000)
