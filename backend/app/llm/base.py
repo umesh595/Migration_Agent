@@ -27,7 +27,7 @@ _TEXT_REPLACEMENTS = str.maketrans(
         "\u201c": '"',
         "\u201d": '"',
         "\u201e": '"',
-        "\u2022": "-",
+        "\u2022": "*",
         "\u2026": "...",
         "\u2190": "<-",
         "\u2191": "^",
@@ -40,16 +40,19 @@ _TEXT_REPLACEMENTS = str.maketrans(
 
 
 def normalize_llm_text(value: str) -> str:
-    """Keep LLM-facing and checkpointed text safe for local Windows Postgres.
+    """Normalize LLM text while keeping ordinary punctuation intact.
 
-    Some local dev databases are initialized with WIN1252 instead of UTF-8. A
-    model response containing JSON escapes for characters like U+2011 can make
-    Postgres reject LangGraph checkpoint writes. Normalizing here preserves the
-    meaning while avoiding those unsupported code points.
+    Local Windows Postgres instances may use WIN1252. Normalize common Unicode
+    punctuation to safe equivalents, then replace characters that cannot be
+    represented by CP1252.
+
+    Important: do not replace '?' because it is valid CP1252 punctuation and
+    may be meaningful in generated questions.
     """
 
     normalized = unicodedata.normalize("NFKC", value).translate(_TEXT_REPLACEMENTS)
-    return normalized.encode("cp1252", errors="replace").decode("cp1252").replace("?", "-")
+
+    return normalized.encode("cp1252", errors="replace").decode("cp1252")
 
 
 class ModelTier(StrEnum):
@@ -73,14 +76,9 @@ class StructuredResponse[T: BaseModel]:
     usage: LLMUsage
     model: str
     attempts: int
+
     # A reasoning-model provider (e.g. CodeVector's DeepSeek route) may return a
-    # separate chain-of-thought trace alongside the final structured `parsed`
-    # output — the model's own working, not part of the schema it's scored
-    # against. None for a provider/model that doesn't produce one (every other
-    # provider leaves this at its default). Callers use it opportunistically:
-    # logged for observability, and fed to a critic/verifier call as "here is
-    # what the generator was actually thinking" so the second opinion can
-    # scrutinize the REASONING, not just the final answer.
+    # separate reasoning trace alongside the final structured `parsed` output.
     reasoning: str | None = None
 
 
@@ -96,21 +94,19 @@ class StructuredOutputError(Exception):
 
 
 class ProviderQuotaExceededError(StructuredOutputError):
-    """A specific StructuredOutputError subclass: the provider rejected the
-    call because its account has no quota/credits left, not because the
-    response failed to validate. A provider raises this instead of the plain
-    base class only for that specific condition, never for a transient rate
-    limit or a malformed response — those should keep retrying/escalating
-    against the same provider the way they always have. FallbackLLMProvider
-    is the only thing that catches this subclass specifically; every other
-    existing catch site still treats it as a normal StructuredOutputError."""
+    """Raised when the provider rejects a call because its account has no
+    quota/credits left.
+
+    This is distinct from transient rate limits or malformed responses, which
+    should continue through the normal retry/escalation path.
+    """
 
 
 class ProviderRequestError(StructuredOutputError):
-    """Raised when the provider API failed before returning usable model output.
+    """Raised when the provider API fails before returning usable model output.
 
-    This covers account/API availability failures, transport errors, and timeouts.
-    FallbackLLMProvider can switch providers for these without hiding schema bugs.
+    This covers account/API availability failures, transport errors, and
+    timeouts.
     """
 
 
@@ -119,6 +115,7 @@ class TokenBudgetExceededError(Exception):
 
 
 class LLMProvider(ABC):
+
     @abstractmethod
     async def complete_structured[T: BaseModel](
         self,
@@ -131,17 +128,17 @@ class LLMProvider(ABC):
         on_delta: Callable[[str], Awaitable[None]] | None = None,
         options: LLMCallOptions | None = None,
     ) -> StructuredResponse[T]:
-        """One structured-output call. Must raise StructuredOutputError if the
-        provider returns content that doesn't validate against response_model —
-        the retry/escalation policy lives in the gateway, not here.
+        """One structured-output call.
+
+        Must raise StructuredOutputError if the provider returns content that
+        doesn't validate against response_model. Retry/escalation policy lives
+        in the gateway, not here.
 
         `on_delta`, when given, is a reasoning-model provider's opportunity to
-        call it with each chain-of-thought text fragment AS IT STREAMS IN,
-        before the full response is done — purely a perceived-latency win
-        (the same total call either way), and purely optional: a provider
-        that doesn't support streaming or doesn't produce reasoning text is
-        free to ignore this parameter and behave exactly as if it were None.
+        call it with each chain-of-thought text fragment as it streams in.
+        Providers that do not support streaming may ignore it.
         """
 
     @abstractmethod
-    def model_for_tier(self, tier: ModelTier) -> str: ...
+    def model_for_tier(self, tier: ModelTier) -> str:
+        ...
