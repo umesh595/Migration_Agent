@@ -20,6 +20,9 @@ from app.llm.schemas import (
     GeneratedQuestion,
     MigrationContextElicitationOutput,
     QuestionGenerationOutput,
+    RequirementCoverageCriticOutput,
+    RequirementCoverageOutput,
+    RequirementCoverageVerdict,
     RollbackPlanOutput,
     SemanticReviewJudgeOutput,
     SemanticReviewOutput,
@@ -41,7 +44,13 @@ async def _read_sse(client, url: str, headers: dict, payload: dict) -> list[dict
     """Collects SSE events from a streaming POST."""
 
     events: list[dict] = []
-    async with client.stream("POST", url, headers=headers, json=payload, timeout=60.0) as response:
+    async with client.stream(
+        "POST",
+        url,
+        headers=headers,
+        json=payload,
+        timeout=60.0,
+    ) as response:
         assert response.status_code == 200, await response.aread()
         current: dict = {}
         async for line in response.aiter_lines():
@@ -54,55 +63,142 @@ async def _read_sse(client, url: str, headers: dict, payload: dict) -> list[dict
                 current["event"] = line.split(":", 1)[1].strip()
             elif line.startswith("data:"):
                 current["data"] = json.loads(line.split(":", 1)[1].strip())
+
     if current:
         events.append(current)
+
     return events
 
 
+def _register_requirement_coverage(provider) -> None:
+    requirements = [
+        RequirementCoverageVerdict(
+            category="Orders API criticality",
+            status="unknown",
+            high_impact=True,
+            risk_score=80,
+            evidence=(
+                "The conversation identifies the orders API but does not "
+                "establish its criticality."
+            ),
+            recommended_mitigation=(
+                "Clarify the business and migration impact of an orders API failure."
+            ),
+        ),
+    ]
+
+    provider.register(
+        RequirementCoverageOutput,
+        RequirementCoverageOutput(
+            requirements=requirements,
+        ),
+    )
+
+    provider.register(
+        RequirementCoverageCriticOutput,
+        RequirementCoverageCriticOutput(
+            corrected_requirements=requirements,
+            corrections_made=[],
+        ),
+    )
+
+
 def _register_discovery(provider) -> None:
+    _register_requirement_coverage(provider)
+
     provider.register(
         PatchSet,
         PatchSet(
             patches=[
-                AddComponentPatch(id="storefront", name="Storefront", workload_type="web_service", technology="React"),
-                AddComponentPatch(id="orders_api", name="Orders API", workload_type="api_service", technology="Django"),
-                AddComponentPatch(id="postgres", name="Postgres", workload_type="database", technology="PostgreSQL 14"),
-                AddDependencyPatch(source_id="storefront", target_id="postgres", kind="data_read"),
-                AddDependencyPatch(source_id="orders_api", target_id="postgres", kind="data_write"),
+                AddComponentPatch(
+                    id="storefront",
+                    name="Storefront",
+                    workload_type="web_service",
+                    technology="React",
+                ),
+                AddComponentPatch(
+                    id="orders_api",
+                    name="Orders API",
+                    workload_type="api_service",
+                    technology="Django",
+                ),
+                AddComponentPatch(
+                    id="postgres",
+                    name="Postgres",
+                    workload_type="database",
+                    technology="PostgreSQL 14",
+                ),
+                AddDependencyPatch(
+                    source_id="storefront",
+                    target_id="postgres",
+                    kind="data_read",
+                ),
+                AddDependencyPatch(
+                    source_id="orders_api",
+                    target_id="postgres",
+                    kind="data_write",
+                ),
             ],
             narration="Captured storefront, orders API, and Postgres.",
         ),
     )
+
     provider.register(
         QuestionGenerationOutput,
         QuestionGenerationOutput(
-            questions=[GeneratedQuestion(text="Which environment does the storefront run in?")],
+            questions=[
+                GeneratedQuestion(
+                    text="Which environment does the storefront run in?"
+                )
+            ],
             narration="A detail or two would help.",
         ),
     )
 
 
 def _register_correction(provider) -> None:
+    _register_requirement_coverage(provider)
+
     provider.register(
         PatchSet,
         PatchSet(
             patches=[
-                RemoveDependencyPatch(source_id="storefront", target_id="postgres"),
-                AddDependencyPatch(source_id="storefront", target_id="orders_api", kind="sync_call"),
+                RemoveDependencyPatch(
+                    source_id="storefront",
+                    target_id="postgres",
+                ),
+                AddDependencyPatch(
+                    source_id="storefront",
+                    target_id="orders_api",
+                    kind="sync_call",
+                ),
             ],
             narration="Corrected: storefront calls the orders API, not Postgres directly.",
         ),
     )
+
     provider.register(
         QuestionGenerationOutput,
         QuestionGenerationOutput(
-            questions=[GeneratedQuestion(text="How critical is the orders API?")],
+            questions=[
+                GeneratedQuestion(
+                    text="How critical is the orders API?"
+                )
+            ],
             narration="One more.",
         ),
     )
 
 
 def _register_planning(provider) -> None:
+    provider.register(
+        PatchSet,
+        PatchSet(
+            patches=[],
+            narration="Migration plan generated.",
+        ),
+    )
+
     provider.register(
         MigrationContextElicitationOutput,
         MigrationContextElicitationOutput(
@@ -113,6 +209,7 @@ def _register_planning(provider) -> None:
             constraints=["PCI compliance must be maintained"],
         ),
     )
+
     for cid in ["postgres", "orders_api", "storefront"]:
         provider.register(
             ComponentPlanLLMOutput,
@@ -122,22 +219,41 @@ def _register_planning(provider) -> None:
                 disposition="replatform",
                 target_cloud_provider="aws",
                 target_service_category="compute_vm",
-                steps=[f"provision {cid} target", f"cut {cid} traffic over"],
-                validation_checks=[ValidationCheck(description=f"{cid} smoke test", check_type="smoke_test")],
+                steps=[
+                    f"provision {cid} target",
+                    f"cut {cid} traffic over",
+                ],
+                validation_checks=[
+                    ValidationCheck(
+                        description=f"{cid} smoke test",
+                        check_type="smoke_test",
+                    )
+                ],
                 rollback_notes=f"revert {cid} DNS and restore source",
                 estimated_effort="3-5 days",
             ),
         )
-    provider.register(TargetArchitectureOutput, TargetArchitectureOutput(description="Containerized on EKS with RDS."))
+
+    provider.register(
+        TargetArchitectureOutput,
+        TargetArchitectureOutput(
+            description="Containerized on EKS with RDS."
+        ),
+    )
+
     provider.register(
         CutoverReviewOutput,
         CutoverReviewOutput(
             approach="phased-by-wave",
             steps=["cut wave 0", "validate", "continue"],
-            go_no_go_criteria=["smoke tests green", "error rate < 0.1% for 30 min"],
+            go_no_go_criteria=[
+                "smoke tests green",
+                "error rate < 0.1% for 30 min",
+            ],
             communication_plan="status page per wave",
         ),
     )
+
     provider.register(
         RollbackPlanOutput,
         RollbackPlanOutput(
@@ -147,9 +263,14 @@ def _register_planning(provider) -> None:
             data_reconciliation_notes="replay CDC log",
         ),
     )
+
     # Semantic critic finds nothing — keeps the refine loop from running so this test
     # asserts the happy path deterministically. Refine is covered by unit tests.
-    provider.register(SemanticReviewOutput, SemanticReviewOutput(findings=[]))
+    provider.register(
+        SemanticReviewOutput,
+        SemanticReviewOutput(findings=[]),
+    )
+
     provider.register(
         SemanticReviewJudgeOutput,
         SemanticReviewJudgeOutput(
@@ -158,7 +279,10 @@ def _register_planning(provider) -> None:
             actionability_score=88,
             context_awareness_score=92,
             overall_score=90,
-            rationale="Correctly found nothing on a clean plan with no genuine judgment-level issues.",
+            rationale=(
+                "Correctly found nothing on a clean plan with no genuine "
+                "judgment-level issues."
+            ),
             flagged_issues=[],
         ),
     )
@@ -169,28 +293,67 @@ async def test_full_lifecycle_discovery_to_export(app_client, auth_headers):
     client, provider = app_client
 
     # --- create session ---
-    response = await client.post("/sessions", headers=auth_headers, json={"name": "lifecycle test"})
+    response = await client.post(
+        "/sessions",
+        headers=auth_headers,
+        json={"name": "lifecycle test"},
+    )
     assert response.status_code == 201, response.text
     session_id = response.json()["id"]
 
     # --- discovery turn 1 ---
     _register_discovery(provider)
-    events = await _read_sse(client, f"/sessions/{session_id}/messages", auth_headers,
-                             {"message": "We have a storefront, an orders API, and Postgres.",
-                              "message_id": "turn-1"})
+    events = await _read_sse(
+        client,
+        f"/sessions/{session_id}/messages",
+        auth_headers,
+        {
+            "message": "We have a storefront, an orders API, and Postgres.",
+            "message_id": "turn-1",
+        },
+    )
     assert any(e.get("event") == "turn_complete" for e in events)
 
-    state = (await client.get(f"/sessions/{session_id}/state", headers=auth_headers)).json()
-    assert {c["id"] for c in state["model"]["components"]} == {"storefront", "orders_api", "postgres"}
+    state = (
+        await client.get(
+            f"/sessions/{session_id}/state",
+            headers=auth_headers,
+        )
+    ).json()
+
+    assert {c["id"] for c in state["model"]["components"]} == {
+        "storefront",
+        "orders_api",
+        "postgres",
+    }
 
     # --- discovery turn 2: a correction must actually remove the wrong edge ---
     _register_correction(provider)
-    await _read_sse(client, f"/sessions/{session_id}/messages", auth_headers,
-                    {"message": "The storefront goes through the orders API, not Postgres directly.",
-                     "message_id": "turn-2"})
+    await _read_sse(
+        client,
+        f"/sessions/{session_id}/messages",
+        auth_headers,
+        {
+            "message": (
+                "The storefront goes through the orders API, "
+                "not Postgres directly."
+            ),
+            "message_id": "turn-2",
+        },
+    )
 
-    state = (await client.get(f"/sessions/{session_id}/state", headers=auth_headers)).json()
-    edges = {(d["source_id"], d["target_id"]) for d in state["model"]["dependencies"]}
+    state = (
+        await client.get(
+            f"/sessions/{session_id}/state",
+            headers=auth_headers,
+        )
+    ).json()
+
+    edges = {
+        (d["source_id"], d["target_id"])
+        for d in state["model"]["dependencies"]
+    }
+
     assert ("storefront", "postgres") not in edges
     assert ("storefront", "orders_api") in edges
 
@@ -198,59 +361,119 @@ async def test_full_lifecycle_discovery_to_export(app_client, auth_headers):
     # This is what ChatPanel rehydrates from — before this endpoint existed, turn
     # text was never persisted anywhere, so reloading the page always came back empty
     # even though the underlying model state was intact.
-    conversation = (await client.get(f"/sessions/{session_id}/messages", headers=auth_headers)).json()
+    conversation = (
+        await client.get(
+            f"/sessions/{session_id}/messages",
+            headers=auth_headers,
+        )
+    ).json()
+
     turns = conversation["turns"]
-    assert [t["role"] for t in turns] == ["user", "agent", "user", "agent"]
-    assert turns[0]["text"] == "We have a storefront, an orders API, and Postgres."
+
+    assert [t["role"] for t in turns] == [
+        "user",
+        "agent",
+        "user",
+        "agent",
+    ]
+
+    assert turns[0]["text"] == (
+        "We have a storefront, an orders API, and Postgres."
+    )
+
     assert turns[1]["text"] == (
         "Captured storefront, orders API, and Postgres.\n\n"
         "A detail or two would help.\n\n"
-        "• Which environment does the storefront run in?"
+        "* Which environment does the storefront run in?"
     )
-    assert turns[2]["text"] == "The storefront goes through the orders API, not Postgres directly."
+
+    assert turns[2]["text"] == (
+        "The storefront goes through the orders API, not Postgres directly."
+    )
+
     assert turns[3]["text"] == (
         "Corrected: storefront calls the orders API, not Postgres directly.\n\n"
         "One more.\n\n"
-        "• How critical is the orders API?"
+        "* How critical is the orders API?"
     )
 
     # --- audit trail records every patch, applied or rejected ---
-    audit = (await client.get(f"/sessions/{session_id}/audit", headers=auth_headers)).json()
+    audit = (
+        await client.get(
+            f"/sessions/{session_id}/audit",
+            headers=auth_headers,
+        )
+    ).json()
+
     assert len(audit["records"]) >= 7  # 5 from turn 1, 2 from turn 2
-    assert all(r["outcome"] in ("applied", "rejected") for r in audit["records"])
+    assert all(
+        r["outcome"] in ("applied", "rejected")
+        for r in audit["records"]
+    )
 
     # --- GATE 1 ---
-    response = await client.post(f"/sessions/{session_id}/model/accept", headers=auth_headers)
+    response = await client.post(
+        f"/sessions/{session_id}/model/accept",
+        headers=auth_headers,
+    )
+
     assert response.status_code == 200, response.text
     assert response.json()["session_status"] == "planning"
 
     # accepting twice must fail — the gate is not re-enterable
-    assert (await client.post(f"/sessions/{session_id}/model/accept", headers=auth_headers)).status_code == 409
+    assert (
+        await client.post(
+            f"/sessions/{session_id}/model/accept",
+            headers=auth_headers,
+        )
+    ).status_code == 409
 
     # --- planning + review in one run ---
     _register_planning(provider)
-    planning_events = await _read_sse(client, f"/sessions/{session_id}/messages", auth_headers,
-                    {"message": "Move everything to AWS, we can take a maintenance window.",
-                     "message_id": "turn-3"})
+
+    planning_events = await _read_sse(
+        client,
+        f"/sessions/{session_id}/messages",
+        auth_headers,
+        {
+            "message": "Move everything to AWS, we can take a maintenance window.",
+            "message_id": "turn-3",
+        },
+    )
 
     # The turn_complete narration must describe the plan that was just generated,
     # never stale discovery-stage text left over in the shared checkpointed thread
     # from before Gate 1 (a real bug: discovery and planning share one LangGraph
     # thread_id, so `narration`/`pending_questions` persist across the gate unless
     # explicitly reset and re-synthesized for the planning turn).
-    turn_complete = next(e for e in planning_events if e.get("event") == "turn_complete")
+    turn_complete = next(
+        e for e in planning_events if e.get("event") == "turn_complete"
+    )
+
     planning_narration = turn_complete["data"]["narration"]
+
     assert planning_narration is not None
     assert "Migration plan generated" in planning_narration
-    assert "storefront" not in planning_narration.lower()  # not the discovery-turn narration bleeding through
+    assert "storefront" not in planning_narration.lower()
     assert turn_complete["data"]["questions"] == []
 
-    state = (await client.get(f"/sessions/{session_id}/state", headers=auth_headers)).json()
+    state = (
+        await client.get(
+            f"/sessions/{session_id}/state",
+            headers=auth_headers,
+        )
+    ).json()
+
     plan = state["plan"]
     assert plan is not None, "planning run produced no plan"
 
     # Sequencing came from the graph: postgres has no outgoing deps so it moves first.
-    wave_of = {cid: w["index"] for w in plan["waves"] for cid in w["component_ids"]}
+    wave_of = {
+        cid: w["index"]
+        for w in plan["waves"]
+        for cid in w["component_ids"]
+    }
+
     assert wave_of["postgres"] < wave_of["orders_api"] < wave_of["storefront"]
 
     # All 10 deliverables have typed content, including the two that had no schema
@@ -264,66 +487,145 @@ async def test_full_lifecycle_discovery_to_export(app_client, auth_headers):
     assert len(plan["roadmap_items"]) == 3
 
     # --- review quality: the judge scored the (empty, correctly-empty) critique ---
-    review_quality = (await client.get(f"/sessions/{session_id}/review-quality", headers=auth_headers)).json()
+    review_quality = (
+        await client.get(
+            f"/sessions/{session_id}/review-quality",
+            headers=auth_headers,
+        )
+    ).json()
+
     assert len(review_quality["scores"]) == 1
     assert review_quality["scores"][0]["overall_score"] == 90
     assert review_quality["scores"][0]["evaluated_finding_count"] == 0
 
     # --- GATE 2 ---
-    response = await client.post(f"/sessions/{session_id}/plan/approve", headers=auth_headers)
+    response = await client.post(
+        f"/sessions/{session_id}/plan/approve",
+        headers=auth_headers,
+    )
+
     assert response.status_code == 200, response.text
     assert response.json()["session_status"] == "exported"
 
     # --- export both formats ---
-    pdf = await client.get(f"/sessions/{session_id}/export?format=pdf", headers=auth_headers)
+    pdf = await client.get(
+        f"/sessions/{session_id}/export?format=pdf",
+        headers=auth_headers,
+    )
+
     assert pdf.status_code == 200
     assert pdf.content[:4] == b"%PDF"
-    body = "".join(page.extract_text() for page in PdfReader(BytesIO(pdf.content)).pages)
-    for heading in ["Current Architecture", "Target Architecture", "Component Mapping",
-                    "Component Migration Approach", "Migration Sequence", "Risks & Assumptions",
-                    "Validation Approach", "Cutover Strategy", "Rollback Strategy", "Migration Roadmap"]:
-        assert heading in body, f"export missing deliverable section: {heading}"
 
-    docx = await client.get(f"/sessions/{session_id}/export?format=docx", headers=auth_headers)
+    body = "".join(
+        page.extract_text()
+        for page in PdfReader(BytesIO(pdf.content)).pages
+    )
+
+    for heading in [
+        "Current Architecture",
+        "Target Architecture",
+        "Component Mapping",
+        "Component Migration Approach",
+        "Migration Sequence",
+        "Risks & Assumptions",
+        "Validation Approach",
+        "Cutover Strategy",
+        "Rollback Strategy",
+        "Migration Roadmap",
+    ]:
+        assert heading in body, (
+            f"export missing deliverable section: {heading}"
+        )
+
+    docx = await client.get(
+        f"/sessions/{session_id}/export?format=docx",
+        headers=auth_headers,
+    )
+
     assert docx.status_code == 200
     assert docx.content[:2] == b"PK"
 
 
 @pytest.mark.asyncio
-async def test_rejected_patch_is_audited_and_narrated_not_silently_dropped(app_client, auth_headers):
+async def test_rejected_patch_is_audited_and_narrated_not_silently_dropped(
+    app_client,
+    auth_headers,
+):
     """A patch referencing a nonexistent component must be rejected, recorded, and
     leave the model untouched (Doc 3 §3.2 failure branch)."""
 
     client, provider = app_client
 
-    session_id = (await client.post("/sessions", headers=auth_headers, json={"name": "reject test"})).json()["id"]
+    session_id = (
+        await client.post(
+            "/sessions",
+            headers=auth_headers,
+            json={"name": "reject test"},
+        )
+    ).json()["id"]
 
     provider.register(
         PatchSet,
         PatchSet(
             patches=[
-                AddComponentPatch(id="real_service", name="Real", workload_type="api_service"),
-                AddDependencyPatch(source_id="real_service", target_id="ghost_db", kind="data_read"),
+                AddComponentPatch(
+                    id="real_service",
+                    name="Real",
+                    workload_type="api_service",
+                ),
+                AddDependencyPatch(
+                    source_id="real_service",
+                    target_id="ghost_db",
+                    kind="data_read",
+                ),
             ],
             narration="Added the service and its database link.",
         ),
     )
+
     provider.register(
         QuestionGenerationOutput,
         QuestionGenerationOutput(
-            questions=[GeneratedQuestion(text="Anything else?")], narration="n"
+            questions=[
+                GeneratedQuestion(text="Anything else?")
+            ],
+            narration="n",
         ),
     )
 
-    await _read_sse(client, f"/sessions/{session_id}/messages", auth_headers,
-                    {"message": "There's a real service that reads from a database.",
-                     "message_id": "turn-1"})
+    await _read_sse(
+        client,
+        f"/sessions/{session_id}/messages",
+        auth_headers,
+        {
+            "message": "There's a real service that reads from a database.",
+            "message_id": "turn-1",
+        },
+    )
 
-    state = (await client.get(f"/sessions/{session_id}/state", headers=auth_headers)).json()
-    assert {c["id"] for c in state["model"]["components"]} == {"real_service"}
+    state = (
+        await client.get(
+            f"/sessions/{session_id}/state",
+            headers=auth_headers,
+        )
+    ).json()
+
+    assert {c["id"] for c in state["model"]["components"]} == {
+        "real_service"
+    }
     assert state["model"]["dependencies"] == []
 
-    audit = (await client.get(f"/sessions/{session_id}/audit", headers=auth_headers)).json()
-    rejected = [r for r in audit["records"] if r["outcome"] == "rejected"]
+    audit = (
+        await client.get(
+            f"/sessions/{session_id}/audit",
+            headers=auth_headers,
+        )
+    ).json()
+
+    rejected = [
+        r for r in audit["records"]
+        if r["outcome"] == "rejected"
+    ]
+
     assert len(rejected) == 1
     assert "ghost_db" in rejected[0]["reason"]

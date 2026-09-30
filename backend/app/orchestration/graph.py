@@ -21,6 +21,7 @@ from langgraph.graph import END, START, StateGraph
 from app.llm.gateway import LLMGateway, SessionTokenMeter
 from app.orchestration.nodes import discovery, planning, review
 from app.orchestration.state import GraphState
+from app.schemas.patches import AddOpenQuestionPatch
 
 
 def build_discovery_graph(gateway: LLMGateway, meter: SessionTokenMeter):
@@ -190,10 +191,15 @@ def _no_error(state: GraphState) -> str:
 def _planning_intake_ready(state: GraphState) -> str:
     if state.get("error"):
         return "halt"
+
     results = state.get("last_patch_results") or []
-    if not results:
-        return "continue"
-    return "await_user"
+
+    for result in results:
+        patch = getattr(result, "patch", None)
+        if isinstance(patch, AddOpenQuestionPatch):
+            return "await_user"
+
+    return "continue"
 
 
 # Patch ops that change the ArchitectureMode's structure — anything else applied

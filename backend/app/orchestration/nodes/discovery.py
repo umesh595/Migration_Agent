@@ -1078,6 +1078,7 @@ def apply_patches_node(state: GraphState) -> dict:
             "model_version": new_model.version,
         },
     )
+
     return {
         "model": new_model,
         "last_patch_results": results,
